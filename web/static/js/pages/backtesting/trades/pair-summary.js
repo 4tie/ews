@@ -1,5 +1,5 @@
-/**
- * pair-summary.js — Renders the per-pair results table.
+﻿/**
+ * pair-summary.js â€” Renders the per-pair results table.
  */
 
 import { on, EVENTS } from "../../../core/events.js";
@@ -28,14 +28,18 @@ function renderPairSummary(container, pairs) {
   `;
   const tbody = el("tbody");
   pairs.forEach(p => {
-    const pct = parseFloat(p.profit_all_percent ?? 0);
+    let pct = p?.profit_total_pct;
+    if (pct == null) pct = (p?.profit_total ?? 0) * 100;
+    pct = parseFloat(pct ?? 0);
+    if (!Number.isFinite(pct)) pct = 0;
+
     const row = el("tr");
     row.innerHTML = `
-      <td>${p.key ?? p.pair ?? "—"}</td>
+      <td>${p.key ?? p.pair ?? "â€”"}</td>
       <td class="${pct >= 0 ? "positive" : "negative"}">${formatPct(pct)}</td>
-      <td>${p.trades ?? "—"}</td>
-      <td>${p.wins ?? "—"}</td>
-      <td>${p.losses ?? "—"}</td>
+      <td>${p.trades ?? "â€”"}</td>
+      <td>${p.wins ?? "â€”"}</td>
+      <td>${p.losses ?? "â€”"}</td>
     `;
     tbody.appendChild(row);
   });

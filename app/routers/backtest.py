@@ -14,7 +14,8 @@ from app.models.backtest_models import (
     ConfigSaveRequest,
 )
 from app.services.config_service import ConfigService
-from app.services.freqtrade_cli_service import FreqtradeCliService
+from app.engines.base import EngineFeatureNotSupported
+from app.engines.resolver import resolve_engine
 from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results_service import ResultsService
@@ -23,11 +24,16 @@ from app.utils.paths import download_runs_dir, user_data_results_dir
 
 router = APIRouter()
 results_svc = ResultsService()
-cli_svc = FreqtradeCliService()
 config_svc = ConfigService()
 persistence = PersistenceService()
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "user_data", "data")
+def _resolve_engine():
+    settings = config_svc.get_settings()
+    try:
+        return resolve_engine(settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 _TERMINAL_BACKTEST_STATUSES = {
     BacktestRunStatus.COMPLETED.value,
     BacktestRunStatus.FAILED.value,
@@ -305,8 +311,14 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
 @router.get("/options")
 async def get_options():
     """Return available strategies, timeframes, and exchanges."""
+    engine = _resolve_engine()
+    try:
+        strategies = engine.list_strategies()
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
     return {
-        "strategies": cli_svc.list_strategies(),
+        "strategies": strategies,
         "timeframes": ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w"],
         "exchanges": ["binance", "kucoin", "bybit", "okx", "gate"],
     }
@@ -314,7 +326,7 @@ async def get_options():
 
 @router.post("/run")
 async def run_backtest(payload: BacktestRunRequest):
-    """Trigger a freqtrade backtest subprocess."""
+    """Trigger a backtest subprocess using the selected engine."""
     version = None
     if payload.version_id:
         version = mutation_service.get_version_by_id(payload.version_id)
@@ -326,18 +338,23 @@ async def run_backtest(payload: BacktestRunRequest):
                 detail=f"Version {payload.version_id} belongs to {version.strategy_name}, not {payload.strategy}",
             )
 
+    engine = _resolve_engine()
+
     run_id = f"bt-{uuid.uuid4().hex[:8]}"
     payload_data = payload.model_dump(mode="json")
     launch_payload = {**payload_data, "run_id": run_id}
 
     try:
-        prepared = cli_svc.prepare_backtest_run(launch_payload)
+        prepared = engine.prepare_backtest_run(launch_payload)
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     created_at = now_iso()
     run_record = BacktestRunRecord(
         run_id=run_id,
+        engine=engine.engine_id,
         strategy=payload.strategy,
         version_id=payload.version_id,
         trigger_source=payload.trigger_source,
@@ -360,7 +377,7 @@ async def run_backtest(payload: BacktestRunRequest):
         mutation_service.link_backtest(version.version_id, run_id, None)
 
     try:
-        result = cli_svc.run_backtest(launch_payload, prepared=prepared)
+        result = engine.run_backtest(launch_payload, prepared=prepared)
     except Exception as exc:
         run_record.artifact_path = None
         run_record.pid = None
@@ -404,12 +421,16 @@ async def run_backtest(payload: BacktestRunRequest):
 
 @router.post("/download-data")
 async def download_data(payload: dict):
-    """Trigger freqtrade download-data."""
+    """Trigger engine download-data (if supported)."""
     download_id = f"dl-{uuid.uuid4().hex[:8]}"
     created_at = now_iso()
 
+    engine = _resolve_engine()
+
     try:
-        prepared = cli_svc.prepare_download_data(payload)
+        prepared = engine.prepare_download_data(payload)
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -431,7 +452,7 @@ async def download_data(payload: dict):
     persistence.save_download_run(download_id, meta)
 
     try:
-        result = cli_svc.run_download_data(prepared, log_path=log_path)
+        result = engine.run_download_data(prepared, log_path=log_path)
     except Exception as exc:
         failed_at = now_iso()
         meta["status"] = "failed"
@@ -541,14 +562,11 @@ async def validate_data(payload: dict):
             content={"valid": False, "message": "No pairs provided", "results": []}
         )
 
-    results = []
-
-    for pair in pairs:
-        pair_file = os.path.join(DATA_DIR, pair.replace("/", "_"), f"{timeframe}.json")
-        if os.path.exists(pair_file):
-            results.append({"pair": pair, "status": "valid", "message": "Data available"})
-        else:
-            results.append({"pair": pair, "status": "missing", "message": "No data file found"})
+    engine = _resolve_engine()
+    try:
+        results = engine.validate_data(pairs=pairs, timeframe=timeframe)
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
 
     has_data = any(r["status"] == "valid" for r in results)
 

@@ -1,5 +1,5 @@
-/**
- * index.js — Backtesting page entry point. Initializes all modules.
+﻿/**
+ * index.js â€” Backtesting page entry point. Initializes all modules.
  */
 
 import { loadOptions }       from "./setup/options-loader.js";
@@ -12,6 +12,7 @@ import { initDataDownload }  from "./run/data-download.js";
 import { initDataValidator } from "./run/data-validator.js";
 import { initTradesTable }   from "./trades/table.js";
 import { initPairSummary }   from "./trades/pair-summary.js";
+import { initResultsController } from "./results/results-controller.js";
 import { initConfigsPanel }  from "./configs/configs-panel.js";
 import { initHeaderConfigButtons } from "./configs/header-config-buttons.js";
 import { setState }          from "../../core/state.js";
@@ -28,16 +29,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   initDataValidator();
   initTradesTable();
   initPairSummary();
+  initResultsController();
   initConfigsPanel();
   initHeaderConfigButtons();
 
-  // Timeframe select → state
+  // Timeframe select â†’ state
   const tfSelect = document.getElementById("select-timeframe");
   tfSelect?.addEventListener("change", () => {
     setState("backtest.timeframe", tfSelect.value);
   });
 
-  // Dry run wallet → state
+  // Dry run wallet â†’ state
   const walletInput = document.getElementById("input-dry-run-wallet");
   walletInput?.addEventListener("change", () => {
     const value = parseFloat(walletInput.value) || null;

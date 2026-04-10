@@ -1,5 +1,5 @@
-/**
- * result_renderer.js — Shared backtest result rendering.
+﻿/**
+ * result_renderer.js â€” Shared backtest result rendering.
  * Used by both backtesting and optimizer pages.
  */
 
@@ -8,7 +8,7 @@ import { formatPct, formatNum, el } from "../../../core/utils.js";
 /**
  * Render a grid of summary stat cards into a container element.
  * @param {HTMLElement} container
- * @param {Object} summary — raw strategy summary from the API
+ * @param {Object} summary â€” raw strategy summary from the API
  */
 export function renderSummaryCards(container, summary) {
   if (!container) return;
@@ -60,12 +60,12 @@ export function renderTradesTable(wrapper, trades) {
     const profitPct = parseFloat(trade.profit_ratio ?? trade.profit_pct ?? 0) * 100;
     const row = el("tr");
     row.innerHTML = `
-      <td>${trade.pair ?? "—"}</td>
+      <td>${trade.pair ?? "â€”"}</td>
       <td class="${profitPct >= 0 ? "positive" : "negative"}">${formatPct(profitPct)}</td>
       <td class="mono">${formatNum(trade.profit_abs ?? trade.profit_absolute, 4)}</td>
-      <td class="mono">${trade.open_date ?? "—"}</td>
-      <td class="mono">${trade.close_date ?? "—"}</td>
-      <td>${trade.trade_duration ?? trade.duration ?? "—"}</td>
+      <td class="mono">${trade.open_date ?? "â€”"}</td>
+      <td class="mono">${trade.close_date ?? "â€”"}</td>
+      <td>${trade.trade_duration ?? trade.duration ?? "â€”"}</td>
     `;
     tbody.appendChild(row);
   });
@@ -74,21 +74,97 @@ export function renderTradesTable(wrapper, trades) {
   wrapper.appendChild(table);
 }
 
-function extractMetrics(summary) {
-  // Freqtrade summary may nest under strategy name key
-  let s = summary;
-  const keys = Object.keys(summary || {});
-  if (keys.length === 1 && typeof summary[keys[0]] === "object") {
-    s = summary[keys[0]];
+function isObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function toNumber(value) {
+  if (value == null) return null;
+  const n = typeof value === "number" ? value : parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function unwrapStrategyBlock(summaryInput) {
+  if (!isObject(summaryInput)) return null;
+
+  if (
+    Array.isArray(summaryInput.results_per_pair) ||
+    summaryInput.total_trades != null ||
+    summaryInput.wins != null
+  ) {
+    return summaryInput;
   }
+
+  for (const [key, value] of Object.entries(summaryInput)) {
+    if (key === "strategy_comparison") continue;
+    if (isObject(value)) return value;
+  }
+
+  return null;
+}
+
+function findTotalRow(strategyBlock) {
+  const rows = strategyBlock?.results_per_pair;
+  if (!Array.isArray(rows)) return null;
+  return rows.find(r => String(r?.key ?? r?.pair ?? "") === "TOTAL") ?? null;
+}
+
+function extractMetrics(summaryInput) {
+  const s = unwrapStrategyBlock(summaryInput) ?? {};
+  const total = findTotalRow(s);
+
+  let profitTotalPct = toNumber(total?.profit_total_pct) ?? toNumber(s.profit_total_pct);
+  if (profitTotalPct == null) {
+    const ratio = toNumber(total?.profit_total) ?? toNumber(s.profit_total);
+    profitTotalPct = ratio == null ? null : ratio * 100;
+  }
+
+  let winRatePct = null;
+  const winrateRatio = toNumber(total?.winrate);
+  if (winrateRatio != null) {
+    winRatePct = winrateRatio * 100;
+  } else {
+    const wins = toNumber(total?.wins) ?? toNumber(s.wins);
+    const trades = toNumber(total?.trades) ?? toNumber(s.total_trades);
+    if (wins != null && trades != null && trades !== 0) {
+      winRatePct = (wins / trades) * 100;
+    }
+  }
+
+  const totalTrades = total?.trades ?? s.total_trades ?? "â€”";
+  const avgDuration = total?.duration_avg ?? s.holding_avg ?? "â€”";
+
+  let maxDrawdownPct = null;
+  const ddAccount = toNumber(total?.max_drawdown_account) ?? toNumber(s.max_drawdown_account);
+  if (ddAccount != null) {
+    maxDrawdownPct = -Math.abs(ddAccount * 100);
+  } else {
+    const ddPct = toNumber(s.max_drawdown_pct);
+    if (ddPct != null) {
+      maxDrawdownPct = -Math.abs(ddPct);
+    } else {
+      const ddRatio = toNumber(s.max_drawdown);
+      maxDrawdownPct = ddRatio == null ? null : -Math.abs(ddRatio * 100);
+    }
+  }
+
+  const sharpe = toNumber(total?.sharpe) ?? toNumber(s.sharpe) ?? toNumber(s.sharpe_ratio);
+  const sortino = toNumber(total?.sortino) ?? toNumber(s.sortino) ?? toNumber(s.sortino_ratio);
+  const calmar = toNumber(total?.calmar) ?? toNumber(s.calmar);
+
   return [
-    { label: "Total Profit %",   value: formatPct((s.profit_total_pct ?? s.profit_factor ?? 0) * 100) },
-    { label: "Win Rate",         value: formatPct((s.wins / (s.total_trades || 1)) * 100, 1) },
-    { label: "Total Trades",     value: s.total_trades ?? "—" },
-    { label: "Avg Duration",     value: s.holding_avg ?? "—" },
-    { label: "Max Drawdown %",   value: formatPct(-(s.max_drawdown_pct ?? s.max_drawdown ?? 0) * 100), negative: true },
-    { label: "Sharpe",           value: formatNum(s.sharpe_ratio, 3) },
-    { label: "Sortino",          value: formatNum(s.sortino, 3) },
-    { label: "Calmar",           value: formatNum(s.calmar, 3) },
+    {
+      label: "Total Profit %",
+      value: formatPct(profitTotalPct),
+      positive: profitTotalPct > 0,
+      negative: profitTotalPct < 0,
+    },
+    { label: "Win Rate",       value: formatPct(winRatePct, 1) },
+    { label: "Total Trades",   value: totalTrades },
+    { label: "Avg Duration",   value: avgDuration },
+    { label: "Max Drawdown %", value: formatPct(maxDrawdownPct), negative: maxDrawdownPct != null },
+    { label: "Sharpe",         value: formatNum(sharpe, 3) },
+    { label: "Sortino",        value: formatNum(sortino, 3) },
+    { label: "Calmar",         value: formatNum(calmar, 3) },
   ];
 }

@@ -1,5 +1,5 @@
-/**
- * table.js — Loads and renders the trades table.
+﻿/**
+ * table.js â€” Loads and renders the trades table.
  */
 
 import api from "../../../core/api.js";
@@ -11,7 +11,12 @@ import showToast from "../../../components/toast.js";
 const wrapper = document.getElementById("trades-table-wrapper");
 
 export function initTradesTable() {
-  on(EVENTS.RESULTS_LOADED, async () => {
+  on(EVENTS.RESULTS_LOADED, async (data) => {
+    if (Array.isArray(data?.trades)) {
+      renderTradesTable(wrapper, data.trades);
+      return;
+    }
+
     const strategy = getState("backtest.strategy");
     if (!strategy) return;
     try {
