@@ -275,9 +275,9 @@ class FreqtradeEngine(BacktestEngine):
         coverage_label = self._range_label(coverage.get("coverage_start"), coverage.get("coverage_end"))
         requested_label = self._range_label(requested_start, requested_end)
         if missing_segments == ["start"]:
-            return f"Data starts too late. Coverage {coverage_label}; requested {requested_label}."
+            return f"Data starts too late for the requested timerange. Coverage {coverage_label}; requested {requested_label}."
         if missing_segments == ["end"]:
-            return f"Data ends too early. Coverage {coverage_label}; requested {requested_label}."
+            return f"Data ends too early for the requested timerange. Coverage {coverage_label}; requested {requested_label}."
         return f"Data does not fully cover the requested timerange. Coverage {coverage_label}; requested {requested_label}."
 
     def _range_label(self, start: datetime | None, end: datetime | None) -> str:
