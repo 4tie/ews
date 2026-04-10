@@ -30,7 +30,7 @@ class OpenRouterClient:
     ) -> ModelResponse:
         if not self.api_key:
             raise ValueError("OpenRouter API key not configured")
-
+    
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
