@@ -73,11 +73,22 @@ class ResultsService:
             )
 
         paths = self._run_result_paths(run_record.strategy, run_record.run_id)
+        profit_pct = self._extract_profit_pct(strategy_result)
+
+        normalized_result = {
+            "run_id": run_record.run_id,
+            "strategy": run_record.strategy,
+            "profit_total_pct": profit_pct,
+            "result": strategy_result,
+        }
+        if raw_payload.get("strategy_comparison") is not None:
+            normalized_result["strategy_comparison"] = raw_payload["strategy_comparison"]
+
         summary_payload = {run_record.strategy: strategy_result}
         if raw_payload.get("strategy_comparison") is not None:
             summary_payload["strategy_comparison"] = raw_payload["strategy_comparison"]
 
-        write_json(paths["result_path"], raw_payload)
+        write_json(paths["result_path"], normalized_result)
         write_json(paths["summary_path"], summary_payload)
         write_json(paths["latest_summary_path"], summary_payload)
 
@@ -85,7 +96,7 @@ class ResultsService:
             "raw_result_path": run_record.raw_result_path,
             "result_path": paths["result_path"],
             "summary_path": paths["summary_path"],
-            "profit_pct": self._extract_profit_pct(strategy_result),
+            "profit_pct": profit_pct,
         }
 
     def load_latest_summary(self, strategy: str) -> Optional[dict]:
