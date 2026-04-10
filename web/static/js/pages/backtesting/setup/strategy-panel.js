@@ -5,28 +5,23 @@
 import { setState, getState } from "../../../core/state.js";
 import { emit, EVENTS } from "../../../core/events.js";
 import persistence, { KEYS } from "../../../core/persistence.js";
+import { usePersistentState } from "../../../core/usePersistentState.js";
 
 const select = document.getElementById("select-strategy");
 
 export function initStrategyPanel() {
   if (!select) return;
 
-  // Restore saved strategy
-  const saved = persistence.load(KEYS.BACKTEST_CONFIG, {});
-  if (saved.strategy) {
-    select.value = saved.strategy;
-    setState("backtest.strategy", saved.strategy);
+  const [savedConfig, setSavedConfig] = usePersistentState(KEYS.BACKTEST_CONFIG, {});
+  
+  if (savedConfig.strategy) {
+    select.value = savedConfig.strategy;
+    setState("backtest.strategy", savedConfig.strategy);
   }
 
   select.addEventListener("change", () => {
     const val = select.value;
     setState("backtest.strategy", val);
-    _persist();
+    setSavedConfig(prev => ({ ...prev, strategy: val }));
   });
-}
-
-function _persist() {
-  const cfg = persistence.load(KEYS.BACKTEST_CONFIG, {});
-  cfg.strategy = getState("backtest.strategy");
-  persistence.save(KEYS.BACKTEST_CONFIG, cfg);
 }

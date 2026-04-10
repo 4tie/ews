@@ -6,16 +6,16 @@ import { getState } from "../../../core/state.js";
 import { on, EVENTS } from "../../../core/events.js";
 import persistence, { KEYS } from "../../../core/persistence.js";
 import { setPairsFromArray } from "../../../components/pair-input.js";
+import { usePersistentState } from "../../../core/usePersistentState.js";
 
 export function initPairsPanel() {
-  const saved = persistence.load(KEYS.BACKTEST_CONFIG, {});
-  if (saved.pairs?.length) {
-    setPairsFromArray(saved.pairs);
+  const [savedConfig, setSavedConfig] = usePersistentState(KEYS.BACKTEST_CONFIG, {});
+  
+  if (savedConfig.pairs?.length) {
+    setPairsFromArray(savedConfig.pairs);
   }
 
   on(EVENTS.PAIRS_UPDATED, (pairs) => {
-    const cfg = persistence.load(KEYS.BACKTEST_CONFIG, {});
-    cfg.pairs = pairs;
-    persistence.save(KEYS.BACKTEST_CONFIG, cfg);
+    setSavedConfig(prev => ({ ...prev, pairs }));
   });
 }

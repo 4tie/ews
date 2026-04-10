@@ -23,6 +23,18 @@ def optimizer_runs_dir() -> str:
     return os.path.join(storage_dir(), "optimizer_runs")
 
 
+def strategy_versions_dir(strategy_name: str) -> str:
+    return os.path.join(storage_dir(), "versions", strategy_name)
+
+
+def strategy_version_file(strategy_name: str, version_id: str) -> str:
+    return os.path.join(strategy_versions_dir(strategy_name), f"{version_id}.json")
+
+
+def strategy_active_version_file(strategy_name: str) -> str:
+    return os.path.join(strategy_versions_dir(strategy_name), "active_version.json")
+
+
 def cache_dir() -> str:
     return os.path.join(storage_dir(), "cache")
 

@@ -4,6 +4,7 @@
 
 import { setState, getState } from "../../../core/state.js";
 import persistence, { KEYS } from "../../../core/persistence.js";
+import { usePersistentState } from "../../../core/usePersistentState.js";
 
 const startInput = document.getElementById("input-start-date");
 const endInput   = document.getElementById("input-end-date");
@@ -11,23 +12,23 @@ const endInput   = document.getElementById("input-end-date");
 export function initTimePanel() {
   if (!startInput || !endInput) return;
 
-  const saved = persistence.load(KEYS.BACKTEST_CONFIG, {});
-  if (saved.startDate) { startInput.value = saved.startDate; setState("backtest.startDate", saved.startDate); }
-  if (saved.endDate)   { endInput.value = saved.endDate;     setState("backtest.endDate",   saved.endDate); }
+  const [savedConfig, setSavedConfig] = usePersistentState(KEYS.BACKTEST_CONFIG, {});
+  
+  if (savedConfig.startDate) { 
+    startInput.value = savedConfig.startDate; 
+    setState("backtest.startDate", savedConfig.startDate); 
+  }
+  if (savedConfig.endDate)   { 
+    endInput.value = savedConfig.endDate;     
+    setState("backtest.endDate",   savedConfig.endDate); 
+  }
 
   startInput.addEventListener("change", () => {
     setState("backtest.startDate", startInput.value);
-    _persist();
+    setSavedConfig(prev => ({ ...prev, startDate: startInput.value }));
   });
   endInput.addEventListener("change", () => {
     setState("backtest.endDate", endInput.value);
-    _persist();
+    setSavedConfig(prev => ({ ...prev, endDate: endInput.value }));
   });
-}
-
-function _persist() {
-  const cfg = persistence.load(KEYS.BACKTEST_CONFIG, {});
-  cfg.startDate = getState("backtest.startDate");
-  cfg.endDate   = getState("backtest.endDate");
-  persistence.save(KEYS.BACKTEST_CONFIG, cfg);
 }
