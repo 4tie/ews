@@ -380,4 +380,192 @@ async function requestCandidate(prompt) {
     max_iterations: 4,
     temperature: 0.25,
   });
+}function beginPrimaryAction(button, text) {
+  busy = true;
+  if (askBtn) askBtn.disabled = true;
+  if (candidateBtn) candidateBtn.disabled = true;
+  if (button) setButtonLoading(button, true, text);
+  renderMessages();
+}
+
+function endPrimaryAction() {
+  busy = false;
+  setButtonLoading(askBtn, false);
+  setButtonLoading(candidateBtn, false);
+  renderMessages();
+}
+
+async function handleSubmit(mode) {
+  if (busy) return;
+
+  const prompt = String(inputEl?.value || "").trim();
+  if (!prompt) {
+    showToast("Enter a prompt first.", "warning");
+    return;
+  }
+
+  const strategy = resolveStrategy();
+  if (!strategy) {
+    showToast("Select a strategy first.", "warning");
+    return;
+  }
+
+  const requestText = buildConversationPrompt(prompt, mode);
+  pushMessage("user", {
+    text: prompt,
+    meta: mode === "candidate" ? "candidate request" : "analysis request",
+  });
+
+  if (inputEl) inputEl.value = "";
+
+  const sourceButton = mode === "candidate" ? candidateBtn : askBtn;
+  beginPrimaryAction(sourceButton, mode === "candidate" ? "Generating..." : "Thinking...");
+
+  try {
+    if (mode === "analysis") {
+      const response = await requestAnalysis(requestText);
+      const parameters = hasKeys(response?.parameters) ? response.parameters : null;
+      const note = response?.code_suggestions
+        ? "AI referenced code changes. Use Generate Candidate to request a full code candidate that can be staged safely."
+        : "";
+
+      pushMessage("assistant", {
+        title: "AI Analysis",
+        meta: currentVersion?.code_snapshot ? "code-aware analysis" : "metrics-aware analysis",
+        text: String(response?.analysis || "AI did not return analysis text.").trim() || "AI did not return analysis text.",
+        recommendations: safeArray(response?.recommendations),
+        parameters,
+        note,
+      });
+
+      showToast("AI analysis completed.", "success", 2500);
+    } else {
+      const response = await requestCandidate(requestText);
+      pushMessage("assistant", {
+        title: "AI Candidate",
+        meta: `${labelize(response?.mode || "candidate")} | ${response?.iterations ?? 1} iteration(s)`,
+        text: response?.mode === "parameter_only"
+          ? "AI returned a parameter-only candidate. Review it before creating a candidate version."
+          : "AI returned a code candidate. Review it before creating a candidate version.",
+        parameters: hasKeys(response?.parameters) ? response.parameters : null,
+        code: typeof response?.code === "string" && response.code.trim() ? response.code : null,
+      });
+
+      showToast("AI candidate ready for review.", "success", 2500);
+    }
+  } catch (error) {
+    const message = error?.message || String(error);
+    pushMessage("system", {
+      title: "AI Error",
+      text: message,
+    });
+    showToast(`AI request failed: ${message}`, "error");
+  } finally {
+    endPrimaryAction();
+  }
+}
+
+async function handleApplyAction(messageId, action) {
+  if (busy) return;
+
+  const message = messages.find((entry) => entry.id === messageId);
+  const strategy = resolveStrategy();
+  if (!message || !strategy) {
+    showToast("Strategy context is unavailable.", "warning");
+    return;
+  }
+
+  busy = true;
+  renderMessages();
+
+  try {
+    let response;
+    if (action === "apply-parameters") {
+      response = await api.aiChat.applyParameters({
+        strategy_name: strategy,
+        parameters: message.parameters,
+      });
+    } else if (action === "apply-code") {
+      response = await api.aiChat.applyCode({
+        strategy_name: strategy,
+        code: message.code,
+      });
+    } else {
+      return;
+    }
+
+    message.versionId = response?.version_id || null;
+    message.note = response?.message || "Candidate version created.";
+    renderMessages();
+
+    pushMessage("system", {
+      title: "Candidate Staged",
+      text: `${response?.message || "Candidate version created."} Accept or rerun it explicitly from the existing version workflow.`,
+      meta: response?.version_id ? `version ${response.version_id}` : "",
+    });
+
+    showToast(response?.version_id ? `Candidate version ${response.version_id} created.` : "Candidate version created.", "success");
+  } catch (error) {
+    const messageText = error?.message || String(error);
+    pushMessage("system", {
+      title: "Apply Failed",
+      text: messageText,
+    });
+    showToast(`Failed to create candidate: ${messageText}`, "error");
+  } finally {
+    busy = false;
+    renderMessages();
+  }
+}
+
+function handlePanelClick(event) {
+  const promptButton = event.target.closest("[data-ai-prompt]");
+  if (promptButton && inputEl) {
+    inputEl.value = promptButton.dataset.aiPrompt || "";
+    inputEl.focus();
+    inputEl.selectionStart = inputEl.value.length;
+    inputEl.selectionEnd = inputEl.value.length;
+    return;
+  }
+
+  const actionButton = event.target.closest("[data-action]");
+  if (actionButton) {
+    handleApplyAction(actionButton.dataset.messageId || "", actionButton.dataset.action || "");
+  }
+}
+
+function handleInputKeydown(event) {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    handleSubmit("analysis");
+  }
+}
+
+export function initAiChatPanel() {
+  if (!panel) return;
+
+  latestPayload = getLatestResultsPayload();
+  syncConversationStrategy();
+  renderContext();
+  renderMessages();
+
+  panel.addEventListener("click", handlePanelClick);
+  inputEl?.addEventListener("keydown", handleInputKeydown);
+  askBtn?.addEventListener("click", () => handleSubmit("analysis"));
+  candidateBtn?.addEventListener("click", () => handleSubmit("candidate"));
+
+  onEvent(EVENTS.RESULTS_LOADED, (payload) => {
+    latestPayload = payload || null;
+    syncConversationStrategy();
+    renderContext();
+    refreshVersionContext();
+  });
+
+  onState("backtest.strategy", () => {
+    syncConversationStrategy();
+    renderContext();
+    refreshVersionContext();
+  });
+
+  refreshVersionContext();
 }
