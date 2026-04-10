@@ -12,6 +12,8 @@ def build_backtest_command(
     timeframe: Optional[str] = None,
     dry_run_wallet: Optional[float] = None,
     max_open_trades: Optional[int] = None,
+    export_mode: Optional[str] = None,
+    export_filename: Optional[str] = None,
     extra_flags: Optional[List[str]] = None,
 ) -> List[str]:
     """Build a freqtrade backtesting command as a list of args."""
@@ -23,15 +25,21 @@ def build_backtest_command(
         "--config", config_path,
     ]
     if timeframe:
-        cmd += ["--timeframe", timeframe]
+        cmd.extend(["--timeframe", timeframe])
     if timerange:
-        cmd += ["--timerange", timerange]
+        cmd.extend(["--timerange", timerange])
     if pairs:
-        cmd += ["--pairs"] + pairs
-    if dry_run_wallet:
-        cmd += ["--dry-run-wallet", str(dry_run_wallet)]
+        cmd.extend(["--pairs", *pairs])
+    if dry_run_wallet is not None:
+        cmd.extend(["--dry-run-wallet", str(dry_run_wallet)])
     if max_open_trades is not None:
-        cmd += ["--max-open-trades", str(max_open_trades)]
+        cmd.extend(["--max-open-trades", str(max_open_trades)])
+    if export_mode:
+        cmd.extend(["--export", export_mode])
+    if export_filename:
+        cmd.extend(["--export-filename", export_filename])
+    if extra_flags:
+        cmd.extend(extra_flags)
     return cmd
 
 

@@ -75,13 +75,9 @@ class FreqtradeCliService:
             timeframe=payload.get("timeframe"),
             dry_run_wallet=payload.get("dry_run_wallet"),
             max_open_trades=payload.get("max_open_trades"),
-            extra_flags=[
-                "--export",
-                "trades",
-                "--export-filename",
-                artifacts["raw_result_path"],
-                *extra_flags,
-            ],
+            export_mode="trades",
+            export_filename=artifacts["raw_result_path"],
+            extra_flags=extra_flags,
         )
         return {
             "run_id": run_id,

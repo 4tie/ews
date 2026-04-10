@@ -12,6 +12,7 @@ import zipfile
 from app.models.backtest_models import BacktestRunRecord, BacktestRunStatus, BacktestTriggerSource
 from app.services.freqtrade_cli_service import FreqtradeCliService
 from app.services.results_service import ResultsService
+from app.utils.command_builder import build_backtest_command
 from app.utils.datetime_utils import now_iso
 from app.utils.paths import strategy_results_dir
 
@@ -106,7 +107,32 @@ def test_prepare_backtest_run_rejects_conflicting_export_flags() -> None:
         print("[PASS] Conflicting extra_flags are rejected")
 
 
+def test_build_backtest_command_includes_export_flags() -> None:
+    cmd = build_backtest_command(
+        freqtrade_path="",
+        strategy="Anything",
+        config_path="config.json",
+        timeframe="5m",
+        dry_run_wallet=0,
+        max_open_trades=0,
+        export_mode="trades",
+        export_filename="results.zip",
+        extra_flags=["--cache", "none"],
+    )
+
+    assert "--dry-run-wallet" in cmd
+    assert "0" in cmd
+    assert "--max-open-trades" in cmd
+    assert "--export" in cmd
+    assert "trades" in cmd
+    assert "--export-filename" in cmd
+    assert "results.zip" in cmd
+    assert cmd[-2:] == ["--cache", "none"]
+    print("[PASS] Backtest command includes export and extra flags")
+
+
 if __name__ == "__main__":
     test_ingest_writes_run_scoped_artifacts()
     test_prepare_backtest_run_rejects_conflicting_export_flags()
+    test_build_backtest_command_includes_export_flags()
     print("\n[SUCCESS] Backtest ingestion tests passed")
