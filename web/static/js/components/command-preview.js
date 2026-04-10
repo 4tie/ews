@@ -60,7 +60,7 @@ function buildBacktestCommand(state) {
 
   const timerange = buildTimerange(state.startDate, state.endDate);
   const runId = "<run_id>";
-  const exportPath = `user_data/backtest_results\\${state.strategy}\\${runId}.backtest.zip`;
+  const backtestDir = `user_data/backtest_results\\${state.strategy}`;
 
   let cmd = `freqtrade backtesting --strategy ${state.strategy} --config ${configPath}`;
   if (state.timeframe) cmd += ` --timeframe ${state.timeframe}`;
@@ -68,7 +68,7 @@ function buildBacktestCommand(state) {
   if (state.pairs.length) cmd += ` --pairs ${state.pairs.join(" ")}`;
   if (state.dryRunWallet) cmd += ` --dry-run-wallet ${state.dryRunWallet}`;
   if (state.maxOpenTrades) cmd += ` --max-open-trades ${state.maxOpenTrades}`;
-  cmd += ` --export trades --export-filename ${exportPath}`;
+  cmd += ` --export trades --backtest-directory ${backtestDir} --notes ${runId} --cache none`;
   return cmd;
 }
 

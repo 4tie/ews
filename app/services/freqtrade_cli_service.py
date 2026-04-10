@@ -64,6 +64,16 @@ class FreqtradeCliService:
                 f"extra_flags may not override run-scoped export settings: {conflict_list}"
             )
 
+    def _backtest_extra_flags(self, payload: dict[str, Any]) -> list[str]:
+        extra_flags = list(payload.get("extra_flags", []))
+        self._validate_backtest_extra_flags(extra_flags)
+
+        has_cache_flag = any(token.split("=", 1)[0] == "--cache" for token in extra_flags)
+        if not has_cache_flag:
+            extra_flags.extend(["--cache", "none"])
+
+        return extra_flags
+
     def _backtest_artifact_paths(self, strategy: str, run_id: str) -> dict:
         result_dir = strategy_results_dir(strategy)
         os.makedirs(result_dir, exist_ok=True)
@@ -139,8 +149,7 @@ class FreqtradeCliService:
     def prepare_backtest_run(self, payload: dict) -> dict:
         strategy = payload.get("strategy", "") or "unknown"
         run_id = payload.get("run_id") or datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
-        extra_flags = list(payload.get("extra_flags", []))
-        self._validate_backtest_extra_flags(extra_flags)
+        extra_flags = self._backtest_extra_flags(payload)
         config_path = self.resolve_backtest_config_path(payload)
 
         artifacts = self._backtest_artifact_paths(strategy, run_id)

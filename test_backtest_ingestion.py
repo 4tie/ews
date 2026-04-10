@@ -129,7 +129,9 @@ def test_prepare_backtest_run_uses_strategy_directory_and_notes() -> None:
         assert "--notes" in prepared["cmd"]
         assert "bt-test-prepared" in prepared["cmd"]
         assert "--export-filename" not in prepared["cmd"]
-        print("[PASS] Prepared backtest run uses strategy directory and notes")
+        assert prepared["cmd"][-2:] == ["--cache", "none"]
+        assert prepared["cmd"].count("--cache") == 1
+        print("[PASS] Prepared backtest run uses strategy directory, notes, and disables cache by default")
     finally:
         if os.path.isdir(result_dir):
             shutil.rmtree(result_dir, ignore_errors=True)
@@ -160,6 +162,22 @@ def test_build_backtest_command_includes_backtest_directory_and_notes() -> None:
     assert "bt-test-run" in cmd
     assert cmd[-2:] == ["--cache", "none"]
     print("[PASS] Backtest command includes backtest directory and run notes")
+
+
+def test_prepare_backtest_run_preserves_explicit_cache_flag() -> None:
+    cli = FreqtradeCliService()
+    prepared = cli.prepare_backtest_run(
+        {
+            "run_id": "bt-test-cache-day",
+            "strategy": "Anything",
+            "timeframe": "5m",
+            "extra_flags": ["--cache", "day"],
+        }
+    )
+
+    assert prepared["cmd"][-2:] == ["--cache", "day"]
+    assert prepared["cmd"].count("--cache") == 1
+    print("[PASS] Explicit backtest cache flag is preserved")
 
 
 def test_prepare_download_data_uses_prepend_by_default() -> None:
@@ -206,6 +224,7 @@ if __name__ == "__main__":
     test_prepare_backtest_run_rejects_conflicting_export_flags()
     test_prepare_backtest_run_uses_strategy_directory_and_notes()
     test_build_backtest_command_includes_backtest_directory_and_notes()
+    test_prepare_backtest_run_preserves_explicit_cache_flag()
     test_prepare_download_data_uses_prepend_by_default()
     test_resolve_backtest_raw_result_matches_run_note()
     print("\n[SUCCESS] Backtest ingestion tests passed")
