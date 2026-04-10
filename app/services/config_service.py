@@ -1,8 +1,21 @@
-import os
-from app.utils.paths import saved_configs_dir, settings_dir, resolve_safe
-from app.utils.json_io import read_json, write_json, list_json_files
+﻿import os
+
+from app.utils.json_io import list_json_files, read_json, write_json
+from app.utils.paths import resolve_safe, saved_configs_dir, settings_dir
 
 SETTINGS_FILE = "app_settings.json"
+
+_DEFAULT_SETTINGS: dict = {
+    "engine": "freqtrade",
+    "freqtrade_path": "",
+    "user_data_path": "",
+    "default_exchange": "binance",
+    "default_timeframe": "5m",
+    "default_max_open_trades": 3,
+    "theme": "dark",
+    "results_base_path": "",
+    "config_path": "",
+}
 
 
 class ConfigService:
@@ -10,16 +23,11 @@ class ConfigService:
         return os.path.join(settings_dir(), SETTINGS_FILE)
 
     def get_settings(self) -> dict:
-        return read_json(self._settings_path(), fallback={
-            "freqtrade_path": "",
-            "user_data_path": "",
-            "default_exchange": "binance",
-            "default_timeframe": "5m",
-            "default_max_open_trades": 3,
-            "theme": "dark",
-            "results_base_path": "",
-            "config_path": "",
-        })
+        loaded = read_json(self._settings_path(), fallback=None)
+        if isinstance(loaded, dict):
+            # Merge defaults with persisted values to keep old settings files working.
+            return {**_DEFAULT_SETTINGS, **loaded}
+        return dict(_DEFAULT_SETTINGS)
 
     def save_settings(self, data: dict) -> None:
         write_json(self._settings_path(), data)

@@ -1,0 +1,12 @@
+{
+  "download_id": "dl-b1077d45",
+  "created_at": "2026-04-10T05:24:40.438978+00:00",
+  "updated_at": "2026-04-10T05:24:45.899149+00:00",
+  "completed_at": "2026-04-10T05:24:45.899149+00:00",
+  "status": "completed",
+  "command": "T:\\Optimizer\\.venv\\Scripts\\freqtrade.exe download-data --config T:\\Optimizer\\user_data\\config.json --pairs ETH/USDT --timeframes 5m --timerange 20260101-20260410",
+  "artifact_path": "T:\\Optimizer\\app\\storage\\download_runs\\dl-b1077d45\\download.log",
+  "pid": 76044,
+  "exit_code": 0,
+  "error": null
+}
