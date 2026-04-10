@@ -1,8 +1,8 @@
 import os
 import glob
 from typing import Optional
-from utils.paths import strategy_results_dir, resolve_safe
-from utils.json_io import read_json
+from app.utils.paths import strategy_results_dir, resolve_safe
+from app.utils.json_io import read_json
 
 
 class ResultsService:
@@ -54,7 +54,7 @@ class ResultsService:
 
     def list_strategies_with_results(self) -> list[str]:
         """Return all strategies that have at least one result directory."""
-        from utils.paths import user_data_results_dir
+        from app.utils.paths import user_data_results_dir
         base = user_data_results_dir()
         if not os.path.isdir(base):
             return []

@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from models.optimizer_models import OptimizerRunRequest
-from services.autotune.iterative_optimizer import IterativeOptimizer
-from services.persistence_service import PersistenceService
+from app.models.optimizer_models import OptimizerRunRequest
+from app.services.autotune.iterative_optimizer import IterativeOptimizer
+from app.services.persistence_service import PersistenceService
 import asyncio
 import json
 import uuid

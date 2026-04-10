@@ -1,6 +1,6 @@
 import os
-from utils.paths import saved_configs_dir, settings_dir, resolve_safe
-from utils.json_io import read_json, write_json, list_json_files
+from app.utils.paths import saved_configs_dir, settings_dir, resolve_safe
+from app.utils.json_io import read_json, write_json, list_json_files
 
 SETTINGS_FILE = "app_settings.json"
 

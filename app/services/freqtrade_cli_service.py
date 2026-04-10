@@ -1,8 +1,8 @@
 import subprocess
 import os
-from utils.paths import strategy_results_dir
-from utils.command_builder import command_to_string, build_backtest_command, build_download_command
-from services.config_service import ConfigService
+from app.utils.paths import strategy_results_dir
+from app.utils.command_builder import command_to_string, build_backtest_command, build_download_command
+from app.services.config_service import ConfigService
 
 config_svc = ConfigService()
 

@@ -275,4 +275,5 @@ __all__ = [
     "mutation_service",
     "MutationRequest",
     "MutationResult",
+    "VersionStatus",
 ]

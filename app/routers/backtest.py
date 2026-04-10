@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from models.backtest_models import BacktestRunRequest, ConfigSaveRequest
-from services.results_service import ResultsService
-from services.freqtrade_cli_service import FreqtradeCliService
-from services.config_service import ConfigService
+from app.models.backtest_models import BacktestRunRequest, ConfigSaveRequest
+from app.services.results_service import ResultsService
+from app.services.freqtrade_cli_service import FreqtradeCliService
+from app.services.config_service import ConfigService
 
 router = APIRouter()
 results_svc = ResultsService()

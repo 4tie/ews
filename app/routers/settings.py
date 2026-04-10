@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from models.settings_models import AppSettings
-from services.config_service import ConfigService
-from services.validation_service import ValidationService
+from app.models.settings_models import AppSettings
+from app.services.config_service import ConfigService
+from app.services.validation_service import ValidationService
 import os
 
 router = APIRouter()
