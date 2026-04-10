@@ -1,7 +1,7 @@
-import os
+﻿import os
 
 from app.utils.json_io import read_json, write_json
-from app.utils.paths import backtest_runs_dir, optimizer_runs_dir, resolve_safe
+from app.utils.paths import backtest_runs_dir, download_runs_dir, optimizer_runs_dir, resolve_safe
 
 
 class PersistenceService:
@@ -21,6 +21,14 @@ class PersistenceService:
         path = resolve_safe(backtest_runs_dir(), run_id, "run_meta.json")
         return read_json(path, fallback={})
 
+
+    def save_download_run(self, download_id: str, data: dict) -> None:
+        path = resolve_safe(download_runs_dir(), download_id, "run_meta.json")
+        write_json(path, data)
+
+    def load_download_run(self, download_id: str) -> dict:
+        path = resolve_safe(download_runs_dir(), download_id, "run_meta.json")
+        return read_json(path, fallback={})
     def save_checkpoint(self, run_id: str, checkpoint_id: str, data: dict) -> None:
         path = resolve_safe(optimizer_runs_dir(), run_id, "checkpoints", f"{checkpoint_id}.json")
         write_json(path, data)

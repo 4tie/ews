@@ -1,4 +1,4 @@
-/**
+﻿/**
  * run-controller.js — Handles the Run / Stop backtest buttons and status.
  */
 
@@ -7,15 +7,38 @@ import { getState, setState } from "../../../core/state.js";
 import { emit, EVENTS } from "../../../core/events.js";
 import showToast from "../../../components/toast.js";
 import { setButtonLoading } from "../../../components/loading-state.js";
+import { startStream, stopStream } from "./log-panel.js";
 
 const runBtn    = document.getElementById("btn-run-backtest");
 const stopBtn   = document.getElementById("btn-stop-backtest");
 const statusDot = document.getElementById("run-status-dot");
 const statusLbl = document.getElementById("run-status-label");
 
+let _currentRunId = null;
+
 function setStatus(state, label) {
   if (statusDot) statusDot.className = `status-dot status-dot--${state}`;
   if (statusLbl) statusLbl.textContent = label;
+}
+
+function finishRun(status, exitCode) {
+  const s = String(status || "");
+  if (s === "completed") {
+    setStatus("done", `Completed (exit ${exitCode ?? 0})`);
+    showToast("Backtest completed.", "success");
+    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode });
+  } else if (s === "failed") {
+    setStatus("error", `Failed (exit ${exitCode ?? "?"})`);
+    showToast("Backtest failed.", "error");
+    emit(EVENTS.BACKTEST_FAILED, { run_id: _currentRunId, status: s, exit_code: exitCode });
+  } else {
+    setStatus("idle", s || "Done");
+    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode });
+  }
+
+  if (stopBtn) stopBtn.disabled = true;
+  setButtonLoading(runBtn, false);
+  setState("backtest.isRunning", false);
 }
 
 export function initRunController() {
@@ -40,32 +63,37 @@ export function initRunController() {
       dry_run_wallet: getState("backtest.dry_run_wallet") || undefined,
     };
 
-    setButtonLoading(runBtn, true, "Running…");
+    setButtonLoading(runBtn, true, "Running...");
     if (stopBtn) stopBtn.disabled = false;
-    setStatus("running", "Running…");
+    setStatus("running", "Running...");
     setState("backtest.isRunning", true);
     emit(EVENTS.BACKTEST_STARTED, payload);
 
     try {
       const res = await api.backtest.run(payload);
-      showToast("Backtest queued: " + (res.message || res.status), "info");
-      // TODO: poll or stream log output; on completion call emit(EVENTS.BACKTEST_COMPLETE, result)
+      _currentRunId = res.run_id;
+      showToast(`Backtest started: ${_currentRunId}`, "info");
+
+      startStream(`/api/backtest/runs/${_currentRunId}/logs/stream`, {
+        onDone: (status, exitCode) => finishRun(status, exitCode),
+      });
     } catch (e) {
+      stopStream();
       showToast("Run failed: " + e.message, "error");
       setStatus("error", "Error");
       emit(EVENTS.BACKTEST_FAILED, e);
-    } finally {
-      setButtonLoading(runBtn, false);
       if (stopBtn) stopBtn.disabled = true;
+      setButtonLoading(runBtn, false);
       setState("backtest.isRunning", false);
     }
   });
 
   stopBtn?.addEventListener("click", () => {
     // TODO: wire stop signal to backend
+    stopStream();
     setStatus("idle", "Stopped");
     setState("backtest.isRunning", false);
-    emit(EVENTS.BACKTEST_STOPPED);
+    emit(EVENTS.BACKTEST_STOPPED, { run_id: _currentRunId });
     if (stopBtn) stopBtn.disabled = true;
     setButtonLoading(runBtn, false);
     showToast("Stop signal sent.", "warning");

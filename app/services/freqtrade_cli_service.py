@@ -1,5 +1,4 @@
-﻿import asyncio
-import logging
+﻿import logging
 import os
 import subprocess
 from datetime import datetime
@@ -139,10 +138,11 @@ class FreqtradeCliService:
                     return True
         return False
 
-    def download_data(self, payload: dict) -> dict:
-        """Run freqtrade download-data."""
+    def prepare_download_data(self, payload: dict) -> dict:
+        """Build freqtrade download-data command and inferred flags."""
         pairs = payload.get("pairs", [])
-        timeframes = [payload.get("timeframe", "5m")]
+        timeframe = payload.get("timeframe") or "5m"
+        timeframes = [timeframe]
         timerange = payload.get("timerange")
 
         prepend = self._should_prepend(pairs, timeframes) if pairs else False
@@ -155,41 +155,57 @@ class FreqtradeCliService:
             timerange=timerange,
             prepend=prepend,
         )
+        return {
+            "cmd": cmd,
+            "command": command_to_string(cmd),
+            "prepend": prepend,
+        }
 
-        command = command_to_string(cmd)
+    def run_download_data(self, prepared: dict, log_path: str | None = None) -> dict:
+        """Run freqtrade download-data subprocess."""
+        cmd = prepared.get("cmd") or []
+        command = prepared.get("command") or command_to_string(cmd)
+        prepend = prepared.get("prepend", False)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-        async def _run() -> None:
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+        try:
+            if log_path:
+                with open(log_path, "w", encoding="utf-8") as log_file:
+                    log_file.write(f"$ {command}\n\n")
+                    log_file.flush()
+                    process = subprocess.Popen(
+                        cmd,
+                        stdin=subprocess.DEVNULL,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                        creationflags=creationflags,
+                    )
+            else:
+                process = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                     creationflags=creationflags,
                 )
-                await process.wait()
-            except Exception:
-                logger.exception("download-data subprocess failed: %s", command)
+        except Exception:
+            logger.exception("download-data subprocess failed: %s", command)
+            raise
 
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=creationflags,
-            )
-            return {
-                "command": command,
-                "status": "running",
-                "pid": process.pid,
-                "prepend": prepend,
-                "process": process,
-            }
+        result = {
+            "command": command,
+            "status": "running",
+            "pid": process.pid,
+            "prepend": prepend,
+            "process": process,
+        }
+        if log_path:
+            result["log_file"] = log_path
+        return result
 
-        loop.create_task(_run())
-        return {"command": command, "status": "queued", "prepend": prepend}
+    def download_data(self, payload: dict) -> dict:
+        """Run freqtrade download-data (legacy helper)."""
+        prepared = self.prepare_download_data(payload)
+        return self.run_download_data(prepared)
+
 

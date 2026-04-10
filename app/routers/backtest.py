@@ -1,9 +1,11 @@
-import os
+﻿import os
 import threading
 import uuid
+import asyncio
+import json
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.models.backtest_models import (
     BacktestRunRecord,
@@ -17,6 +19,7 @@ from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results_service import ResultsService
 from app.utils.datetime_utils import now_iso
+from app.utils.paths import download_runs_dir, user_data_results_dir
 
 router = APIRouter()
 results_svc = ResultsService()
@@ -128,6 +131,176 @@ def _start_backtest_watcher(run_id: str, process) -> None:
     )
     watcher.start()
 
+_TERMINAL_DOWNLOAD_STATUSES = {
+    "completed",
+    "failed",
+}
+_download_watcher_lock = threading.Lock()
+_active_download_watchers: set[str] = set()
+
+
+def _is_terminal_download_status(status: str | None) -> bool:
+    return str(status) in _TERMINAL_DOWNLOAD_STATUSES
+
+
+def _load_download_record(download_id: str) -> dict:
+    return persistence.load_download_run(download_id)
+
+
+def _save_download_record(download_id: str, data: dict) -> None:
+    persistence.save_download_run(download_id, data)
+
+
+def _watch_download_process(download_id: str, process) -> None:
+    try:
+        current = _load_download_record(download_id)
+        if not current or _is_terminal_download_status(current.get("status")):
+            return
+
+        try:
+            exit_code = process.wait()
+        except Exception as exc:
+            current = _load_download_record(download_id)
+            if current and not _is_terminal_download_status(current.get("status")):
+                failed_at = now_iso()
+                current["status"] = "failed"
+                current["updated_at"] = failed_at
+                current["completed_at"] = failed_at
+                current["exit_code"] = None
+                current["error"] = f"process_failed: {exc}"
+                _save_download_record(download_id, current)
+            return
+
+        current = _load_download_record(download_id)
+        if not current or _is_terminal_download_status(current.get("status")):
+            return
+
+        completed_at = now_iso()
+        current["updated_at"] = completed_at
+        current["completed_at"] = completed_at
+        current["exit_code"] = exit_code
+
+        if exit_code != 0:
+            current["status"] = "failed"
+            current["error"] = f"process_failed: exit_code={exit_code}"
+        else:
+            current["status"] = "completed"
+            current["error"] = None
+
+        _save_download_record(download_id, current)
+    finally:
+        with _download_watcher_lock:
+            _active_download_watchers.discard(download_id)
+
+
+def _start_download_watcher(download_id: str, process) -> None:
+    with _download_watcher_lock:
+        if download_id in _active_download_watchers:
+            return
+        _active_download_watchers.add(download_id)
+
+    watcher = threading.Thread(
+        target=_watch_download_process,
+        args=(download_id, process),
+        daemon=True,
+        name=f"download-watcher-{download_id}",
+    )
+    watcher.start()
+
+
+def _sse(data: dict) -> str:
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"data: {payload}\n\n"
+
+
+def _assert_within_base(path: str, base: str) -> str:
+    real_path = os.path.normcase(os.path.realpath(path))
+    real_base = os.path.normcase(os.path.realpath(base))
+    if real_path == real_base:
+        return real_path
+    if not real_path.startswith(real_base + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid log path")
+    return real_path
+
+
+def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[str]):
+    async def log_generator():
+        yield _sse({"line": "[stream] streaming started"})
+
+        log_path = None
+        status = None
+        exit_code = None
+
+        while True:
+            meta = meta_loader() or {}
+            log_path = meta.get("artifact_path")
+            status = meta.get("status")
+            exit_code = meta.get("exit_code")
+
+            if log_path:
+                break
+
+            if str(status) in terminal_statuses:
+                yield _sse(
+                    {
+                        "line": f"[done] status={status} exit_code={exit_code}",
+                        "status": status,
+                        "exit_code": exit_code,
+                    }
+                )
+                return
+
+            await asyncio.sleep(0.25)
+
+        log_path = _assert_within_base(log_path, allowed_base)
+
+        while not os.path.isfile(log_path):
+            meta = meta_loader() or {}
+            status = meta.get("status")
+            exit_code = meta.get("exit_code")
+
+            if str(status) in terminal_statuses:
+                yield _sse(
+                    {
+                        "line": f"[done] status={status} exit_code={exit_code}",
+                        "status": status,
+                        "exit_code": exit_code,
+                    }
+                )
+                return
+
+            yield _sse({"line": "[stream] waiting for log file..."})
+            await asyncio.sleep(0.25)
+
+        with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+            while True:
+                line = handle.readline()
+                if line:
+                    yield _sse({"line": line.rstrip("\n")})
+                    continue
+
+                meta = meta_loader() or {}
+                status = meta.get("status")
+                exit_code = meta.get("exit_code")
+
+                if str(status) in terminal_statuses:
+                    yield _sse(
+                        {
+                            "line": f"[done] status={status} exit_code={exit_code}",
+                            "status": status,
+                            "exit_code": exit_code,
+                        }
+                    )
+                    return
+
+                await asyncio.sleep(0.25)
+
+    return StreamingResponse(
+        log_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 @router.get("/options")
 async def get_options():
@@ -232,8 +405,88 @@ async def run_backtest(payload: BacktestRunRequest):
 @router.post("/download-data")
 async def download_data(payload: dict):
     """Trigger freqtrade download-data."""
-    result = cli_svc.download_data(payload)
-    return {"status": "queued", "command": result.get("command")}
+    download_id = f"dl-{uuid.uuid4().hex[:8]}"
+    created_at = now_iso()
+
+    try:
+        prepared = cli_svc.prepare_download_data(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    log_path = os.path.join(download_runs_dir(), download_id, "download.log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    meta = {
+        "download_id": download_id,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "completed_at": None,
+        "status": "queued",
+        "command": prepared.get("command"),
+        "artifact_path": log_path,
+        "pid": None,
+        "exit_code": None,
+        "error": None,
+    }
+    persistence.save_download_run(download_id, meta)
+
+    try:
+        result = cli_svc.run_download_data(prepared, log_path=log_path)
+    except Exception as exc:
+        failed_at = now_iso()
+        meta["status"] = "failed"
+        meta["updated_at"] = failed_at
+        meta["completed_at"] = failed_at
+        meta["error"] = f"launch_failed: {exc}"
+        persistence.save_download_run(download_id, meta)
+        return {
+            "status": meta["status"],
+            "download_id": download_id,
+            "command": meta["command"],
+            "artifact_path": meta["artifact_path"],
+            "error": meta["error"],
+        }
+
+    meta["status"] = "running"
+    meta["updated_at"] = now_iso()
+    meta["pid"] = result.get("pid")
+    meta["error"] = None
+    persistence.save_download_run(download_id, meta)
+
+    process = result.get("process")
+    if process is not None:
+        _start_download_watcher(download_id, process)
+
+    return {
+        "status": meta["status"],
+        "download_id": download_id,
+        "command": meta["command"],
+        "artifact_path": meta["artifact_path"],
+    }
+
+
+@router.get("/runs/{run_id}/logs/stream")
+async def stream_backtest_logs(run_id: str):
+    """Server-sent event stream for backtest live logs."""
+    if not persistence.load_backtest_run(run_id):
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return stream_log_response(
+        lambda: persistence.load_backtest_run(run_id),
+        user_data_results_dir(),
+        _TERMINAL_BACKTEST_STATUSES,
+    )
+
+
+@router.get("/download-data/{download_id}/logs/stream")
+async def stream_download_logs(download_id: str):
+    """Server-sent event stream for download-data live logs."""
+    if not persistence.load_download_run(download_id):
+        raise HTTPException(status_code=404, detail=f"Download {download_id} not found")
+    return stream_log_response(
+        lambda: persistence.load_download_run(download_id),
+        download_runs_dir(),
+        _TERMINAL_DOWNLOAD_STATUSES,
+    )
 
 
 @router.get("/summary")

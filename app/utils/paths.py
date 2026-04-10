@@ -1,4 +1,4 @@
-import os
+﻿import os
 import shutil
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,6 +51,9 @@ def optimizer_runs_dir() -> str:
 
 def backtest_runs_dir() -> str:
     return os.path.join(storage_dir(), "backtest_runs")
+
+def download_runs_dir() -> str:
+    return os.path.join(storage_dir(), "download_runs")
 
 
 def strategy_versions_dir(strategy_name: str) -> str:
