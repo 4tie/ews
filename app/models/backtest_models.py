@@ -12,6 +12,7 @@ class BacktestRunRequest(BaseModel):
     max_open_trades: Optional[int] = None
     config_path: Optional[str] = None
     extra_flags: List[str] = Field(default_factory=list)
+    version_id: Optional[str] = None
 
 
 class ConfigSaveRequest(BaseModel):
@@ -29,6 +30,7 @@ class BacktestSummary(BaseModel):
     drawdown_pct: Optional[float]
     sharpe: Optional[float]
     sortino: Optional[float]
+    version_id: Optional[str] = None
     raw: Dict[str, Any] = Field(default_factory=dict)
 
 

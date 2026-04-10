@@ -1,5 +1,6 @@
 """
 AI Apply Code Service - Applies AI-generated code patches to strategies.
+All changes go through StrategyMutationService for version control.
 """
 from __future__ import annotations
 
@@ -8,6 +9,9 @@ import shutil
 from dataclasses import dataclass
 from typing import Any
 
+from app.models.optimizer_models import ChangeType, MutationRequest
+from app.services.mutation_service import mutation_service
+
 
 @dataclass
 class ApplyResult:
@@ -15,6 +19,7 @@ class ApplyResult:
     file_path: str | None
     error: str | None
     backup_path: str | None
+    version_id: str | None
 
 
 async def apply_code_patch(
@@ -22,8 +27,9 @@ async def apply_code_patch(
     code: str,
     strategy_dir: str | None = None,
     create_backup: bool = True,
+    created_by: str = "ai_apply",
 ) -> ApplyResult:
-    """Apply AI-generated code patch to strategy file."""
+    """Apply AI-generated code patch to strategy file with version control."""
     if not strategy_dir:
         strategy_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "user_data", "strategies")
         strategy_dir = os.path.abspath(strategy_dir)
@@ -36,7 +42,21 @@ async def apply_code_patch(
             file_path=None,
             error=f"Strategy directory not found: {strategy_dir}",
             backup_path=None,
+            version_id=None,
         )
+    
+    # Create mutation first (this is the core contract)
+    mutation_result = mutation_service.create_mutation(
+        MutationRequest(
+            strategy_name=strategy_name,
+            change_type=ChangeType.CODE_CHANGE,
+            summary=f"AI code change applied to {strategy_name}",
+            created_by=created_by,
+            code=code,
+        )
+    )
+    
+    version_id = mutation_result.version_id
     
     backup_path = None
     if create_backup and os.path.exists(file_path):
@@ -52,6 +72,7 @@ async def apply_code_patch(
             file_path=file_path,
             error=None,
             backup_path=backup_path,
+            version_id=version_id,
         )
     except Exception as e:
         return ApplyResult(
@@ -59,6 +80,7 @@ async def apply_code_patch(
             file_path=None,
             error=f"Failed to write strategy file: {str(e)}",
             backup_path=backup_path,
+            version_id=version_id,
         )
 
 
@@ -66,12 +88,26 @@ async def apply_parameters(
     strategy_name: str,
     parameters: dict[str, Any],
     config_file: str | None = None,
+    created_by: str = "ai_apply",
 ) -> ApplyResult:
-    """Apply AI-generated parameters to strategy config."""
+    """Apply AI-generated parameters to strategy config with version control."""
     if not config_file:
         config_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "user_data", "config")
         config_dir = os.path.abspath(config_dir)
         config_file = os.path.join(config_dir, f"config_{strategy_name}.json")
+    
+    # Create mutation for parameter-only change
+    mutation_result = mutation_service.create_mutation(
+        MutationRequest(
+            strategy_name=strategy_name,
+            change_type=ChangeType.PARAMETER_CHANGE,
+            summary=f"Parameter-only change for {strategy_name}",
+            created_by=created_by,
+            parameters=parameters,
+        )
+    )
+    
+    version_id = mutation_result.version_id
     
     import json
     
@@ -92,6 +128,7 @@ async def apply_parameters(
             file_path=config_file,
             error=None,
             backup_path=None,
+            version_id=version_id,
         )
     except Exception as e:
         return ApplyResult(
@@ -99,6 +136,7 @@ async def apply_parameters(
             file_path=None,
             error=f"Failed to write config file: {str(e)}",
             backup_path=None,
+            version_id=version_id,
         )
 
 
@@ -110,6 +148,7 @@ async def restore_backup(backup_path: str) -> ApplyResult:
             file_path=None,
             error=f"Backup file not found: {backup_path}",
             backup_path=None,
+            version_id=None,
         )
     
     try:
@@ -121,6 +160,7 @@ async def restore_backup(backup_path: str) -> ApplyResult:
             file_path=original_path,
             error=None,
             backup_path=backup_path,
+            version_id=None,
         )
     except Exception as e:
         return ApplyResult(
@@ -128,6 +168,7 @@ async def restore_backup(backup_path: str) -> ApplyResult:
             file_path=None,
             error=f"Failed to restore backup: {str(e)}",
             backup_path=None,
+            version_id=None,
         )
 
 

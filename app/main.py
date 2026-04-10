@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 import uvicorn
 import os
 
-from app.routers import web_ui_routes, backtest, optimizer, settings, ai_chat, evolution
+from app.routers import web_ui_routes, backtest, optimizer, settings, ai_chat, evolution, versions
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -22,6 +22,7 @@ app.include_router(optimizer.router, prefix="/api/optimizer", tags=["optimizer"]
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(ai_chat.router, prefix="/api/ai/chat", tags=["ai-chat"])
 app.include_router(evolution.router, prefix="/api/ai/evolution", tags=["ai-evolution"])
+app.include_router(versions.router, prefix="/api/versions", tags=["versions"])
 
 
 @app.get("/")
