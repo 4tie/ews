@@ -1,0 +1,55 @@
+/**
+ * api.js — Centralized fetch wrapper for all backend API calls.
+ */
+
+const BASE = "";
+
+async function request(method, path, body = null) {
+  const opts = {
+    method,
+    headers: { "Content-Type": "application/json" },
+  };
+  if (body !== null) opts.body = JSON.stringify(body);
+
+  const res = await fetch(BASE + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export const api = {
+  get:    (path)         => request("GET",    path),
+  post:   (path, body)   => request("POST",   path, body),
+  delete: (path)         => request("DELETE", path),
+
+  // ── Backtest ──────────────────────────────────────────
+  backtest: {
+    options:        ()       => api.get("/api/backtest/options"),
+    run:            (data)   => api.post("/api/backtest/run", data),
+    downloadData:   (data)   => api.post("/api/backtest/download-data", data),
+    summary:        (strat)  => api.get(`/api/backtest/summary?strategy=${encodeURIComponent(strat)}`),
+    trades:         (strat)  => api.get(`/api/backtest/trades?strategy=${encodeURIComponent(strat)}`),
+    listConfigs:    ()       => api.get("/api/backtest/configs"),
+    saveConfig:     (data)   => api.post("/api/backtest/configs", data),
+    deleteConfig:   (name)   => api.delete(`/api/backtest/configs/${encodeURIComponent(name)}`),
+  },
+
+  // ── Optimizer ─────────────────────────────────────────
+  optimizer: {
+    startRun:         (data)             => api.post("/api/optimizer/runs", data),
+    getCheckpoints:   (runId)            => api.get(`/api/optimizer/runs/${runId}/checkpoints`),
+    rollback:         (runId, checkId)   => api.post(`/api/optimizer/runs/${runId}/rollback/${checkId}`, {}),
+    streamLogs:       (runId)            => new EventSource(`/api/optimizer/runs/${runId}/logs/stream`),
+  },
+
+  // ── Settings ──────────────────────────────────────────
+  settings: {
+    get:  ()     => api.get("/api/settings"),
+    save: (data) => api.post("/api/settings", data),
+  },
+};
+
+window.api = api;
+export default api;

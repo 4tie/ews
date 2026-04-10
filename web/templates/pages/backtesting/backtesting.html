@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block page_css %}
+<link rel="stylesheet" href="/static/css/pages/backtesting.css" />
+{% endblock %}
+
+{% block content %}
+<div class="bt-workspace" id="bt-workspace">
+
+  <!-- ── SETUP PANEL ───────────────────────────────────────────── -->
+  <section class="panel panel--setup" id="setup-panel">
+    <div class="panel__header">
+      <h2 class="panel__title">Run Configuration</h2>
+      <div class="panel__actions">
+        <button class="btn btn--ghost btn--sm" id="btn-load-config">Load Config</button>
+        <button class="btn btn--ghost btn--sm" id="btn-save-config">Save Config</button>
+      </div>
+    </div>
+
+    <div class="panel__body setup-grid">
+
+      <!-- Strategy -->
+      <div class="setup-field" id="strategy-panel">
+        <label class="form-label" for="select-strategy">Strategy</label>
+        <select class="form-select" id="select-strategy" name="strategy">
+          <option value="">Select strategy…</option>
+        </select>
+      </div>
+
+      <!-- Timeframe -->
+      <div class="setup-field" id="timeframe-panel">
+        <label class="form-label" for="select-timeframe">Timeframe</label>
+        <select class="form-select" id="select-timeframe" name="timeframe">
+          <option value="">Select timeframe…</option>
+        </select>
+      </div>
+
+      <!-- Exchange -->
+      <div class="setup-field">
+        <label class="form-label" for="select-exchange">Exchange</label>
+        <select class="form-select" id="select-exchange" name="exchange">
+          <option value="binance">Binance</option>
+          <option value="kucoin">KuCoin</option>
+          <option value="bybit">Bybit</option>
+          <option value="okx">OKX</option>
+          <option value="gate">Gate.io</option>
+        </select>
+      </div>
+
+      <!-- Stake amount -->
+      <div class="setup-field">
+        <label class="form-label" for="input-stake">Stake Amount</label>
+        <input class="form-input" type="number" id="input-stake" name="stake_amount" placeholder="100" min="1" />
+      </div>
+
+      <!-- Max open trades -->
+      <div class="setup-field">
+        <label class="form-label" for="input-max-trades">Max Open Trades</label>
+        <input class="form-input" type="number" id="input-max-trades" name="max_open_trades" placeholder="3" min="-1" />
+      </div>
+
+      <!-- Time panel -->
+      <div class="setup-field setup-field--wide" id="time-panel">
+        <label class="form-label">Time Range</label>
+        <div class="row-group">
+          <div class="row-group__item">
+            <label class="form-label form-label--sub" for="input-start-date">Start Date</label>
+            <input class="form-input" type="date" id="input-start-date" name="start_date" />
+          </div>
+          <div class="row-group__item">
+            <label class="form-label form-label--sub" for="input-end-date">End Date</label>
+            <input class="form-input" type="date" id="input-end-date" name="end_date" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Pairs panel — type a pair or paste a JSON config -->
+      <div class="setup-field setup-field--full" id="pairs-panel">
+        <label class="form-label" for="input-pair-add">Pairs</label>
+        <div class="pair-input-area">
+          <input class="form-input" type="text" id="input-pair-add"
+            placeholder='e.g. BTC/USDT  or paste {"pair_whitelist": [...]}' />
+          <button class="btn btn--secondary btn--sm" id="btn-add-pair">Add</button>
+        </div>
+        <div class="field-hint" id="json-parse-feedback"></div>
+        <div class="tag-list" id="pairs-tag-list"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── COMMAND PREVIEW ──────────────────────────────────────── -->
+  <section class="panel panel--command" id="command-preview-panel">
+    <div class="panel__header">
+      <h2 class="panel__title">Command Preview</h2>
+      <button class="btn btn--ghost btn--sm" id="btn-copy-command">Copy</button>
+    </div>
+    <div class="panel__body">
+      <pre class="command-preview" id="command-preview-output"><code>Configure a strategy to preview the command.</code></pre>
+    </div>
+  </section>
+
+  <!-- ── DATA SECTION ─────────────────────────────────────────── -->
+  <section class="panel panel--data" id="data-panel">
+    <div class="panel__header">
+      <h2 class="panel__title">Data</h2>
+    </div>
+    <div class="panel__body data-grid">
+      <div id="data-validation-area">
+        <h3 class="section-label">Validation</h3>
+        <div class="info-block" id="data-validation-output">
+          <span class="muted">Run validation to check available OHLCV data.</span>
+        </div>
+        <button class="btn btn--secondary btn--sm" id="btn-validate-data">Validate Data</button>
+      </div>
+      <div id="data-download-area">
+        <h3 class="section-label">Download</h3>
+        <div class="info-block" id="data-download-output">
+          <span class="muted">No download in progress.</span>
+        </div>
+        <button class="btn btn--secondary btn--sm" id="btn-download-data">Download Data</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── RUN CONTROLS ─────────────────────────────────────────── -->
+  <section class="panel panel--run" id="run-panel">
+    <div class="panel__body run-controls">
+      <button class="btn btn--primary btn--lg" id="btn-run-backtest">Run Backtest</button>
+      <button class="btn btn--danger btn--lg" id="btn-stop-backtest" disabled>Stop</button>
+      <div class="run-status" id="run-status">
+        <span class="status-dot status-dot--idle" id="run-status-dot"></span>
+        <span id="run-status-label">Ready</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── LOG PANEL ────────────────────────────────────────────── -->
+  <section class="panel panel--log" id="log-panel">
+    <div class="panel__header">
+      <h2 class="panel__title">Live Log</h2>
+      <button class="btn btn--ghost btn--sm" id="btn-clear-log">Clear</button>
+    </div>
+    <div class="panel__body">
+      <div class="log-viewer" id="log-viewer"></div>
+    </div>
+  </section>
+
+  <!-- ── RESULTS TABS ──────────────────────────────────────────── -->
+  <section class="panel panel--results" id="results-panel">
+    <div class="panel__header">
+      <h2 class="panel__title">Results</h2>
+    </div>
+    <div class="tabs" id="results-tabs">
+      <div class="tabs__nav">
+        <button class="tab-btn is-active" data-tab="summary">Summary</button>
+        <button class="tab-btn" data-tab="trades">Trades</button>
+        <button class="tab-btn" data-tab="pairs">Pairs</button>
+        <button class="tab-btn" data-tab="charts">Charts</button>
+        <button class="tab-btn" data-tab="compare">Compare</button>
+        <button class="tab-btn" data-tab="history">History</button>
+        <button class="tab-btn" data-tab="configs">Configs</button>
+        <button class="tab-btn" data-tab="export">Export</button>
+      </div>
+
+      <div class="tabs__content">
+
+        <!-- Summary tab -->
+        <div class="tab-pane is-active" id="tab-summary">
+          <div class="summary-cards" id="summary-cards">
+            <div class="info-empty">No results yet. Run a backtest to see the summary.</div>
+          </div>
+        </div>
+
+        <!-- Trades tab -->
+        <div class="tab-pane" id="tab-trades">
+          <div class="table-wrapper" id="trades-table-wrapper">
+            <div class="info-empty">No trades loaded.</div>
+          </div>
+        </div>
+
+        <!-- Pairs tab -->
+        <div class="tab-pane" id="tab-pairs">
+          <div class="table-wrapper" id="pairs-summary-wrapper">
+            <div class="info-empty">No pair summary loaded.</div>
+          </div>
+        </div>
+
+        <!-- Charts tab -->
+        <div class="tab-pane" id="tab-charts">
+          <div class="charts-workspace" id="charts-workspace">
+            <div class="info-empty">Charts will render here after results are loaded.</div>
+          </div>
+        </div>
+
+        <!-- Compare tab -->
+        <div class="tab-pane" id="tab-compare">
+          <div class="compare-area" id="compare-area">
+            <div class="info-empty">Select multiple saved results to compare.</div>
+          </div>
+        </div>
+
+        <!-- History tab -->
+        <div class="tab-pane" id="tab-history">
+          <div class="history-list" id="history-list">
+            <div class="info-empty">No run history available.</div>
+          </div>
+        </div>
+
+        <!-- Configs tab -->
+        <div class="tab-pane" id="tab-configs">
+          <div class="configs-panel" id="configs-panel">
+            <button class="btn btn--secondary btn--sm" id="btn-save-current-config">Save Current Config</button>
+            <div class="configs-list" id="configs-list">
+              <div class="info-empty">No saved configs.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Export tab -->
+        <div class="tab-pane" id="tab-export">
+          <div class="export-area" id="export-area">
+            <button class="btn btn--secondary" id="btn-export-csv">Export Trades CSV</button>
+            <button class="btn btn--secondary" id="btn-export-json">Export Summary JSON</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module" src="/static/js/pages/shared/backtest/result_renderer.js"></script>
+<script type="module" src="/static/js/pages/shared/backtest/log_renderer.js"></script>
+<script type="module" src="/static/js/pages/backtesting/setup/options-loader.js"></script>
+<script type="module" src="/static/js/pages/backtesting/setup/strategy-panel.js"></script>
+<script type="module" src="/static/js/pages/backtesting/setup/time-panel.js"></script>
+<script type="module" src="/static/js/pages/backtesting/setup/pairs-panel.js"></script>
+<script type="module" src="/static/js/pages/backtesting/setup/json-config-parser.js"></script>
+<script type="module" src="/static/js/pages/backtesting/run/run-controller.js"></script>
+<script type="module" src="/static/js/pages/backtesting/run/data-download.js"></script>
+<script type="module" src="/static/js/pages/backtesting/run/log-panel.js"></script>
+<script type="module" src="/static/js/pages/backtesting/run/data-validator.js"></script>
+<script type="module" src="/static/js/pages/backtesting/trades/table.js"></script>
+<script type="module" src="/static/js/pages/backtesting/trades/pair-summary.js"></script>
+<script type="module" src="/static/js/pages/backtesting/configs/configs-panel.js"></script>
+<script type="module" src="/static/js/components/command-preview.js"></script>
+<script type="module" src="/static/js/components/pair-input.js"></script>
+<script type="module" src="/static/js/components/form-helpers.js"></script>
+<script type="module" src="/static/js/pages/backtesting/bootstrap.js"></script>
+<script type="module" src="/static/js/pages/backtesting/index.js"></script>
+{% endblock %}

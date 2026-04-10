@@ -1,0 +1,60 @@
+[32mINFO[0m:     Will watch for changes in these directories: ['/home/runner/workspace/app']
+[32mINFO[0m:     Uvicorn running on [1mhttp://0.0.0.0:5000[0m (Press CTRL+C to quit)
+[32mINFO[0m:     Started reloader process [[36m[1m1856[0m] using [36m[1mWatchFiles[0m
+[32mINFO[0m:     Started server process [[36m1871[0m]
+[32mINFO[0m:     Waiting for application startup.
+[32mINFO[0m:     Application startup complete.
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET / HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /backtesting HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /static/css/base/variables.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/base/animations.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /static/js/core/navigation.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /api/backtest/options HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /api/backtest/configs HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49338 - "[1mGET /settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49350 - "[1mGET /static/css/base/reset.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49366 - "[1mGET /static/css/base/variables.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49378 - "[1mGET /static/css/base/typography.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49396 - "[1mGET /static/css/base/animations.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49388 - "[1mGET /static/css/base/layout.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49410 - "[1mGET /static/css/components/buttons.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49350 - "[1mGET /static/css/components/forms.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49350 - "[1mGET /static/css/components/tables.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49366 - "[1mGET /static/css/components/tabs.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49388 - "[1mGET /static/css/components/panels.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49410 - "[1mGET /static/css/components/modals.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49350 - "[1mGET /static/css/components/toasts.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49366 - "[1mGET /static/css/pages/settings.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49388 - "[1mGET /static/js/core/navigation.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49378 - "[1mGET /static/css/components/cards.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49396 - "[1mGET /static/js/core/utils.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49350 - "[1mGET /static/js/core/api.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49410 - "[1mGET /static/js/core/state.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49396 - "[1mGET /static/js/components/modal.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49388 - "[1mGET /static/js/components/toast.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49378 - "[1mGET /static/js/core/persistence.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49366 - "[1mGET /static/js/core/events.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49350 - "[1mGET /static/js/components/loading-state.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49388 - "[1mGET /static/js/pages/settings/defaults-settings.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49410 - "[1mGET /static/js/pages/settings/theme-settings.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49396 - "[1mGET /static/js/pages/settings/paths-settings.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49378 - "[1mGET /static/js/pages/settings/index.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49378 - "[1mGET /static/js/components/form-helpers.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49378 - "[1mGET /api/settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:49378 - "[1mGET /favicon.ico HTTP/1.1[0m" [31m404 Not Found[0m
+[32mINFO[0m:     127.0.0.1:40648 - "[1mGET /settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:40648 - "[1mGET /static/css/base/animations.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:40650 - "[1mGET /static/css/pages/settings.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:40662 - "[1mGET /static/js/core/navigation.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:40674 - "[1mGET /static/js/pages/settings/theme-settings.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:40674 - "[1mGET /api/settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:48314 - "[1mGET /settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:48314 - "[1mGET /static/css/pages/settings.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:48322 - "[1mGET /static/js/core/navigation.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:48328 - "[1mGET /static/js/pages/settings/theme-settings.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:48328 - "[1mGET /api/settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     Shutting down
+[32mINFO[0m:     Waiting for application shutdown.
+[32mINFO[0m:     Application shutdown complete.
+[32mINFO[0m:     Finished server process [[36m1871[0m]
+[32mINFO[0m:     Stopping reloader process [[36m[1m1856[0m]

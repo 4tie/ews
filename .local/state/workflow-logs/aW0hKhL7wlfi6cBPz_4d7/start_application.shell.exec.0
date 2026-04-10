@@ -1,0 +1,102 @@
+[32mINFO[0m:     Will watch for changes in these directories: ['/home/runner/workspace/app']
+[32mINFO[0m:     Uvicorn running on [1mhttp://0.0.0.0:5000[0m (Press CTRL+C to quit)
+[32mINFO[0m:     Started reloader process [[36m[1m3209[0m] using [36m[1mWatchFiles[0m
+[32mINFO[0m:     Started server process [[36m3225[0m]
+[32mINFO[0m:     Waiting for application startup.
+[32mINFO[0m:     Application startup complete.
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET / HTTP/1.1[0m" [33m307 Temporary Redirect[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /backtesting HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/base/reset.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/css/base/variables.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/base/typography.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/css/base/layout.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/base/animations.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/css/components/buttons.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/components/forms.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/css/components/cards.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/components/tables.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/css/components/tabs.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/components/panels.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/css/components/modals.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/components/toasts.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/core/navigation.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/js/core/utils.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/core/api.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/js/core/state.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/core/events.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/js/core/persistence.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/components/toast.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/js/components/modal.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/components/loading-state.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/components/pair-input.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/js/components/form-helpers.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/pages/backtesting/index.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /api/backtest/options HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /api/backtest/configs HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /backtesting HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/css/base/reset.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34558 - "[1mGET /static/css/base/variables.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34598 - "[1mGET /static/css/base/animations.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34590 - "[1mGET /static/css/base/layout.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /static/css/base/typography.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/css/components/forms.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34606 - "[1mGET /static/css/components/buttons.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34606 - "[1mGET /static/css/components/cards.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34598 - "[1mGET /static/css/components/tables.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34590 - "[1mGET /static/css/components/tabs.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /static/css/components/panels.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34558 - "[1mGET /static/css/components/modals.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/css/components/toasts.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34606 - "[1mGET /static/css/pages/backtesting.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34598 - "[1mGET /static/js/core/navigation.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34590 - "[1mGET /static/js/core/utils.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /static/js/core/api.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34558 - "[1mGET /static/js/core/state.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/js/core/events.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34606 - "[1mGET /static/js/core/persistence.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34590 - "[1mGET /static/js/components/modal.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /static/js/pages/shared/backtest/result_renderer.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34598 - "[1mGET /static/js/components/toast.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/js/components/loading-state.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34558 - "[1mGET /static/js/pages/shared/backtest/log_renderer.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34606 - "[1mGET /static/js/pages/backtesting/setup/options-loader.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34590 - "[1mGET /static/js/pages/backtesting/setup/strategy-panel.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34598 - "[1mGET /static/js/pages/backtesting/setup/time-panel.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/js/pages/backtesting/setup/pairs-panel.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /static/js/pages/backtesting/setup/json-config-parser.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34558 - "[1mGET /static/js/pages/backtesting/run/run-controller.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34606 - "[1mGET /static/js/pages/backtesting/run/data-download.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34590 - "[1mGET /static/js/pages/backtesting/run/log-panel.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34598 - "[1mGET /static/js/pages/backtesting/run/data-validator.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/js/pages/backtesting/trades/table.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /static/js/pages/backtesting/trades/pair-summary.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34558 - "[1mGET /static/js/pages/backtesting/configs/configs-panel.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34606 - "[1mGET /static/js/components/command-preview.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34590 - "[1mGET /static/js/components/pair-input.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34598 - "[1mGET /static/js/components/form-helpers.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /static/js/pages/backtesting/bootstrap.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /static/js/pages/backtesting/index.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /api/backtest/options HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34574 - "[1mGET /api/backtest/configs HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:34546 - "[1mGET /favicon.ico HTTP/1.1[0m" [31m404 Not Found[0m
+[32mINFO[0m:     127.0.0.1:48938 - "[1mGET /backtesting HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:48938 - "[1mGET /static/css/components/tabs.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:48938 - "[1mGET /static/js/pages/backtesting/bootstrap.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     127.0.0.1:48938 - "[1mGET /api/backtest/options HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     127.0.0.1:48938 - "[1mGET /api/backtest/configs HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /static/css/base/variables.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/css/base/animations.css HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/css/components/tabs.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /static/css/pages/settings.css HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/core/navigation.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /static/js/pages/settings/defaults-settings.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.1.23:0 - "[1mGET /static/js/pages/settings/paths-settings.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.0.2:0 - "[1mGET /static/js/pages/settings/index.js HTTP/1.1[0m" [33m304 Not Modified[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /static/js/pages/settings/theme-settings.js HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     10.84.7.13:0 - "[1mGET /api/settings HTTP/1.1[0m" [32m200 OK[0m
+[32mINFO[0m:     Shutting down
+[32mINFO[0m:     Waiting for application shutdown.
+[32mINFO[0m:     Application shutdown complete.
+[32mINFO[0m:     Finished server process [[36m3225[0m]
+[32mINFO[0m:     Stopping reloader process [[36m[1m3209[0m]

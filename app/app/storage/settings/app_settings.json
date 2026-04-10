@@ -1,0 +1,11 @@
+{
+  "freqtrade_path": "",
+  "user_data_path": "",
+  "default_exchange": "binance",
+  "default_timeframe": "5m",
+  "default_stake_amount": 50,
+  "default_max_open_trades": 2,
+  "theme": "dark",
+  "results_base_path": "",
+  "config_path": ""
+}

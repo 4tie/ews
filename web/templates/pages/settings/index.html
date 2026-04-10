@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block page_css %}
+<link rel="stylesheet" href="/static/css/pages/settings.css" />
+{% endblock %}
+
+{% block content %}
+<div class="settings-workspace" id="settings-workspace">
+
+  <div class="settings-grid">
+
+    <!-- ── PATHS ─────────────────────────────────────────────── -->
+    <section class="panel" id="settings-paths" data-animate>
+      <div class="panel__header">
+        <h2 class="panel__title">Paths</h2>
+      </div>
+      <div class="panel__body">
+        <div class="form-group">
+          <label class="form-label" for="set-ft-path">Freqtrade Directory</label>
+          <div class="input-with-action">
+            <input class="form-input" type="text" id="set-ft-path" name="freqtrade_path"
+              placeholder="/home/user/freqtrade" />
+            <button class="btn btn--ghost btn--sm" id="btn-validate-ft-path">Validate</button>
+          </div>
+          <div class="field-hint" id="ft-path-status"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-config-path">Config File Path</label>
+          <div class="input-with-action">
+            <input class="form-input" type="text" id="set-config-path" name="config_path"
+              placeholder="/home/user/freqtrade/user_data/config.json" />
+            <button class="btn btn--ghost btn--sm" id="btn-validate-config-path">Validate</button>
+          </div>
+          <div class="field-hint" id="config-path-status"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-results-path">Backtest Results Base Path</label>
+          <input class="form-input" type="text" id="set-results-path" name="results_base_path"
+            placeholder="/home/user/freqtrade/user_data/backtest_results" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-userdata-path">User Data Path</label>
+          <input class="form-input" type="text" id="set-userdata-path" name="user_data_path"
+            placeholder="/home/user/freqtrade/user_data" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DEFAULTS ───────────────────────────────────────────── -->
+    <section class="panel" id="settings-defaults" data-animate data-animate-delay="80">
+      <div class="panel__header">
+        <h2 class="panel__title">Defaults &amp; Persistence</h2>
+      </div>
+      <div class="panel__body">
+        <p class="settings-description">
+          These settings control what gets automatically restored when the app loads.
+        </p>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="set-restore-pairs" name="restore_pairs" checked />
+            Restore last used pairs on load
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="set-restore-strategy" name="restore_strategy" checked />
+            Restore last selected strategy
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="set-restore-dates" name="restore_dates" checked />
+            Restore last used timerange dates
+          </label>
+        </div>
+        <div class="form-group">
+          <button class="btn btn--ghost btn--sm btn--danger" id="btn-clear-persistence">
+            Clear All Saved State
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── THEME ──────────────────────────────────────────────── -->
+    <section class="panel" id="settings-theme" data-animate data-animate-delay="160">
+      <div class="panel__header">
+        <h2 class="panel__title">Appearance</h2>
+      </div>
+      <div class="panel__body">
+
+        <div class="form-group">
+          <label class="form-label">Color Theme</label>
+          <div class="theme-selector" id="theme-selector">
+            <button class="theme-btn" data-theme="dark">
+              <span class="theme-btn__swatch theme-btn__swatch--dark"></span>
+              Dark
+            </button>
+            <button class="theme-btn" data-theme="darker">
+              <span class="theme-btn__swatch theme-btn__swatch--darker"></span>
+              Darker
+            </button>
+            <button class="theme-btn" data-theme="midnight">
+              <span class="theme-btn__swatch theme-btn__swatch--midnight"></span>
+              Midnight
+            </button>
+            <button class="theme-btn" data-theme="slate">
+              <span class="theme-btn__swatch theme-btn__swatch--slate"></span>
+              Slate
+            </button>
+            <button class="theme-btn" data-theme="dracula">
+              <span class="theme-btn__swatch theme-btn__swatch--dracula"></span>
+              Dracula
+            </button>
+            <button class="theme-btn" data-theme="mocha">
+              <span class="theme-btn__swatch theme-btn__swatch--mocha"></span>
+              Mocha
+            </button>
+            <button class="theme-btn" data-theme="forest">
+              <span class="theme-btn__swatch theme-btn__swatch--forest"></span>
+              Forest
+            </button>
+            <button class="theme-btn" data-theme="light">
+              <span class="theme-btn__swatch theme-btn__swatch--light"></span>
+              Light
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="set-accent-color">Accent Color</label>
+          <div class="accent-color-picker">
+            <span class="accent-color-preview" id="accent-color-preview"></span>
+            <input type="color" id="set-accent-color" name="accent_color" value="#4f8ef7" />
+            <span class="accent-color-value" id="accent-color-value">#4f8ef7</span>
+          </div>
+          <div class="accent-presets" id="accent-presets">
+            <button class="accent-preset" data-color="#4f8ef7" style="background:#4f8ef7" title="Blue"></button>
+            <button class="accent-preset" data-color="#58a6ff" style="background:#58a6ff" title="Sky"></button>
+            <button class="accent-preset" data-color="#bd93f9" style="background:#bd93f9" title="Lavender"></button>
+            <button class="accent-preset" data-color="#ff79c6" style="background:#ff79c6" title="Pink"></button>
+            <button class="accent-preset" data-color="#f0965a" style="background:#f0965a" title="Orange"></button>
+            <button class="accent-preset" data-color="#fbbf24" style="background:#fbbf24" title="Amber"></button>
+            <button class="accent-preset" data-color="#4dbb6e" style="background:#4dbb6e" title="Green"></button>
+            <button class="accent-preset" data-color="#34d399" style="background:#34d399" title="Teal"></button>
+            <button class="accent-preset" data-color="#f87171" style="background:#f87171" title="Red"></button>
+            <button class="accent-preset" data-color="#a78bfa" style="background:#a78bfa" title="Violet"></button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">UI Density</label>
+          <div class="theme-selector" id="density-selector">
+            <button class="theme-btn" data-density="compact">Compact</button>
+            <button class="theme-btn" data-density="normal">Normal</button>
+            <button class="theme-btn" data-density="comfortable">Comfortable</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Corner Radius</label>
+          <div class="theme-selector" id="radius-selector">
+            <button class="theme-btn" data-radius="sharp">Sharp</button>
+            <button class="theme-btn" data-radius="rounded">Rounded</button>
+            <button class="theme-btn" data-radius="pill">Pill</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Font Size</label>
+          <div class="theme-selector" id="font-selector">
+            <button class="theme-btn" data-font="small">Small</button>
+            <button class="theme-btn" data-font="default">Default</button>
+            <button class="theme-btn" data-font="large">Large</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Background Style</label>
+          <div class="theme-selector" id="bg-selector">
+            <button class="theme-btn" data-bg="solid">
+              <span class="theme-btn__swatch" style="background:#0c0e13;"></span>
+              Solid
+            </button>
+            <button class="theme-btn" data-bg="dots">
+              <span class="theme-btn__swatch theme-btn__swatch--bg-dots"></span>
+              Dots
+            </button>
+            <button class="theme-btn" data-bg="gradient">
+              <span class="theme-btn__swatch theme-btn__swatch--bg-gradient"></span>
+              Gradient
+            </button>
+            <button class="theme-btn" data-bg="mesh">
+              <span class="theme-btn__swatch theme-btn__swatch--bg-mesh"></span>
+              Grid
+            </button>
+            <button class="theme-btn" data-bg="noise">
+              <span class="theme-btn__swatch theme-btn__swatch--bg-noise"></span>
+              Noise
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ── SAVE BAR ───────────────────────────────────────────────── -->
+  <div class="settings-save-bar" id="settings-save-bar">
+    <span class="save-status" id="settings-save-status"></span>
+    <button class="btn btn--primary" id="btn-save-settings">Save Settings</button>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module" src="/static/js/pages/settings/paths-settings.js"></script>
+<script type="module" src="/static/js/pages/settings/defaults-settings.js"></script>
+<script type="module" src="/static/js/pages/settings/theme-settings.js"></script>
+<script type="module" src="/static/js/pages/settings/index.js"></script>
+{% endblock %}

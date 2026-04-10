@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.env.local
+app/storage/settings/
+app/storage/saved_configs/
+app/storage/optimizer_runs/
+app/storage/cache/
+user_data/backtest_results/
+*.log

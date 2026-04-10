@@ -1,0 +1,160 @@
+/* ════════════════════════════════════════════════════
+   animations.css — Global motion, transitions, and
+   background variants.
+   ════════════════════════════════════════════════════ */
+
+/* ── Page transition overlay ─────────────────────── */
+#page-transition {
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg);
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+#page-transition.is-leaving { opacity: 1; pointer-events: all; }
+
+/* ── Page enter animation ────────────────────────── */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.app-content {
+  animation: page-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Sidebar enter ───────────────────────────────── */
+@keyframes sidebar-enter {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.sidebar {
+  animation: sidebar-enter 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Topbar enter ────────────────────────────────── */
+@keyframes topbar-enter {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.topbar {
+  animation: topbar-enter 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Stagger-in for panels, cards, rows ──────────── */
+@keyframes stagger-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+[data-animate] {
+  opacity: 0;
+}
+[data-animate].is-visible {
+  animation: stagger-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Nav link active transition ──────────────────── */
+.sidebar__link {
+  position: relative;
+  overflow: hidden;
+}
+.sidebar__link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--color-accent);
+  opacity: 0;
+  border-radius: inherit;
+  transition: opacity 150ms ease;
+}
+.sidebar__link:active::after { opacity: 0.07; }
+
+/* ── Loading skeleton shimmer ────────────────────── */
+@keyframes shimmer {
+  from { background-position: -400px 0; }
+  to   { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-2) 25%,
+    var(--color-border)    50%,
+    var(--color-surface-2) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: var(--radius-sm);
+}
+
+/* ══════════════════════════════════════════════════════
+   BACKGROUND VARIANTS
+   Applied via data-bg on <html>
+   ══════════════════════════════════════════════════════ */
+
+/* Default (solid) — body already uses --color-bg */
+
+/* ── Dots ────────────────────────────────────────── */
+[data-bg="dots"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(circle, var(--color-border) 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.55;
+}
+
+/* ── Gradient ────────────────────────────────────── */
+[data-bg="gradient"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(79,142,247,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(52,211,153,0.05) 0%, transparent 60%);
+}
+
+/* ── Mesh / Lines ────────────────────────────────── */
+[data-bg="mesh"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(var(--color-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.35;
+}
+
+/* ── Noise ────────────────────────────────────────── */
+[data-bg="noise"] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
+
+/* ensure app-shell sits above the ::before pseudo */
+[data-bg] .app-shell { position: relative; z-index: 1; }
+
+/* ── Light theme adjustments for bg variants ─────── */
+[data-theme="light"][data-bg="dots"] body::before   { opacity: 0.3; }
+[data-theme="light"][data-bg="mesh"] body::before   { opacity: 0.18; }
+[data-theme="light"][data-bg="gradient"] body::before {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(79,142,247,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 90%, rgba(52,211,153,0.04) 0%, transparent 60%);
+}

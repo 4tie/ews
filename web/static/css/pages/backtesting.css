@@ -1,0 +1,86 @@
+.bt-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* Setup grid */
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.setup-field { display: flex; flex-direction: column; }
+.setup-field--wide { grid-column: span 2; }
+.setup-field--full { grid-column: span 3; }
+
+/* Run controls */
+.run-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-left: auto;
+}
+
+/* Data panel */
+.data-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+}
+
+/* Results panel */
+.panel--results .tabs__content { min-height: 280px; }
+
+/* Charts workspace */
+.charts-workspace {
+  min-height: 300px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Compare / export */
+.compare-area, .export-area, .history-list {
+  min-height: 160px;
+}
+
+.export-area {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+}
+
+/* Configs panel */
+.configs-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+.configs-list  { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.config-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+}
+
+.config-item__name {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.config-item__actions { display: flex; gap: var(--space-2); }

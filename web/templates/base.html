@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <script>
+    (function(){
+      try {
+        var p = function(k){ return JSON.parse(localStorage.getItem("4tie::"+k)); };
+        var t = p("theme");          if(t) document.documentElement.dataset.theme = t;
+        var a = p("accent-color");   if(a) document.documentElement.style.setProperty("--color-accent", a);
+        var d = p("ui-density");     if(d && d !== "normal")   document.documentElement.dataset.density = d;
+        var r = p("ui-radius");      if(r && r !== "rounded")  document.documentElement.dataset.radius = r;
+        var f = p("ui-font");        if(f && f !== "default")  document.documentElement.dataset.font = f;
+        var b = p("ui-bg");          if(b && b !== "solid")    document.documentElement.dataset.bg = b;
+      } catch(e){}
+    })();
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ title }} — 4tie Control Panel</title>
+
+  <!-- Base styles -->
+  <link rel="stylesheet" href="/static/css/base/reset.css" />
+  <link rel="stylesheet" href="/static/css/base/variables.css" />
+  <link rel="stylesheet" href="/static/css/base/typography.css" />
+  <link rel="stylesheet" href="/static/css/base/layout.css" />
+  <link rel="stylesheet" href="/static/css/base/animations.css" />
+
+  <!-- Component styles -->
+  <link rel="stylesheet" href="/static/css/components/buttons.css" />
+  <link rel="stylesheet" href="/static/css/components/forms.css" />
+  <link rel="stylesheet" href="/static/css/components/cards.css" />
+  <link rel="stylesheet" href="/static/css/components/tables.css" />
+  <link rel="stylesheet" href="/static/css/components/tabs.css" />
+  <link rel="stylesheet" href="/static/css/components/panels.css" />
+  <link rel="stylesheet" href="/static/css/components/modals.css" />
+  <link rel="stylesheet" href="/static/css/components/toasts.css" />
+
+  <!-- Page styles -->
+  {% block page_css %}{% endblock %}
+</head>
+<body>
+  <div class="app-shell">
+    {% include "partials/sidebar.html" %}
+
+    <div class="app-main">
+      {% include "partials/topbar.html" %}
+
+      <main class="app-content" id="main-content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  {% include "partials/toast_container.html" %}
+  {% include "partials/modal_container.html" %}
+
+  <!-- Core JS -->
+  <script type="module" src="/static/js/core/navigation.js"></script>
+  <script type="module" src="/static/js/core/utils.js"></script>
+  <script type="module" src="/static/js/core/api.js"></script>
+  <script type="module" src="/static/js/core/state.js"></script>
+  <script type="module" src="/static/js/core/events.js"></script>
+  <script type="module" src="/static/js/core/persistence.js"></script>
+
+  <!-- Component JS -->
+  <script type="module" src="/static/js/components/toast.js"></script>
+  <script type="module" src="/static/js/components/modal.js"></script>
+  <script type="module" src="/static/js/components/loading-state.js"></script>
+
+  {% block page_js %}{% endblock %}
+</body>
+</html>
