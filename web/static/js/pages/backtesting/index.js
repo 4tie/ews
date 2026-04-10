@@ -36,4 +36,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   tfSelect?.addEventListener("change", () => {
     setState("backtest.timeframe", tfSelect.value);
   });
+
+  // Dry run wallet → state
+  const walletInput = document.getElementById("input-dry-run-wallet");
+  walletInput?.addEventListener("change", () => {
+    const value = parseFloat(walletInput.value) || null;
+    setState("backtest.dry_run_wallet", value);
+  });
 });

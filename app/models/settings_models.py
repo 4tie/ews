@@ -7,7 +7,6 @@ class AppSettings(BaseModel):
     user_data_path: str = ""
     default_exchange: str = "binance"
     default_timeframe: str = "5m"
-    default_stake_amount: float = 100.0
     default_max_open_trades: int = 3
     theme: str = "dark"
     results_base_path: str = ""

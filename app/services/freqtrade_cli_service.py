@@ -65,6 +65,7 @@ class FreqtradeCliService:
             timerange=payload.get("timerange"),
             pairs=payload.get("pairs"),
             timeframe=payload.get("timeframe"),
+            dry_run_wallet=payload.get("dry_run_wallet"),
             extra_flags=[
                 "--export",
                 "trades",

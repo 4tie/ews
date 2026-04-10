@@ -10,6 +10,7 @@ def build_backtest_command(
     timerange: Optional[str] = None,
     pairs: Optional[List[str]] = None,
     timeframe: Optional[str] = None,
+    dry_run_wallet: Optional[float] = None,
     extra_flags: Optional[List[str]] = None,
 ) -> List[str]:
     """Build a freqtrade backtesting command as a list of args."""
@@ -26,6 +27,8 @@ def build_backtest_command(
         cmd += ["--timeframe", timeframe]
     if pairs:
         cmd += ["--pairs"] + pairs
+    if dry_run_wallet is not None:
+        cmd += ["--dry-run-wallet", str(dry_run_wallet)]
     if extra_flags:
         cmd += extra_flags
     return cmd

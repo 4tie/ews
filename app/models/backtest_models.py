@@ -24,8 +24,8 @@ class BacktestRunRequest(BaseModel):
     timerange: Optional[str] = None
     pairs: List[str] = Field(default_factory=list)
     exchange: str = "binance"
-    stake_amount: Optional[float] = None
     max_open_trades: Optional[int] = None
+    dry_run_wallet: Optional[float] = None
     config_path: Optional[str] = None
     extra_flags: List[str] = Field(default_factory=list)
     version_id: Optional[str] = None

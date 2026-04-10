@@ -15,7 +15,6 @@ class ConfigService:
             "user_data_path": "",
             "default_exchange": "binance",
             "default_timeframe": "5m",
-            "default_stake_amount": 100.0,
             "default_max_open_trades": 3,
             "theme": "dark",
             "results_base_path": "",

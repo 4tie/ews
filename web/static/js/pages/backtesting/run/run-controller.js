@@ -37,6 +37,7 @@ export function initRunController() {
       timerange,
       pairs:    getState("backtest.pairs") || [],
       exchange: getState("backtest.exchange") || "binance",
+      dry_run_wallet: getState("backtest.dry_run_wallet") || undefined,
     };
 
     setButtonLoading(runBtn, true, "Running…");
