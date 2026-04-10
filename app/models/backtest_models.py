@@ -1,5 +1,21 @@
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+
+
+class BacktestTriggerSource(str, Enum):
+    MANUAL = "manual"
+    AI_APPLY = "ai_apply"
+    EVOLUTION = "evolution"
+    OPTIMIZER = "optimizer"
+
+
+class BacktestRunStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    FAILED = "failed"
+    COMPLETED = "completed"
 
 
 class BacktestRunRequest(BaseModel):
@@ -13,6 +29,21 @@ class BacktestRunRequest(BaseModel):
     config_path: Optional[str] = None
     extra_flags: List[str] = Field(default_factory=list)
     version_id: Optional[str] = None
+    trigger_source: BacktestTriggerSource = BacktestTriggerSource.MANUAL
+
+
+class BacktestRunRecord(BaseModel):
+    run_id: str
+    strategy: str
+    version_id: Optional[str] = None
+    trigger_source: BacktestTriggerSource
+    created_at: str
+    updated_at: str
+    status: BacktestRunStatus
+    command: str
+    artifact_path: Optional[str] = None
+    pid: Optional[int] = None
+    error: Optional[str] = None
 
 
 class ConfigSaveRequest(BaseModel):

@@ -1,16 +1,27 @@
+import os
+import uuid
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from app.models.backtest_models import BacktestRunRequest, ConfigSaveRequest
-from app.services.results_service import ResultsService
-from app.services.freqtrade_cli_service import FreqtradeCliService
+
+from app.models.backtest_models import (
+    BacktestRunRecord,
+    BacktestRunRequest,
+    BacktestRunStatus,
+    ConfigSaveRequest,
+)
 from app.services.config_service import ConfigService
-import os
-import json
+from app.services.freqtrade_cli_service import FreqtradeCliService
+from app.services.mutation_service import mutation_service
+from app.services.persistence_service import PersistenceService
+from app.services.results_service import ResultsService
+from app.utils.datetime_utils import now_iso
 
 router = APIRouter()
 results_svc = ResultsService()
 cli_svc = FreqtradeCliService()
 config_svc = ConfigService()
+persistence = PersistenceService()
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "user_data", "data")
 
@@ -28,8 +39,78 @@ async def get_options():
 @router.post("/run")
 async def run_backtest(payload: BacktestRunRequest):
     """Trigger a freqtrade backtest subprocess."""
-    result = cli_svc.run_backtest(payload.model_dump())
-    return {"status": "queued", "run_id": "placeholder", "command": result.get("command")}
+    version = None
+    if payload.version_id:
+        version = mutation_service.get_version_by_id(payload.version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail=f"Version {payload.version_id} not found")
+        if version.strategy_name != payload.strategy:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Version {payload.version_id} belongs to {version.strategy_name}, not {payload.strategy}",
+            )
+
+    payload_data = payload.model_dump(mode="json")
+    command = cli_svc.build_backtest_command_preview(payload_data)
+    run_id = f"bt-{uuid.uuid4().hex[:8]}"
+    created_at = now_iso()
+
+    run_record = BacktestRunRecord(
+        run_id=run_id,
+        strategy=payload.strategy,
+        version_id=payload.version_id,
+        trigger_source=payload.trigger_source,
+        created_at=created_at,
+        updated_at=created_at,
+        status=BacktestRunStatus.QUEUED,
+        command=command,
+        artifact_path=None,
+        pid=None,
+        error=None,
+    )
+    persistence.save_backtest_run(run_id, run_record.model_dump(mode="json"))
+
+    if version is not None:
+        mutation_service.link_backtest(version.version_id, run_id, None)
+
+    launch_payload = {**payload_data, "run_id": run_id}
+
+    try:
+        result = cli_svc.run_backtest(launch_payload)
+    except Exception as exc:
+        failed_at = now_iso()
+        run_record.status = BacktestRunStatus.FAILED
+        run_record.updated_at = failed_at
+        run_record.artifact_path = None
+        run_record.pid = None
+        run_record.error = str(exc)
+        persistence.save_backtest_run(run_id, run_record.model_dump(mode="json"))
+        return {
+            "status": run_record.status.value,
+            "run_id": run_id,
+            "command": run_record.command,
+            "version_id": run_record.version_id,
+            "trigger_source": run_record.trigger_source.value,
+            "artifact_path": run_record.artifact_path,
+            "error": run_record.error,
+        }
+
+    run_record.status = BacktestRunStatus.RUNNING
+    run_record.updated_at = now_iso()
+    run_record.command = result.get("command", run_record.command)
+    run_record.artifact_path = result.get("log_file")
+    run_record.pid = result.get("pid")
+    run_record.error = None
+    persistence.save_backtest_run(run_id, run_record.model_dump(mode="json"))
+
+    return {
+        "status": run_record.status.value,
+        "run_id": run_id,
+        "command": run_record.command,
+        "version_id": run_record.version_id,
+        "trigger_source": run_record.trigger_source.value,
+        "artifact_path": run_record.artifact_path,
+    }
 
 
 @router.post("/download-data")

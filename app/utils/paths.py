@@ -49,6 +49,10 @@ def optimizer_runs_dir() -> str:
     return os.path.join(storage_dir(), "optimizer_runs")
 
 
+def backtest_runs_dir() -> str:
+    return os.path.join(storage_dir(), "backtest_runs")
+
+
 def strategy_versions_dir(strategy_name: str) -> str:
     return os.path.join(storage_dir(), "versions", strategy_name)
 

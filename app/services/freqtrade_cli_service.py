@@ -1,9 +1,10 @@
-﻿import subprocess
 import os
+import subprocess
 from datetime import datetime
-from app.utils.paths import strategy_results_dir
-from app.utils.command_builder import command_to_string, build_backtest_command, build_download_command
+
 from app.services.config_service import ConfigService
+from app.utils.command_builder import build_backtest_command, build_download_command, command_to_string
+from app.utils.paths import strategy_results_dir
 
 config_svc = ConfigService()
 
@@ -55,12 +56,10 @@ class FreqtradeCliService:
         )
         command = command_to_string(cmd)
         strategy = payload.get("strategy", "") or "unknown"
+        run_id = payload.get("run_id") or datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         log_dir = strategy_results_dir(strategy)
         os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(
-            log_dir,
-            f"{datetime.utcnow().strftime('%Y%m%d-%H%M%S-%f')}.backtest.log",
-        )
+        log_path = os.path.join(log_dir, f"{run_id}.backtest.log")
 
         with open(log_path, "w", encoding="utf-8") as log_file:
             log_file.write(f"$ {command}\n\n")
@@ -90,4 +89,3 @@ class FreqtradeCliService:
         )
         # TODO: run as async subprocess
         return {"command": command_to_string(cmd), "status": "pending"}
-
