@@ -1,5 +1,5 @@
-﻿/**
- * index.js — Backtesting page entry point. Initializes all modules.
+/**
+ * index.js - Backtesting page entry point. Initializes all modules.
  */
 
 import { loadOptions } from "./setup/options-loader.js";
@@ -17,6 +17,7 @@ import { initComparePanel } from "./compare/compare-panel.js";
 import { initHistoryPanel } from "./history/history-panel.js";
 import { initExportPanel } from "./export/export-panel.js";
 import { initResultsController } from "./results/results-controller.js";
+import { initAiChatPanel } from "./results/ai-chat-panel.js";
 import { initConfigsPanel } from "./configs/configs-panel.js";
 import { initHeaderConfigButtons } from "./configs/header-config-buttons.js";
 import { getState, setState } from "../../core/state.js";
@@ -52,6 +53,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initConfigsPanel();
   initHeaderConfigButtons();
   initResultsController();
+  initAiChatPanel();
 
   const tfSelect = document.getElementById("select-timeframe");
   tfSelect?.addEventListener("change", () => {
