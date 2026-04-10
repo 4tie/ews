@@ -1,4 +1,4 @@
-from enum import Enum
+﻿from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -34,6 +34,7 @@ class BacktestRunRequest(BaseModel):
 
 class BacktestRunRecord(BaseModel):
     run_id: str
+    engine: str = "freqtrade"
     strategy: str
     version_id: Optional[str] = None
     trigger_source: BacktestTriggerSource
