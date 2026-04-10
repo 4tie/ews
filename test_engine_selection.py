@@ -83,20 +83,6 @@ def test_backtest_router_freqtrade_options_still_works() -> None:
         ft_module.config_svc.get_settings = original_ft_get_settings
 
 
-def test_backtest_router_resolves_backtrader_engine() -> None:
-    app = FastAPI()
-    app.include_router(backtest_router.router, prefix="/api/backtest")
-    client = TestClient(app)
-
-    original_get_settings = backtest_router.config_svc.get_settings
-    try:
-        backtest_router.config_svc.get_settings = lambda: {"engine": "backtrader"}
-        resp = client.get("/api/backtest/options")
-        assert resp.status_code == 501, resp.text
-        assert "backtrader" in resp.text.lower()
-        print("[PASS] Engine=backtrader routes through Backtrader engine (501 scaffold)")
-    finally:
-        backtest_router.config_svc.get_settings = original_get_settings
 
 
 def test_backtest_router_rejects_unknown_engine() -> None:
@@ -120,6 +106,5 @@ if __name__ == "__main__":
     test_invalid_engine_value_fails_validation()
     test_old_settings_file_without_engine_still_works()
     test_backtest_router_freqtrade_options_still_works()
-    test_backtest_router_resolves_backtrader_engine()
     test_backtest_router_rejects_unknown_engine()
     print("\n[SUCCESS] Engine selection tests passed!")

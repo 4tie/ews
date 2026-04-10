@@ -61,6 +61,7 @@ export function initRunController() {
       pairs:    getState("backtest.pairs") || [],
       exchange: getState("backtest.exchange") || "binance",
       dry_run_wallet: getState("backtest.dry_run_wallet") || undefined,
+      max_open_trades: getState("backtest.maxOpenTrades") || undefined,
     };
 
     setButtonLoading(runBtn, true, "Running...");

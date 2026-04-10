@@ -11,6 +11,7 @@ def build_backtest_command(
     pairs: Optional[List[str]] = None,
     timeframe: Optional[str] = None,
     dry_run_wallet: Optional[float] = None,
+    max_open_trades: Optional[int] = None,
     extra_flags: Optional[List[str]] = None,
 ) -> List[str]:
     """Build a freqtrade backtesting command as a list of args."""
@@ -21,16 +22,16 @@ def build_backtest_command(
         "--strategy", strategy,
         "--config", config_path,
     ]
-    if timerange:
-        cmd += ["--timerange", timerange]
     if timeframe:
         cmd += ["--timeframe", timeframe]
+    if timerange:
+        cmd += ["--timerange", timerange]
     if pairs:
         cmd += ["--pairs"] + pairs
-    if dry_run_wallet is not None:
+    if dry_run_wallet:
         cmd += ["--dry-run-wallet", str(dry_run_wallet)]
-    if extra_flags:
-        cmd += extra_flags
+    if max_open_trades is not None:
+        cmd += ["--max-open-trades", str(max_open_trades)]
     return cmd
 
 
@@ -69,7 +70,7 @@ def build_download_command(
     pairs: List[str],
     timeframes: List[str],
     timerange: Optional[str] = None,
-    prepend: bool = False,
+    prepend: bool = True,
 ) -> List[str]:
     exe = resolve_freqtrade_executable(freqtrade_path)
     cmd = [

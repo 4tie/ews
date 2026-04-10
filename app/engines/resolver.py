@@ -2,8 +2,7 @@
 
 from typing import Any
 
-from app.engines.backtrader.engine import BacktraderEngine
-from app.engines.backtrader.result_parser import BacktraderResultParser
+
 from app.engines.base import BacktestEngine, ResultParser
 from app.engines.freqtrade.engine import FreqtradeEngine
 from app.engines.freqtrade.result_parser import FreqtradeResultParser
@@ -13,12 +12,10 @@ _DEFAULT_ENGINE_ID = "freqtrade"
 
 _ENGINE_REGISTRY: dict[str, type[BacktestEngine]] = {
     "freqtrade": FreqtradeEngine,
-    "backtrader": BacktraderEngine,
 }
 
 _PARSER_REGISTRY: dict[str, type[ResultParser]] = {
     "freqtrade": FreqtradeResultParser,
-    "backtrader": BacktraderResultParser,
 }
 
 

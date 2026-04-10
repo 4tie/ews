@@ -15,11 +15,25 @@ import { initPairSummary }   from "./trades/pair-summary.js";
 import { initResultsController } from "./results/results-controller.js";
 import { initConfigsPanel }  from "./configs/configs-panel.js";
 import { initHeaderConfigButtons } from "./configs/header-config-buttons.js";
-import { setState }          from "../../core/state.js";
+import { getState, setState } from "../../core/state.js";
 import showToast             from "../../components/toast.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
   await loadOptions();
+
+  // Populate inputs from state (loaded from app settings)
+  const walletInput = document.getElementById("input-dry-run-wallet");
+  const walletVal = getState("backtest.dry_run_wallet");
+  if (walletInput && walletVal != null) {
+    walletInput.value = walletVal;
+  }
+
+  const maxTradesInput = document.getElementById("input-max-trades");
+  const maxTradesVal = getState("backtest.maxOpenTrades");
+  if (maxTradesInput && maxTradesVal != null) {
+    maxTradesInput.value = maxTradesVal;
+  }
+
   initStrategyPanel();
   initTimePanel();
   initPairsPanel();
@@ -39,10 +53,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     setState("backtest.timeframe", tfSelect.value);
   });
 
-  // Dry run wallet â†’ state
-  const walletInput = document.getElementById("input-dry-run-wallet");
+  // Dry run wallet → state
   walletInput?.addEventListener("change", () => {
     const value = parseFloat(walletInput.value) || null;
     setState("backtest.dry_run_wallet", value);
+  });
+
+  // Max open trades → state
+  const maxOpenTradesInput = document.getElementById("input-max-trades");
+  maxOpenTradesInput?.addEventListener("change", () => {
+    const value = parseInt(maxOpenTradesInput.value, 10) || null;
+    setState("backtest.maxOpenTrades", value);
   });
 });

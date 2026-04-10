@@ -12,6 +12,8 @@ const _state = {
     startDate: "",
     endDate: "",
     exchange: "binance",
+    dry_run_wallet: "",
+    maxOpenTrades: "",
     lastResult: null,
   },
   optimizer: {

@@ -12,6 +12,8 @@ _DEFAULT_SETTINGS: dict = {
     "default_exchange": "binance",
     "default_timeframe": "5m",
     "default_max_open_trades": 3,
+    "default_timerange": "",
+    "default_dry_run_wallet": 1000.0,
     "theme": "dark",
     "results_base_path": "",
     "config_path": "",
