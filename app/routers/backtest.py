@@ -24,15 +24,15 @@ async def get_options():
 @router.post("/run")
 async def run_backtest(payload: BacktestRunRequest):
     """Trigger a freqtrade backtest subprocess."""
-    # TODO: wire to FreqtradeCliService.run_backtest(payload)
-    return {"status": "queued", "run_id": "placeholder", "message": "Backtest queued — wiring pending"}
+    result = cli_svc.run_backtest(payload.model_dump())
+    return {"status": "queued", "run_id": "placeholder", "command": result.get("command")}
 
 
 @router.post("/download-data")
 async def download_data(payload: dict):
     """Trigger freqtrade download-data."""
-    # TODO: wire to FreqtradeCliService.download_data(payload)
-    return {"status": "queued", "message": "Data download queued — wiring pending"}
+    result = cli_svc.download_data(payload)
+    return {"status": "queued", "command": result.get("command")}
 
 
 @router.get("/summary")
