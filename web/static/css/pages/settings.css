@@ -158,6 +158,18 @@
   transform: scale(1.1);
 }
 
+/* Accent preset colors */
+.accent-preset--blue     { background: #4f8ef7; }
+.accent-preset--sky      { background: #58a6ff; }
+.accent-preset--lavender { background: #bd93f9; }
+.accent-preset--pink     { background: #ff79c6; }
+.accent-preset--orange   { background: #f0965a; }
+.accent-preset--amber    { background: #fbbf24; }
+.accent-preset--green    { background: #4dbb6e; }
+.accent-preset--teal     { background: #34d399; }
+.accent-preset--red      { background: #f87171; }
+.accent-preset--violet   { background: #a78bfa; }
+
 /* Save bar */
 .settings-save-bar {
   display: flex;
