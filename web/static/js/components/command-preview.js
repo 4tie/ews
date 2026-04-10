@@ -9,6 +9,20 @@ import { on, EVENTS } from "../core/events.js";
 const previewEl = $("#command-preview-output");
 const copyBtn   = $("#btn-copy-command");
 
+let configPath = "/path/to/config.json";
+
+async function fetchConfigPath() {
+  try {
+    const res = await fetch("/api/settings");
+    const data = await res.json();
+    if (data?.config_path) {
+      configPath = data.config_path;
+    }
+  } catch (e) {
+    console.warn("Failed to fetch config path:", e);
+  }
+}
+
 function buildCommandPreview() {
   const strategy  = getState("backtest.strategy");
   const timeframe = getState("backtest.timeframe");
@@ -25,10 +39,10 @@ function buildCommandPreview() {
     ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
     : "";
 
-  let cmd = `freqtrade backtesting \\\n  --strategy ${strategy} \\\n  --config /path/to/config.json`;
-  if (timeframe) cmd += ` \\\n  --timeframe ${timeframe}`;
-  if (timerange)  cmd += ` \\\n  --timerange ${timerange}`;
-  if (pairs.length) cmd += ` \\\n  --pairs ${pairs.join(" ")}`;
+  let cmd = `freqtrade backtesting --strategy ${strategy} --config ${configPath}`;
+  if (timeframe) cmd += ` --timeframe ${timeframe}`;
+  if (timerange)  cmd += ` --timerange ${timerange}`;
+  if (pairs.length) cmd += ` --pairs ${pairs.join(" ")}`;
   return cmd;
 }
 
@@ -49,4 +63,7 @@ copyBtn?.addEventListener("click", () => {
   setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
 });
 
-document.addEventListener("DOMContentLoaded", refresh);
+document.addEventListener("DOMContentLoaded", () => {
+  fetchConfigPath();
+  refresh();
+});

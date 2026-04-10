@@ -1,11 +1,11 @@
 {
-  "freqtrade_path": "",
-  "user_data_path": "",
+  "freqtrade_path": "T:\\Optimizer",
+  "user_data_path": "T:\\Optimizer/user_data",
   "default_exchange": "binance",
   "default_timeframe": "5m",
   "default_stake_amount": 50,
-  "default_max_open_trades": 2,
+  "default_max_open_trades": 1,
   "theme": "dark",
-  "results_base_path": "",
-  "config_path": ""
+  "results_base_path": "T:\\Optimizer/user_data/backtest_results",
+  "config_path": "T:\\Optimizer\\user_data\\config.json"
 }

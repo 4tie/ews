@@ -4,11 +4,15 @@ from app.models.backtest_models import BacktestRunRequest, ConfigSaveRequest
 from app.services.results_service import ResultsService
 from app.services.freqtrade_cli_service import FreqtradeCliService
 from app.services.config_service import ConfigService
+import os
+import json
 
 router = APIRouter()
 results_svc = ResultsService()
 cli_svc = FreqtradeCliService()
 config_svc = ConfigService()
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "user_data", "data")
 
 
 @router.get("/options")
@@ -68,3 +72,33 @@ async def save_config(payload: ConfigSaveRequest):
 async def delete_config(name: str):
     config_svc.delete_config(name)
     return {"status": "deleted", "name": name}
+
+
+@router.post("/validate-data")
+async def validate_data(payload: dict):
+    """Validate which pairs have existing candle data files."""
+    pairs = payload.get("pairs", [])
+    timeframe = payload.get("timeframe", "")
+
+    if not pairs:
+        return JSONResponse(
+            status_code=400,
+            content={"valid": False, "message": "No pairs provided", "results": []}
+        )
+
+    results = []
+
+    for pair in pairs:
+        pair_file = os.path.join(DATA_DIR, pair.replace("/", "_"), f"{timeframe}.json")
+        if os.path.exists(pair_file):
+            results.append({"pair": pair, "status": "valid", "message": "Data available"})
+        else:
+            results.append({"pair": pair, "status": "missing", "message": "No data file found"})
+
+    has_data = any(r["status"] == "valid" for r in results)
+
+    return {
+        "valid": has_data,
+        "message": f"Found data for {sum(1 for r in results if r['status'] == 'valid')} of {len(pairs)} pairs" if has_data else "No data found for any pairs",
+        "results": results
+    }

@@ -1,16 +1,40 @@
 import os
+import shutil
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+APP_DIR = os.path.join(BASE_DIR, "app")
+LEGACY_STORAGE_DIR = os.path.join(APP_DIR, "app", "storage")
 
 
 def app_dir() -> str:
     """Returns the path to the app directory (BASE_DIR/app)."""
-    return os.path.join(BASE_DIR, "app")
+    return APP_DIR
+
+
+def _migrate_legacy_storage(target_dir: str) -> None:
+    """Copy legacy app/app/storage contents into app/storage without overwriting newer files."""
+    if not os.path.isdir(LEGACY_STORAGE_DIR):
+        return
+
+    os.makedirs(target_dir, exist_ok=True)
+
+    for root_dir, _, files in os.walk(LEGACY_STORAGE_DIR):
+        relative_dir = os.path.relpath(root_dir, LEGACY_STORAGE_DIR)
+        target_root = target_dir if relative_dir == "." else os.path.join(target_dir, relative_dir)
+        os.makedirs(target_root, exist_ok=True)
+
+        for file_name in files:
+            source_file = os.path.join(root_dir, file_name)
+            target_file = os.path.join(target_root, file_name)
+            if not os.path.exists(target_file):
+                shutil.copy2(source_file, target_file)
 
 
 def storage_dir() -> str:
     """Returns the path to the app storage directory (BASE_DIR/app/storage)."""
-    return os.path.join(BASE_DIR, "app", "storage")
+    target_dir = os.path.join(app_dir(), "storage")
+    _migrate_legacy_storage(target_dir)
+    return target_dir
 
 
 def saved_configs_dir() -> str:
