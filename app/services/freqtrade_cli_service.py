@@ -5,7 +5,7 @@ from datetime import datetime
 
 from app.services.config_service import ConfigService
 from app.utils.command_builder import build_backtest_command, build_download_command, command_to_string
-from app.utils.paths import strategy_results_dir
+from app.utils.paths import BASE_DIR, strategy_results_dir
 
 config_svc = ConfigService()
 logger = logging.getLogger(__name__)
@@ -28,6 +28,15 @@ class FreqtradeCliService:
 
     def _config_path(self) -> str:
         return config_svc.get_settings().get("config_path", "")
+
+    def _freqtrade_subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env["FT_FORCE_THREADED_RESOLVER"] = "1"
+
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = BASE_DIR if not existing else BASE_DIR + os.pathsep + existing
+        return env
+
 
     def _validate_backtest_extra_flags(self, extra_flags: list[str]) -> None:
         conflicting = []
@@ -101,6 +110,7 @@ class FreqtradeCliService:
         prepared = prepared or self.prepare_backtest_run(payload)
         command = prepared["command"]
         log_path = prepared["log_file"]
+        env = self._freqtrade_subprocess_env()
 
         with open(log_path, "w", encoding="utf-8") as log_file:
             log_file.write(f"$ {command}\n\n")
@@ -110,6 +120,7 @@ class FreqtradeCliService:
                 stdin=subprocess.DEVNULL,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
+                env=env,
             )
 
         return {
@@ -167,6 +178,7 @@ class FreqtradeCliService:
         command = prepared.get("command") or command_to_string(cmd)
         prepend = prepared.get("prepend", False)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        env = self._freqtrade_subprocess_env()
 
         try:
             if log_path:
@@ -179,6 +191,7 @@ class FreqtradeCliService:
                         stdout=log_file,
                         stderr=subprocess.STDOUT,
                         creationflags=creationflags,
+                        env=env,
                     )
             else:
                 process = subprocess.Popen(
@@ -187,6 +200,7 @@ class FreqtradeCliService:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     creationflags=creationflags,
+                    env=env,
                 )
         except Exception:
             logger.exception("download-data subprocess failed: %s", command)
