@@ -29,6 +29,7 @@ class PersistenceService:
     def load_download_run(self, download_id: str) -> dict:
         path = resolve_safe(download_runs_dir(), download_id, "run_meta.json")
         return read_json(path, fallback={})
+
     def save_checkpoint(self, run_id: str, checkpoint_id: str, data: dict) -> None:
         path = resolve_safe(optimizer_runs_dir(), run_id, "checkpoints", f"{checkpoint_id}.json")
         write_json(path, data)

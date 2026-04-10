@@ -1,4 +1,4 @@
-.panel {
+﻿.panel {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -59,10 +59,11 @@
   word-break: break-all;
 }
 
-.log-line--info  { color: var(--color-text-muted); }
-.log-line--warn  { color: var(--color-warning); }
-.log-line--error { color: var(--color-danger); }
-.log-line--ok    { color: var(--color-success); }
+.log-line--info   { color: var(--color-text-muted); }
+.log-line--prompt { color: var(--color-accent); }
+.log-line--warn   { color: var(--color-warning); background: var(--color-warning-dim); border-left: 3px solid var(--color-warning); padding-left: var(--space-2); }
+.log-line--error  { color: var(--color-danger);  background: var(--color-danger-dim);  border-left: 3px solid var(--color-danger);  padding-left: var(--space-2); }
+.log-line--ok     { color: var(--color-success); }
 
 /* Command preview */
 .command-preview {
