@@ -1,4 +1,4 @@
-/**
+﻿/**
  * api.js — Centralized fetch wrapper for all backend API calls.
  */
 
@@ -20,31 +20,29 @@ async function request(method, path, body = null) {
 }
 
 export const api = {
-  get:    (path)         => request("GET",    path),
-  post:   (path, body)   => request("POST",   path, body),
+  get:    (path)         => request("GET", path),
+  post:   (path, body)   => request("POST", path, body),
   delete: (path)         => request("DELETE", path),
 
-  // ── Backtest ──────────────────────────────────────────
   backtest: {
-    options:        ()       => api.get("/api/backtest/options"),
-    run:            (data)   => api.post("/api/backtest/run", data),
-    downloadData:   (data)   => api.post("/api/backtest/download-data", data),
-    summary:        (strat)  => api.get(`/api/backtest/summary?strategy=${encodeURIComponent(strat)}`),
-    trades:         (strat)  => api.get(`/api/backtest/trades?strategy=${encodeURIComponent(strat)}`),
-    listConfigs:    ()       => api.get("/api/backtest/configs"),
-    saveConfig:     (data)   => api.post("/api/backtest/configs", data),
-    deleteConfig:   (name)   => api.delete(`/api/backtest/configs/${encodeURIComponent(name)}`),
+    options:      ()       => api.get("/api/backtest/options"),
+    run:          (data)   => api.post("/api/backtest/run", data),
+    downloadData: (data)   => api.post("/api/backtest/download-data", data),
+    summary:      (strat)  => api.get(`/api/backtest/summary?strategy=${encodeURIComponent(strat)}`),
+    trades:       (strat)  => api.get(`/api/backtest/trades?strategy=${encodeURIComponent(strat)}`),
+    listConfigs:  ()       => api.get("/api/backtest/configs"),
+    loadConfig:   (name)   => api.get(`/api/backtest/configs/${encodeURIComponent(name)}`),
+    saveConfig:   (data)   => api.post("/api/backtest/configs", data),
+    deleteConfig: (name)   => api.delete(`/api/backtest/configs/${encodeURIComponent(name)}`),
   },
 
-  // ── Optimizer ─────────────────────────────────────────
   optimizer: {
-    startRun:         (data)             => api.post("/api/optimizer/runs", data),
-    getCheckpoints:   (runId)            => api.get(`/api/optimizer/runs/${runId}/checkpoints`),
-    rollback:         (runId, checkId)   => api.post(`/api/optimizer/runs/${runId}/rollback/${checkId}`, {}),
-    streamLogs:       (runId)            => new EventSource(`/api/optimizer/runs/${runId}/logs/stream`),
+    startRun:       (data)           => api.post("/api/optimizer/runs", data),
+    getCheckpoints: (runId)          => api.get(`/api/optimizer/runs/${runId}/checkpoints`),
+    rollback:       (runId, checkId) => api.post(`/api/optimizer/runs/${runId}/rollback/${checkId}`, {}),
+    streamLogs:     (runId)          => new EventSource(`/api/optimizer/runs/${runId}/logs/stream`),
   },
 
-  // ── Settings ──────────────────────────────────────────
   settings: {
     get:  ()     => api.get("/api/settings"),
     save: (data) => api.post("/api/settings", data),

@@ -8,6 +8,11 @@ import { on, emit, EVENTS } from "../../../core/events.js";
 import { renderSummaryCards } from "../../shared/backtest/result_renderer.js";
 
 const summaryCards = document.getElementById("summary-cards");
+let latestResultsPayload = null;
+
+export function getLatestResultsPayload() {
+  return latestResultsPayload;
+}
 
 function isObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
@@ -29,19 +34,25 @@ function resolveStrategyBlock(summary, strategy) {
 
 async function refresh() {
   const strategy = getState("backtest.strategy");
-  if (!strategy) return;
+  if (!strategy) {
+    latestResultsPayload = null;
+    renderSummaryCards(summaryCards, null);
+    return;
+  }
 
   try {
     const { summary } = await api.backtest.summary(strategy);
     renderSummaryCards(summaryCards, summary ?? null);
 
     const block = resolveStrategyBlock(summary, strategy);
-    emit(EVENTS.RESULTS_LOADED, {
+    latestResultsPayload = {
       strategy,
-      summary,
-      trades: block?.trades ?? [],
-      results_per_pair: block?.results_per_pair ?? [],
-    });
+      summary: summary ?? null,
+      trades: Array.isArray(block?.trades) ? block.trades : [],
+      results_per_pair: Array.isArray(block?.results_per_pair) ? block.results_per_pair : [],
+    };
+
+    emit(EVENTS.RESULTS_LOADED, latestResultsPayload);
   } catch (e) {
     console.warn("[backtesting] Failed to load summary:", e);
   }
