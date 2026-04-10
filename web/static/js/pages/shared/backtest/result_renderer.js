@@ -5,7 +5,7 @@
 
 import { formatPct, formatNum, el } from "../../../core/utils.js";
 
-const EMPTY_VALUE = "—";
+const EMPTY_VALUE = "â€”";
 
 /**
  * Render a grid of summary stat cards into a container element.
@@ -72,6 +72,8 @@ export function renderTradesTable(wrapper, trades) {
         <th>Open Date</th>
         <th>Close Date</th>
         <th>Duration</th>
+        <th>Entry Reason</th>
+        <th>Exit Reason</th>
       </tr>
     </thead>
   `;
@@ -80,12 +82,14 @@ export function renderTradesTable(wrapper, trades) {
     const profitPct = parseFloat(trade.profit_ratio ?? trade.profit_pct ?? 0) * 100;
     const row = el("tr");
     row.innerHTML = `
-      <td>${trade.pair ?? EMPTY_VALUE}</td>
+      <td>${escapeHtml(displayText(trade.pair))}</td>
       <td class="${profitPct >= 0 ? "positive" : "negative"}">${formatPct(profitPct)}</td>
       <td class="mono">${formatNum(trade.profit_abs ?? trade.profit_absolute, 4)}</td>
-      <td class="mono">${trade.open_date ?? EMPTY_VALUE}</td>
-      <td class="mono">${trade.close_date ?? EMPTY_VALUE}</td>
-      <td>${trade.trade_duration ?? trade.duration ?? EMPTY_VALUE}</td>
+      <td class="mono">${escapeHtml(displayText(trade.open_date))}</td>
+      <td class="mono">${escapeHtml(displayText(trade.close_date))}</td>
+      <td>${escapeHtml(displayText(trade.trade_duration ?? trade.duration))}</td>
+      <td>${escapeHtml(formatEntryReason(trade.enter_tag))}</td>
+      <td>${escapeHtml(displayText(trade.exit_reason))}</td>
     `;
     tbody.appendChild(row);
   });
@@ -99,18 +103,64 @@ function renderSummarySection({ title, items, note, positive, negative }) {
     class: `results-context ${positive ? "results-context--positive" : negative ? "results-context--negative" : ""}`.trim(),
   });
 
-  const metaMarkup = items
-    .filter((item) => item?.value && item.value !== EMPTY_VALUE)
-    .map((item) => `<span><strong>${item.label}:</strong> ${item.value}</span>`)
-    .join("");
+  section.appendChild(el("div", { class: "results-context__title" }, title));
 
-  section.innerHTML = `
-    <div class="results-context__title">${title}</div>
-    <div class="results-context__meta">${metaMarkup}</div>
-    ${note ? `<div class="results-context__note">${note}</div>` : ""}
-  `;
+  const visibleItems = Array.isArray(items)
+    ? items.filter((item) => item?.value && item.value !== EMPTY_VALUE)
+    : [];
+  if (visibleItems.length) {
+    const meta = el("div", { class: "results-context__meta" });
+    visibleItems.forEach((item) => {
+      const pill = el("span");
+      pill.innerHTML = `<strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.value)}`;
+      meta.appendChild(pill);
+    });
+    section.appendChild(meta);
+  }
+
+  const tableConfig = !Array.isArray(items) ? items?.table : null;
+  if (tableConfig?.rows?.length) {
+    section.appendChild(renderSummaryBreakdownTable(tableConfig));
+  }
+
+  if (note) {
+    section.appendChild(el("div", { class: "results-context__note" }, note));
+  }
 
   return section;
+}
+
+function renderSummaryBreakdownTable(tableConfig) {
+  const table = el("table", { class: "data-table" });
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>${escapeHtml(tableConfig.labelHeader)}</th>
+        <th>Trades</th>
+        <th>Win Rate</th>
+        <th>Total Profit %</th>
+        <th>Profit Abs</th>
+        <th>Avg Duration</th>
+      </tr>
+    </thead>
+  `;
+
+  const tbody = el("tbody");
+  tableConfig.rows.forEach((rowData) => {
+    const row = el("tr");
+    row.innerHTML = `
+      <td>${escapeHtml(rowData.label)}</td>
+      <td>${escapeHtml(rowData.trades)}</td>
+      <td>${escapeHtml(rowData.winRate)}</td>
+      <td class="${classifyValue(rowData.profitTotalPctValue)}">${rowData.profitTotalPct}</td>
+      <td class="${classifyValue(rowData.profitAbsValue)}">${escapeHtml(rowData.profitAbs)}</td>
+      <td>${escapeHtml(rowData.avgDuration)}</td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  table.appendChild(tbody);
+  return table;
 }
 
 function isObject(value) {
@@ -374,7 +424,72 @@ function extractSummarySections(summaryInput) {
       ],
       note: `Win rate ${formatPct(snapshot.winRatePct, 1)} across ${formatCount(snapshot.totalTrades)} trades | Volume ${formatMoney(snapshot.totalVolume, snapshot.currency)}.`,
     },
+    buildBreakdownSection({
+      title: "Entry Tags",
+      labelHeader: "Tag",
+      rows: snapshot.block?.results_per_enter_tag,
+      currency: snapshot.currency,
+      emptyKeyLabel: "Default",
+    }),
+    buildBreakdownSection({
+      title: "Exit Reasons",
+      labelHeader: "Reason",
+      rows: snapshot.block?.exit_reason_summary,
+      currency: snapshot.currency,
+    }),
   ]);
+}
+
+function buildBreakdownSection({ title, labelHeader, rows, currency, emptyKeyLabel = EMPTY_VALUE }) {
+  const normalizedRows = normalizeBreakdownRows(rows, { currency, emptyKeyLabel });
+  if (!normalizedRows.length) return null;
+
+  return {
+    title,
+    items: {
+      table: {
+        labelHeader,
+        rows: normalizedRows,
+      },
+    },
+  };
+}
+
+function normalizeBreakdownRows(rows, { currency = "", emptyKeyLabel = EMPTY_VALUE } = {}) {
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .filter((row) => isObject(row) && String(row?.key ?? row?.pair ?? "") !== "TOTAL")
+    .map((row) => {
+      const winRateRatio = toNumber(row.winrate);
+      const wins = toNumber(row.wins);
+      const trades = toNumber(row.trades);
+      const winRatePct =
+        winRateRatio != null
+          ? winRateRatio * 100
+          : wins != null && trades != null && trades !== 0
+            ? (wins / trades) * 100
+            : null;
+
+      let profitTotalPct = toNumber(row.profit_total_pct);
+      if (profitTotalPct == null) {
+        const profitRatio = toNumber(row.profit_total);
+        profitTotalPct = profitRatio == null ? null : profitRatio * 100;
+      }
+
+      const profitAbs = toNumber(row.profit_total_abs);
+
+      return {
+        label: formatBreakdownKey(row.key ?? row.pair, emptyKeyLabel),
+        trades: formatCount(row.trades),
+        winRate: formatPct(winRatePct, 1),
+        profitTotalPct: formatPct(profitTotalPct),
+        profitTotalPctValue: profitTotalPct,
+        profitAbs: formatSignedMoney(profitAbs, currency),
+        profitAbsValue: profitAbs,
+        avgDuration: displayText(row.duration_avg),
+      };
+    });
 }
 
 function compactMetrics(metrics) {
@@ -382,12 +497,28 @@ function compactMetrics(metrics) {
 }
 
 function compactSections(sections) {
-  return sections.filter((section) => section.items?.some((item) => item?.value && item.value !== EMPTY_VALUE));
+  return sections.filter((section) => {
+    if (!section) return false;
+    if (Array.isArray(section.items) && section.items.some((item) => item?.value && item.value !== EMPTY_VALUE)) {
+      return true;
+    }
+    return Boolean(section.items?.table?.rows?.length);
+  });
 }
 
 function displayText(value) {
   if (value == null || value === "") return EMPTY_VALUE;
   return String(value);
+}
+
+function formatEntryReason(value) {
+  if (value === "") return "Default";
+  return displayText(value);
+}
+
+function formatBreakdownKey(value, emptyKeyLabel = EMPTY_VALUE) {
+  if (value === "") return emptyKeyLabel;
+  return displayText(value);
 }
 
 function formatCount(value) {
@@ -453,4 +584,19 @@ function formatPairDisplay(pairStat) {
   const subtext = formatPairSubtext(pairStat);
   if (!subtext || name === EMPTY_VALUE) return name;
   return `${name} (${subtext})`;
+}
+
+function classifyValue(value) {
+  const n = toNumber(value);
+  if (n == null || n === 0) return "";
+  return n > 0 ? "positive" : "negative";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
