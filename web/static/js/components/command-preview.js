@@ -24,12 +24,14 @@ async function fetchConfigPath() {
 }
 
 function buildCommandPreview() {
-  const strategy  = getState("backtest.strategy");
-  const timeframe = getState("backtest.timeframe");
-  const pairs     = getState("backtest.pairs") || [];
-  const startDate = getState("backtest.startDate");
-  const endDate   = getState("backtest.endDate");
-  const exchange  = getState("backtest.exchange") || "binance";
+  const strategy      = getState("backtest.strategy");
+  const timeframe    = getState("backtest.timeframe");
+  const pairs         = getState("backtest.pairs") || [];
+  const startDate     = getState("backtest.startDate");
+  const endDate       = getState("backtest.endDate");
+  const exchange      = getState("backtest.exchange") || "binance";
+  const dryRunWallet  = getState("backtest.dry_run_wallet");
+  const maxOpenTrades = getState("backtest.max_open_trades");
 
   if (!strategy) {
     return "# Select a strategy to preview the command";
@@ -39,10 +41,16 @@ function buildCommandPreview() {
     ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
     : "";
 
+  const runId = "<run_id>";
+  const exportPath = `user_data/backtest_results\\${strategy}\\${runId}.backtest.zip`;
+
   let cmd = `freqtrade backtesting --strategy ${strategy} --config ${configPath}`;
-  if (timeframe) cmd += ` --timeframe ${timeframe}`;
-  if (timerange)  cmd += ` --timerange ${timerange}`;
+  if (timeframe)   cmd += ` --timeframe ${timeframe}`;
+  if (timerange)   cmd += ` --timerange ${timerange}`;
   if (pairs.length) cmd += ` --pairs ${pairs.join(" ")}`;
+  if (dryRunWallet) cmd += ` --dry-run-wallet ${dryRunWallet}`;
+  if (maxOpenTrades) cmd += ` --max-open-trades ${maxOpenTrades}`;
+  cmd += ` --export trades --export-filename ${exportPath}`;
   return cmd;
 }
 
@@ -52,7 +60,7 @@ function refresh() {
 }
 
 // Re-render when state changes
-["backtest.strategy", "backtest.timeframe", "backtest.pairs", "backtest.startDate", "backtest.endDate", "backtest.exchange"]
+["backtest.strategy", "backtest.timeframe", "backtest.pairs", "backtest.startDate", "backtest.endDate", "backtest.exchange", "backtest.dry_run_wallet", "backtest.max_open_trades"]
   .forEach(path => {
     import("../core/state.js").then(({ on: stateOn }) => stateOn(path, refresh));
   });
