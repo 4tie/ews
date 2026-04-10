@@ -17,6 +17,7 @@ import { initComparePanel } from "./compare/compare-panel.js";
 import { initHistoryPanel } from "./history/history-panel.js";
 import { initExportPanel } from "./export/export-panel.js";
 import { initResultsController } from "./results/results-controller.js";
+import { initProposalWorkflow } from "./results/proposal-workflow.js";
 import { initAiChatPanel } from "./results/ai-chat-panel.js";
 import { initConfigsPanel } from "./configs/configs-panel.js";
 import { initHeaderConfigButtons } from "./configs/header-config-buttons.js";
@@ -53,6 +54,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initConfigsPanel();
   initHeaderConfigButtons();
   initResultsController();
+  initProposalWorkflow();
   initAiChatPanel();
 
   const tfSelect = document.getElementById("select-timeframe");
