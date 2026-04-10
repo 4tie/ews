@@ -1,10 +1,10 @@
 """Filesystem path helpers for the Optimizer app.
 
-Paths here should be explicit, deterministic, and safe to join with untrusted
-input via `resolve_safe`.
+Canonical layout:
+- App-owned state (settings, saved configs, run metadata, versions, cache): `./data/`
+- Freqtrade state (config, strategies, data, results): `./user_data/`
 
-`STORAGE_DIR` is the canonical app storage root. `LEGACY_STORAGE_DIR` is kept
-for backward compatibility and migrations.
+Use `resolve_safe` for joining untrusted input.
 """
 
 import os
@@ -12,10 +12,17 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 APP_DIR = os.path.join(BASE_DIR, "app")
 
-STORAGE_DIR = os.path.join(APP_DIR, "storage")
-LEGACY_STORAGE_DIR = os.path.join(APP_DIR, "app", "storage")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+STORAGE_DIR = DATA_DIR
 
-USER_DATA_RESULTS_DIR = os.path.join(BASE_DIR, "user_data", "backtest_results")
+# Pre-data/ storage roots kept for reference and manual migrations.
+LEGACY_STORAGE_DIRS = (
+    os.path.join(APP_DIR, "storage"),
+    os.path.join(APP_DIR, "app", "storage"),
+)
+
+USER_DATA_DIR = os.path.join(BASE_DIR, "user_data")
+USER_DATA_RESULTS_DIR = os.path.join(USER_DATA_DIR, "backtest_results")
 
 SAVED_CONFIGS_DIR = os.path.join(STORAGE_DIR, "saved_configs")
 SETTINGS_DIR = os.path.join(STORAGE_DIR, "settings")
@@ -55,8 +62,18 @@ def app_dir() -> str:
     return APP_DIR
 
 
+def data_dir() -> str:
+    """Returns the path to the app data directory (BASE_DIR/data)."""
+    return DATA_DIR
+
+
+def legacy_storage_dirs() -> tuple[str, ...]:
+    """Returns legacy (pre-data/) storage roots."""
+    return LEGACY_STORAGE_DIRS
+
+
 def storage_dir() -> str:
-    """Returns the path to the app storage directory (BASE_DIR/app/storage)."""
+    """Returns the path to the app storage directory (BASE_DIR/data)."""
     return STORAGE_DIR
 
 
@@ -94,6 +111,11 @@ def strategy_active_version_file(strategy_name: str) -> str:
 
 def cache_dir() -> str:
     return CACHE_DIR
+
+
+def user_data_dir() -> str:
+    """Returns the path to the freqtrade user_data directory (BASE_DIR/user_data)."""
+    return USER_DATA_DIR
 
 
 def user_data_results_dir() -> str:

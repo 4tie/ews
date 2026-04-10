@@ -3,9 +3,12 @@ __pycache__/
 *.pyo
 .env
 .env.local
-app/storage/settings/
-app/storage/saved_configs/
-app/storage/optimizer_runs/
-app/storage/cache/
+
+# App state (settings, runs, versions, cache)
+data/
+app/storage/
+app/app/storage/
+
+# Freqtrade artifacts
 user_data/backtest_results/
 *.log
