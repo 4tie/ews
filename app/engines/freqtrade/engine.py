@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import gzip
 import json
@@ -283,11 +283,13 @@ class FreqtradeEngine(BacktestEngine):
     def _range_label(self, start: datetime | None, end: datetime | None) -> str:
         start_text = self._format_dt(start)
         end_text = self._format_dt(end)
-        if start_text != "-" and end_text != "-":
+        if start_text and end_text:
             return f"{start_text} to {end_text}"
-        if start_text != "-":
+        if start_text:
             return start_text
-        return end_text
+        if end_text:
+            return end_text
+        return "unknown"
 
     def _format_dt(self, value: datetime | None) -> str | None:
         if value is None:

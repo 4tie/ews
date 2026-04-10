@@ -21,14 +21,16 @@ from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results.diagnosis_service import diagnosis_service
 from app.services.results.strategy_intelligence_service import analyze_run_diagnosis_overlay
-from app.services.results_service import ResultsService`r`nfrom app.services.validation_service import ValidationService
+from app.services.results_service import ResultsService
+from app.services.validation_service import ValidationService
 from app.utils.datetime_utils import now_iso
 from app.utils.paths import download_runs_dir, live_strategy_file, strategy_config_file, user_data_results_dir
 
 router = APIRouter()
 results_svc = ResultsService()
 config_svc = ConfigService()
-persistence = PersistenceService()`r`nvalidation_svc = ValidationService()
+persistence = PersistenceService()
+validation_svc = ValidationService()
 
 _KNOWN_FAILURE_PREFIXES = (
     "launch_failed:",
