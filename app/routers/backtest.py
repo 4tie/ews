@@ -1,4 +1,5 @@
 import os
+import threading
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -24,6 +25,108 @@ config_svc = ConfigService()
 persistence = PersistenceService()
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "user_data", "data")
+_TERMINAL_BACKTEST_STATUSES = {
+    BacktestRunStatus.COMPLETED.value,
+    BacktestRunStatus.FAILED.value,
+}
+_watcher_registry_lock = threading.Lock()
+_active_backtest_watchers: set[str] = set()
+
+
+def _is_terminal_status(status: BacktestRunStatus | str) -> bool:
+    value = status.value if isinstance(status, BacktestRunStatus) else str(status)
+    return value in _TERMINAL_BACKTEST_STATUSES
+
+
+def _load_run_record(run_id: str) -> BacktestRunRecord | None:
+    data = persistence.load_backtest_run(run_id)
+    if not data:
+        return None
+    return BacktestRunRecord(**data)
+
+
+def _save_run_record(run_record: BacktestRunRecord) -> None:
+    persistence.save_backtest_run(run_record.run_id, run_record.model_dump(mode="json"))
+
+
+def _mark_failed_run(run_record: BacktestRunRecord, error: str, exit_code: int | None = None) -> None:
+    failed_at = now_iso()
+    run_record.status = BacktestRunStatus.FAILED
+    run_record.updated_at = failed_at
+    run_record.completed_at = failed_at
+    run_record.exit_code = exit_code
+    run_record.error = error
+    _save_run_record(run_record)
+
+
+def _watch_backtest_process(run_id: str, process) -> None:
+    try:
+        current = _load_run_record(run_id)
+        if current is None or _is_terminal_status(current.status):
+            return
+
+        try:
+            exit_code = process.wait()
+        except Exception as exc:
+            current = _load_run_record(run_id)
+            if current is not None and not _is_terminal_status(current.status):
+                _mark_failed_run(current, f"process_failed: {exc}")
+            return
+
+        current = _load_run_record(run_id)
+        if current is None or _is_terminal_status(current.status):
+            return
+
+        completed_at = now_iso()
+        current.updated_at = completed_at
+        current.completed_at = completed_at
+        current.exit_code = exit_code
+
+        if exit_code != 0:
+            current.status = BacktestRunStatus.FAILED
+            current.error = f"process_failed: exit_code={exit_code}"
+            _save_run_record(current)
+            return
+
+        try:
+            ingest_result = results_svc.ingest_backtest_run(current)
+        except Exception as exc:
+            current.status = BacktestRunStatus.FAILED
+            current.error = f"ingestion_failed: {exc}"
+            _save_run_record(current)
+            return
+
+        current.status = BacktestRunStatus.COMPLETED
+        current.raw_result_path = ingest_result.get("raw_result_path", current.raw_result_path)
+        current.result_path = ingest_result.get("result_path")
+        current.summary_path = ingest_result.get("summary_path")
+        current.error = None
+        _save_run_record(current)
+
+        if current.version_id:
+            mutation_service.link_backtest(
+                current.version_id,
+                current.run_id,
+                ingest_result.get("profit_pct"),
+            )
+    finally:
+        with _watcher_registry_lock:
+            _active_backtest_watchers.discard(run_id)
+
+
+def _start_backtest_watcher(run_id: str, process) -> None:
+    with _watcher_registry_lock:
+        if run_id in _active_backtest_watchers:
+            return
+        _active_backtest_watchers.add(run_id)
+
+    watcher = threading.Thread(
+        target=_watch_backtest_process,
+        args=(run_id, process),
+        daemon=True,
+        name=f"backtest-watcher-{run_id}",
+    )
+    watcher.start()
 
 
 @router.get("/options")
@@ -50,11 +153,16 @@ async def run_backtest(payload: BacktestRunRequest):
                 detail=f"Version {payload.version_id} belongs to {version.strategy_name}, not {payload.strategy}",
             )
 
-    payload_data = payload.model_dump(mode="json")
-    command = cli_svc.build_backtest_command_preview(payload_data)
     run_id = f"bt-{uuid.uuid4().hex[:8]}"
-    created_at = now_iso()
+    payload_data = payload.model_dump(mode="json")
+    launch_payload = {**payload_data, "run_id": run_id}
 
+    try:
+        prepared = cli_svc.prepare_backtest_run(launch_payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    created_at = now_iso()
     run_record = BacktestRunRecord(
         run_id=run_id,
         strategy=payload.strategy,
@@ -62,29 +170,32 @@ async def run_backtest(payload: BacktestRunRequest):
         trigger_source=payload.trigger_source,
         created_at=created_at,
         updated_at=created_at,
+        completed_at=None,
         status=BacktestRunStatus.QUEUED,
-        command=command,
+        command=prepared["command"],
         artifact_path=None,
+        raw_result_path=prepared["raw_result_path"],
+        result_path=None,
+        summary_path=None,
+        exit_code=None,
         pid=None,
         error=None,
     )
-    persistence.save_backtest_run(run_id, run_record.model_dump(mode="json"))
+    _save_run_record(run_record)
 
     if version is not None:
         mutation_service.link_backtest(version.version_id, run_id, None)
 
-    launch_payload = {**payload_data, "run_id": run_id}
-
     try:
-        result = cli_svc.run_backtest(launch_payload)
+        result = cli_svc.run_backtest(launch_payload, prepared=prepared)
     except Exception as exc:
-        failed_at = now_iso()
-        run_record.status = BacktestRunStatus.FAILED
-        run_record.updated_at = failed_at
         run_record.artifact_path = None
         run_record.pid = None
-        run_record.error = str(exc)
-        persistence.save_backtest_run(run_id, run_record.model_dump(mode="json"))
+        run_record.error = f"launch_failed: {exc}"
+        run_record.completed_at = now_iso()
+        run_record.updated_at = run_record.completed_at
+        run_record.status = BacktestRunStatus.FAILED
+        _save_run_record(run_record)
         return {
             "status": run_record.status.value,
             "run_id": run_id,
@@ -99,9 +210,14 @@ async def run_backtest(payload: BacktestRunRequest):
     run_record.updated_at = now_iso()
     run_record.command = result.get("command", run_record.command)
     run_record.artifact_path = result.get("log_file")
+    run_record.raw_result_path = result.get("raw_result_path", run_record.raw_result_path)
     run_record.pid = result.get("pid")
     run_record.error = None
-    persistence.save_backtest_run(run_id, run_record.model_dump(mode="json"))
+    _save_run_record(run_record)
+
+    process = result.get("process")
+    if process is not None:
+        _start_backtest_watcher(run_id, process)
 
     return {
         "status": run_record.status.value,

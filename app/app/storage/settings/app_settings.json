@@ -1,5 +1,5 @@
 {
-  "freqtrade_path": "T:\\Optimizer",
+  "freqtrade_path": "T:\\Optimizer/.venv/Scripts/freqtrade",
   "user_data_path": "T:\\Optimizer/user_data",
   "default_exchange": "binance",
   "default_timeframe": "5m",

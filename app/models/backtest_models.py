@@ -39,9 +39,14 @@ class BacktestRunRecord(BaseModel):
     trigger_source: BacktestTriggerSource
     created_at: str
     updated_at: str
+    completed_at: Optional[str] = None
     status: BacktestRunStatus
     command: str
     artifact_path: Optional[str] = None
+    raw_result_path: Optional[str] = None
+    result_path: Optional[str] = None
+    summary_path: Optional[str] = None
+    exit_code: Optional[int] = None
     pid: Optional[int] = None
     error: Optional[str] = None
 
