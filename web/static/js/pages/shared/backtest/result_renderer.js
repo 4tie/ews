@@ -5,7 +5,7 @@
 
 import { formatPct, formatNum, el } from "../../../core/utils.js";
 
-const EMPTY_VALUE = "\\u2014";
+const EMPTY_VALUE = "\u2014";
 
 /**
  * Render a grid of summary stat cards into a container element.
