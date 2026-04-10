@@ -1,8 +1,28 @@
-﻿"""Freqtrade executable resolution with validation and PATH auto-detection."""
+"""Freqtrade executable resolution with validation and PATH auto-detection."""
 
 import os
 import shutil
 import sys
+
+
+def _resolve_explicit_executable(path: str, exe_name: str, is_windows: bool) -> str | None:
+    """Resolve an explicit executable path, tolerating omitted .exe on Windows."""
+    candidates = [path]
+    if is_windows and not path.lower().endswith(".exe"):
+        candidates.append(path + ".exe")
+
+    for candidate in candidates:
+        if not os.path.isfile(candidate):
+            continue
+
+        base = os.path.basename(candidate).lower()
+        if base not in ("freqtrade", "freqtrade.exe"):
+            raise ValueError(f"Freqtrade path is a file, expected {exe_name}: {candidate}")
+        if not is_windows and not os.access(candidate, os.X_OK):
+            raise ValueError(f"Freqtrade not executable: {candidate}")
+        return candidate
+
+    return None
 
 
 def resolve_freqtrade_executable(freqtrade_path: str) -> str:
@@ -25,14 +45,9 @@ def resolve_freqtrade_executable(freqtrade_path: str) -> str:
     if freqtrade_path:
         path = os.path.abspath(os.path.expanduser(freqtrade_path))
 
-        # Accept an explicit executable file path.
-        if os.path.isfile(path):
-            base = os.path.basename(path).lower()
-            if base not in ("freqtrade", "freqtrade.exe"):
-                raise ValueError(f"Freqtrade path is a file, expected {exe_name}: {path}")
-            if not is_windows and not os.access(path, os.X_OK):
-                raise ValueError(f"Freqtrade not executable: {path}")
-            return path
+        explicit_executable = _resolve_explicit_executable(path, exe_name, is_windows)
+        if explicit_executable:
+            return explicit_executable
 
         if not os.path.isdir(path):
             raise ValueError(f"Freqtrade directory not found: {path}")

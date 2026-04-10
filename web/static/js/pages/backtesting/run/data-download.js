@@ -1,24 +1,25 @@
-﻿/**
- * data-download.js — Handles the data download button and status display.
+/**
+ * data-download.js - Handles the data download button and status display.
  */
 
 import api from "../../../core/api.js";
 import { getState } from "../../../core/state.js";
 import showToast from "../../../components/toast.js";
 import { setButtonLoading } from "../../../components/loading-state.js";
+import { refreshDownloadPreview } from "../../../components/command-preview.js";
 import { startStream } from "./log-panel.js";
 
-const downloadBtn    = document.getElementById("btn-download-data");
+const downloadBtn = document.getElementById("btn-download-data");
 const downloadOutput = document.getElementById("data-download-output");
 
 export function initDataDownload() {
   downloadBtn?.addEventListener("click", async () => {
-    const strategy  = getState("backtest.strategy");
+    const strategy = getState("backtest.strategy");
     const timeframe = getState("backtest.timeframe");
-    const pairs     = getState("backtest.pairs") || [];
+    const pairs = getState("backtest.pairs") || [];
     const startDate = getState("backtest.startDate");
-    const endDate   = getState("backtest.endDate");
-    const timerange = (startDate && endDate)
+    const endDate = getState("backtest.endDate");
+    const timerange = startDate && endDate
       ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
       : undefined;
 
@@ -26,6 +27,14 @@ export function initDataDownload() {
       showToast("Add at least one pair before downloading data.", "warning");
       return;
     }
+
+    await refreshDownloadPreview({
+      strategy,
+      timeframe,
+      pairs,
+      startDate,
+      endDate,
+    });
 
     setButtonLoading(downloadBtn, true, "Downloading...");
     if (downloadOutput) downloadOutput.textContent = "Starting download...";
@@ -35,13 +44,15 @@ export function initDataDownload() {
       if (res.error) throw new Error(res.error);
 
       const downloadId = res.download_id;
-      if (downloadOutput) downloadOutput.textContent = `Download ${downloadId} — ${res.status}`;
+      if (downloadOutput) downloadOutput.textContent = `Download ${downloadId} - ${res.status}`;
       showToast(`Data download started: ${downloadId}`, "info");
 
       startStream(`/api/backtest/download-data/${downloadId}/logs/stream`, {
         onDone: (status, exitCode) => {
           const s = String(status || "");
-          if (downloadOutput) downloadOutput.textContent = `Download ${downloadId} — ${s} (exit ${exitCode ?? "?"})`;
+          if (downloadOutput) {
+            downloadOutput.textContent = `Download ${downloadId} - ${s} (exit ${exitCode ?? "?"})`;
+          }
 
           if (s === "completed") {
             showToast("Data download completed.", "success");

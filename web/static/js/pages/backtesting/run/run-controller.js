@@ -1,5 +1,5 @@
-﻿/**
- * run-controller.js — Handles the Run / Stop backtest buttons and status.
+/**
+ * run-controller.js - Handles the Run / Stop backtest buttons and status.
  */
 
 import api from "../../../core/api.js";
@@ -7,10 +7,11 @@ import { getState, setState } from "../../../core/state.js";
 import { emit, EVENTS } from "../../../core/events.js";
 import showToast from "../../../components/toast.js";
 import { setButtonLoading } from "../../../components/loading-state.js";
+import { refreshBacktestPreview } from "../../../components/command-preview.js";
 import { startStream, stopStream } from "./log-panel.js";
 
-const runBtn    = document.getElementById("btn-run-backtest");
-const stopBtn   = document.getElementById("btn-stop-backtest");
+const runBtn = document.getElementById("btn-run-backtest");
+const stopBtn = document.getElementById("btn-stop-backtest");
 const statusDot = document.getElementById("run-status-dot");
 const statusLbl = document.getElementById("run-status-label");
 
@@ -43,14 +44,20 @@ function finishRun(status, exitCode) {
 
 export function initRunController() {
   runBtn?.addEventListener("click", async () => {
-    const strategy  = getState("backtest.strategy");
+    const strategy = getState("backtest.strategy");
     const timeframe = getState("backtest.timeframe");
-    if (!strategy)  { showToast("Please select a strategy.", "warning"); return; }
-    if (!timeframe) { showToast("Please select a timeframe.", "warning"); return; }
+    if (!strategy) {
+      showToast("Please select a strategy.", "warning");
+      return;
+    }
+    if (!timeframe) {
+      showToast("Please select a timeframe.", "warning");
+      return;
+    }
 
     const startDate = getState("backtest.startDate");
-    const endDate   = getState("backtest.endDate");
-    const timerange = (startDate && endDate)
+    const endDate = getState("backtest.endDate");
+    const timerange = startDate && endDate
       ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
       : undefined;
 
@@ -58,11 +65,21 @@ export function initRunController() {
       strategy,
       timeframe,
       timerange,
-      pairs:    getState("backtest.pairs") || [],
+      pairs: getState("backtest.pairs") || [],
       exchange: getState("backtest.exchange") || "binance",
       dry_run_wallet: getState("backtest.dry_run_wallet") || undefined,
       max_open_trades: getState("backtest.maxOpenTrades") || undefined,
     };
+
+    await refreshBacktestPreview({
+      strategy: payload.strategy,
+      timeframe: payload.timeframe,
+      pairs: payload.pairs,
+      startDate,
+      endDate,
+      dryRunWallet: payload.dry_run_wallet,
+      maxOpenTrades: payload.max_open_trades,
+    });
 
     setButtonLoading(runBtn, true, "Running...");
     if (stopBtn) stopBtn.disabled = false;

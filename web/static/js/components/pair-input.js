@@ -1,15 +1,16 @@
 /**
- * pair-input.js — Smart pair input: handles typed pairs and pasted JSON configs.
+ * pair-input.js - Smart pair input: handles typed/pasted pairs and pasted JSON configs.
  */
 
-import { normalizePair, isValidPair, $ } from "../core/utils.js";
+import { $ } from "../core/utils.js";
+import { parsePairInput } from "../core/pair-parser.js";
 import { setState, getState } from "../core/state.js";
 import { emit, EVENTS } from "../core/events.js";
 import showToast from "./toast.js";
 
 const addInput = $("#input-pair-add");
-const addBtn   = $("#btn-add-pair");
-const tagList  = $("#pairs-tag-list");
+const addBtn = $("#btn-add-pair");
+const tagList = $("#pairs-tag-list");
 const feedback = $("#json-parse-feedback");
 const quickPairsContainer = $("#quick-pairs");
 
@@ -17,7 +18,7 @@ function renderTags() {
   if (!tagList) return;
   const pairs = getState("backtest.pairs") || [];
   tagList.innerHTML = "";
-  pairs.forEach(pair => {
+  pairs.forEach((pair) => {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.innerHTML = `${pair}<span class="tag__remove" data-pair="${pair}">&times;</span>`;
@@ -25,26 +26,52 @@ function renderTags() {
   });
 }
 
-function addPair(raw) {
-  const pair = normalizePair(raw);
-  if (!pair) return;
-  if (!isValidPair(pair)) {
-    showToast(`Invalid pair format: ${pair}`, "warning");
+function addPairsFromRaw(rawText) {
+  let parsed;
+  try {
+    parsed = parsePairInput(rawText);
+  } catch (e) {
+    const msg = "Could not parse pairs (malformed input)";
+    setFeedback(msg, "error");
+    showToast(msg, "error");
     return;
   }
-  const pairs = [...(getState("backtest.pairs") || [])];
-  if (pairs.includes(pair)) {
-    showToast(`${pair} already added`, "info");
+
+  const extracted = parsed?.pairs || [];
+  if (!extracted.length) {
+    const msg = "No valid pairs found. Example: BTC/USDT, ETH/USDT";
+    setFeedback(msg, "warning");
+    showToast(msg, "warning");
     return;
   }
-  pairs.push(pair);
-  setState("backtest.pairs", pairs);
+
+  const existing = [...(getState("backtest.pairs") || [])];
+  let added = 0;
+  let skipped = 0;
+
+  extracted.forEach((pair) => {
+    if (existing.includes(pair)) {
+      skipped += 1;
+      return;
+    }
+    existing.push(pair);
+    added += 1;
+  });
+
+  setState("backtest.pairs", existing);
   renderTags();
-  emit(EVENTS.PAIRS_UPDATED, pairs);
+  updateQuickPairButtons();
+  emit(EVENTS.PAIRS_UPDATED, existing);
+
+  const duplicateNote = parsed.hadDuplicates || skipped > 0 ? " (duplicates ignored)" : "";
+  const msg = added > 0 ? `Added ${added} pair(s)${duplicateNote}` : `All pairs already added${duplicateNote}`;
+
+  setFeedback(msg, added > 0 ? "success" : "warning");
+  showToast(msg, added > 0 ? "success" : "info");
 }
 
 function removePair(pair) {
-  const pairs = (getState("backtest.pairs") || []).filter(p => p !== pair);
+  const pairs = (getState("backtest.pairs") || []).filter((p) => p !== pair);
   setState("backtest.pairs", pairs);
   renderTags();
   updateQuickPairButtons();
@@ -73,7 +100,8 @@ async function tryParseJson(text) {
 
   setPairsFromArray(result.pairs);
 
-  const msg = `Loaded ${result.pairs.length} pair(s) from JSON` +
+  const msg =
+    `Loaded ${result.pairs.length} pair(s) from JSON` +
     (result.timeframes.length ? ` · timeframes: ${result.timeframes.join(", ")}` : "");
   setFeedback(msg, "success");
   showToast(msg, "success");
@@ -84,22 +112,26 @@ async function tryParseJson(text) {
 function setFeedback(msg, type) {
   if (!feedback) return;
   feedback.textContent = msg;
-  feedback.className = `field-hint${type === "error" ? " is-error" : type === "success" ? " is-success" : ""}`;
-  if (msg) setTimeout(() => {
-    if (feedback) { feedback.textContent = ""; feedback.className = "field-hint"; }
-  }, 5000);
+  feedback.className =
+    `field-hint${type === "error" ? " is-error" : type === "success" ? " is-success" : ""}`;
+  if (msg)
+    setTimeout(() => {
+      if (feedback) {
+        feedback.textContent = "";
+        feedback.className = "field-hint";
+      }
+    }, 5000);
 }
 
 function handleAdd() {
-  const raw = addInput?.value?.trim() || "";
-  if (!raw) return;
+  const raw = addInput?.value || "";
+  if (!raw.trim()) return;
 
   if (looksLikeJson(raw)) {
     tryParseJson(raw);
   } else {
-    addPair(raw);
+    addPairsFromRaw(raw);
     if (addInput) addInput.value = "";
-    setFeedback("", "");
   }
 }
 
@@ -126,18 +158,21 @@ tagList?.addEventListener("click", (e) => {
 });
 
 export function setPairsFromArray(pairs) {
-  const validated = (pairs || []).map(normalizePair).filter(isValidPair);
-  setState("backtest.pairs", [...new Set(validated)]);
+  const raw = Array.isArray(pairs) ? pairs.map(String).join("\n") : String(pairs ?? "");
+  const parsed = parsePairInput(raw);
+  const cleaned = parsed.pairs;
+
+  setState("backtest.pairs", cleaned);
   renderTags();
   updateQuickPairButtons();
-  emit(EVENTS.PAIRS_UPDATED, [...new Set(validated)]);
+  emit(EVENTS.PAIRS_UPDATED, cleaned);
 }
 
 function updateQuickPairButtons() {
   if (!quickPairsContainer) return;
   const pairs = getState("backtest.pairs") || [];
   const buttons = quickPairsContainer.querySelectorAll(".quick-pair-btn");
-  buttons.forEach(btn => {
+  buttons.forEach((btn) => {
     const pair = btn.dataset.pair;
     if (pairs.includes(pair)) {
       btn.classList.add("is-active");

@@ -1,6 +1,8 @@
 import os
 import re
 
+from app.utils.freqtrade_resolver import resolve_freqtrade_executable
+
 
 PAIR_PATTERN = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
 TIMEFRAME_PATTERN = re.compile(r"^\d+[mhdwM]$")
@@ -11,12 +13,11 @@ class ValidationService:
         return os.path.exists(path)
 
     def validate_freqtrade_path(self, path: str) -> dict:
-        if not os.path.isdir(path):
-            return {"valid": False, "error": "Directory does not exist"}
-        ft_bin = os.path.join(path, "freqtrade")
-        if not os.path.isfile(ft_bin):
-            return {"valid": False, "error": "freqtrade binary not found in directory"}
-        return {"valid": True}
+        try:
+            resolved = resolve_freqtrade_executable(path)
+        except ValueError as exc:
+            return {"valid": False, "error": str(exc)}
+        return {"valid": True, "resolved_path": resolved}
 
     def validate_pair(self, pair: str) -> bool:
         return bool(PAIR_PATTERN.match(pair.upper()))
