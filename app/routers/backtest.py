@@ -21,14 +21,14 @@ from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results.diagnosis_service import diagnosis_service
 from app.services.results.strategy_intelligence_service import analyze_run_diagnosis_overlay
-from app.services.results_service import ResultsService
+from app.services.results_service import ResultsService`r`nfrom app.services.validation_service import ValidationService
 from app.utils.datetime_utils import now_iso
 from app.utils.paths import download_runs_dir, live_strategy_file, strategy_config_file, user_data_results_dir
 
 router = APIRouter()
 results_svc = ResultsService()
 config_svc = ConfigService()
-persistence = PersistenceService()
+persistence = PersistenceService()`r`nvalidation_svc = ValidationService()
 
 _KNOWN_FAILURE_PREFIXES = (
     "launch_failed:",
@@ -800,9 +800,11 @@ async def delete_config(name: str):
 
 @router.post("/validate-data")
 async def validate_data(payload: dict):
-    """Validate which pairs have existing candle data files."""
-    pairs = payload.get("pairs", [])
-    timeframe = payload.get("timeframe", "")
+    """Validate candle availability and timerange coverage for the selected pairs."""
+    pairs = list(payload.get("pairs", []))
+    timeframe = str(payload.get("timeframe") or "")
+    exchange = str(payload.get("exchange") or config_svc.get_settings().get("default_exchange") or "binance")
+    timerange = payload.get("timerange")
 
     if not pairs:
         return JSONResponse(
@@ -810,18 +812,66 @@ async def validate_data(payload: dict):
             content={"valid": False, "message": "No pairs provided", "results": []}
         )
 
+    if not timeframe:
+        return JSONResponse(
+            status_code=400,
+            content={"valid": False, "message": "No timeframe provided", "results": []}
+        )
+
+    if not validation_svc.validate_timeframe(timeframe):
+        return JSONResponse(
+            status_code=400,
+            content={"valid": False, "message": f"Invalid timeframe: {timeframe}", "results": []}
+        )
+
+    if timerange:
+        timerange_result = validation_svc.validate_timerange(str(timerange))
+        if not timerange_result.get("valid"):
+            return JSONResponse(
+                status_code=400,
+                content={"valid": False, "message": timerange_result.get("error") or "Invalid timerange", "results": []}
+            )
+
     engine = _resolve_engine()
     try:
-        results = engine.validate_data(pairs=pairs, timeframe=timeframe)
+        results = engine.validate_data(
+            pairs=pairs,
+            timeframe=timeframe,
+            exchange=exchange,
+            timerange=str(timerange) if timerange else None,
+        )
     except EngineFeatureNotSupported as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
-    has_data = any(r["status"] == "valid" for r in results)
+    status_counts: dict[str, int] = {}
+    for row in results:
+        status = str(row.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    ready_count = status_counts.get("valid", 0)
+    issue_count = len(results) - ready_count
+    all_valid = bool(results) and issue_count == 0
+
+    if all_valid:
+        message = f"All {len(results)} pairs cover the requested data range."
+    elif ready_count:
+        message = f"{ready_count} pair(s) ready, {issue_count} with issues or incomplete coverage."
+    else:
+        message = "No pairs are ready for the selected validation request."
 
     return {
-        "valid": has_data,
-        "message": f"Found data for {sum(1 for r in results if r['status'] == 'valid')} of {len(pairs)} pairs" if has_data else "No data found for any pairs",
-        "results": results
+        "valid": all_valid,
+        "message": message,
+        "summary": {
+            "exchange": exchange,
+            "timeframe": timeframe,
+            "timerange": str(timerange) if timerange else None,
+            "pair_count": len(results),
+            "ready_count": ready_count,
+            "issue_count": issue_count,
+            "status_counts": status_counts,
+        },
+        "results": results,
     }
 
 
