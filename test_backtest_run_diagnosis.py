@@ -7,11 +7,13 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app.routers.backtest as backtest_router
+import app.routers.versions as versions_router
 import app.services.freqtrade_cli_service as cli_module
 import app.services.persistence_service as persistence_module
 import app.services.results_service as results_module
@@ -183,6 +185,13 @@ class _PatchedEnv:
 def _make_client() -> TestClient:
     app = FastAPI()
     app.include_router(backtest_router.router, prefix="/api/backtest")
+    return TestClient(app)
+
+
+def _make_full_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(backtest_router.router, prefix="/api/backtest")
+    app.include_router(versions_router.router, prefix="/api/versions")
     return TestClient(app)
 
 
@@ -495,6 +504,221 @@ def test_diagnosis_rules_and_insufficient_evidence() -> None:
     print("[PASS] Deterministic diagnosis emits rule flags and insufficiency markers correctly")
 
 
+def test_proposal_candidate_endpoint_supports_all_sources() -> None:
+    with _PatchedEnv() as env:
+        strategy = "ProposalStrategy"
+        baseline_version_id = _create_active_version(strategy, code="class ProposalStrategy: pass\n")
+        summary = _make_summary(
+            strategy,
+            profit_pct=-7.0,
+            total_trades=8,
+            winrate=0.30,
+            drawdown_account=0.28,
+            trades=[
+                _make_trade(0, pair="BTC/USDT", profit_ratio=-0.02, open_hour=0, duration_min=90),
+                _make_trade(1, pair="BTC/USDT", profit_ratio=-0.03, open_hour=1, duration_min=120),
+                _make_trade(2, pair="BTC/USDT", profit_ratio=0.05, open_hour=2, duration_min=60),
+                _make_trade(3, pair="ETH/USDT", profit_ratio=-0.02, open_hour=3, duration_min=100),
+            ],
+        )
+        _write_run_meta(
+            env,
+            run_id="bt-proposal",
+            strategy=strategy,
+            status="completed",
+            summary_payload=summary,
+            version_id=baseline_version_id,
+            completed=True,
+            include_snapshot_fields=True,
+            raw_result_path=os.path.join(env.results_dir, strategy, "bt-proposal.backtest.zip"),
+        )
+
+        captured_calls = []
+
+        async def _overlay_ok(**kwargs):
+            return {
+                "summary": "Overlay summary",
+                "priorities": ["Tighten stops"],
+                "rationale": ["Drawdown is elevated"],
+                "parameter_suggestions": [{"name": "stoploss", "value": -0.08, "reason": "Cut losses sooner"}],
+                "ai_status": "ready",
+            }
+
+        async def _fake_create_candidate(**kwargs):
+            captured_calls.append(kwargs)
+            mutation = mutation_module.mutation_service.create_mutation(
+                MutationRequest(
+                    strategy_name=kwargs["strategy_name"],
+                    change_type=ChangeType.PARAMETER_CHANGE,
+                    summary=f"AI proposal candidate from run {kwargs['run_id']} using {kwargs['source_kind']}[{kwargs['source_index']}]",
+                    created_by="ai_apply",
+                    parameters={"stoploss": -0.08},
+                    parent_version_id=kwargs["linked_version"].version_id,
+                    source_ref=f"backtest_run:{kwargs['run_id']}",
+                )
+            )
+            version = mutation_module.mutation_service.get_version_by_id(mutation.version_id)
+            return SimpleNamespace(
+                success=True,
+                message="Candidate staged",
+                version_id=mutation.version_id,
+                candidate_change_type=version.change_type.value,
+                candidate_status=version.status.value,
+                source_title=f"{kwargs['source_kind']} source",
+                ai_mode="parameter_only",
+                error=None,
+            )
+
+        original_overlay = backtest_router.analyze_run_diagnosis_overlay
+        original_create_candidate = backtest_router.create_proposal_candidate_from_diagnosis
+        client = _make_client()
+        try:
+            backtest_router.analyze_run_diagnosis_overlay = _overlay_ok
+            backtest_router.create_proposal_candidate_from_diagnosis = _fake_create_candidate
+
+            for source_kind in ("ranked_issue", "parameter_hint", "ai_parameter_suggestion"):
+                response = client.post(
+                    "/api/backtest/runs/bt-proposal/proposal-candidates",
+                    json={"source_kind": source_kind, "source_index": 0, "candidate_mode": "auto"},
+                )
+                assert response.status_code == 200, response.text
+                payload = response.json()
+                assert payload["baseline_run_id"] == "bt-proposal"
+                assert payload["baseline_version_id"] == baseline_version_id
+                assert payload["baseline_version_source"] == "run"
+                assert payload["candidate_change_type"] == "parameter_change"
+                assert payload["candidate_status"] == "candidate"
+
+                version = mutation_module.mutation_service.get_version_by_id(payload["candidate_version_id"])
+                assert version is not None
+                assert version.created_by == "ai_apply"
+                assert version.parent_version_id == baseline_version_id
+                assert version.source_ref == "backtest_run:bt-proposal"
+
+            assert [call["source_kind"] for call in captured_calls] == [
+                "ranked_issue",
+                "parameter_hint",
+                "ai_parameter_suggestion",
+            ]
+            print("[PASS] Proposal candidate endpoint supports ranked issues, parameter hints, and AI suggestions")
+        finally:
+            backtest_router.analyze_run_diagnosis_overlay = original_overlay
+            backtest_router.create_proposal_candidate_from_diagnosis = original_create_candidate
+
+
+def test_proposal_candidate_endpoint_falls_back_to_active_version_for_historical_run() -> None:
+    with _PatchedEnv() as env:
+        strategy = "HistoricalProposalStrategy"
+        active_version_id = _create_active_version(strategy, code="class HistoricalProposalStrategy: pass\n")
+        summary = _make_summary(strategy, profit_pct=-6.0, total_trades=8, winrate=0.35, drawdown_account=0.20)
+        _write_run_meta(
+            env,
+            run_id="bt-historical",
+            strategy=strategy,
+            status="completed",
+            summary_payload=summary,
+            version_id=None,
+            completed=True,
+            include_snapshot_fields=True,
+            raw_result_path=os.path.join(env.results_dir, strategy, "bt-historical.backtest.zip"),
+        )
+
+        captured = {}
+
+        async def _fake_create_candidate(**kwargs):
+            captured.update(kwargs)
+            mutation = mutation_module.mutation_service.create_mutation(
+                MutationRequest(
+                    strategy_name=kwargs["strategy_name"],
+                    change_type=ChangeType.PARAMETER_CHANGE,
+                    summary="Fallback proposal candidate",
+                    created_by="ai_apply",
+                    parameters={"stoploss": -0.07},
+                    parent_version_id=kwargs["linked_version"].version_id if kwargs.get("linked_version") else None,
+                    source_ref=f"backtest_run:{kwargs['run_id']}",
+                )
+            )
+            version = mutation_module.mutation_service.get_version_by_id(mutation.version_id)
+            return SimpleNamespace(
+                success=True,
+                message="Candidate staged",
+                version_id=mutation.version_id,
+                candidate_change_type=version.change_type.value,
+                candidate_status=version.status.value,
+                source_title="fallback source",
+                ai_mode="parameter_only",
+                error=None,
+            )
+
+        original_create_candidate = backtest_router.create_proposal_candidate_from_diagnosis
+        client = _make_client()
+        try:
+            backtest_router.create_proposal_candidate_from_diagnosis = _fake_create_candidate
+            response = client.post(
+                "/api/backtest/runs/bt-historical/proposal-candidates",
+                json={"source_kind": "parameter_hint", "source_index": 0, "candidate_mode": "auto"},
+            )
+            assert response.status_code == 200, response.text
+            payload = response.json()
+            assert payload["baseline_run_version_id"] is None
+            assert payload["baseline_version_id"] == active_version_id
+            assert payload["baseline_version_source"] == "active_fallback"
+            assert captured["linked_version"].version_id == active_version_id
+            print("[PASS] Proposal candidate endpoint falls back to the active version for historical runs")
+        finally:
+            backtest_router.create_proposal_candidate_from_diagnosis = original_create_candidate
+
+
+def test_versions_reject_and_rollback_workflow() -> None:
+    with _PatchedEnv() as env:
+        strategy = "VersionWorkflowStrategy"
+        baseline_version_id = _create_active_version(strategy, code="class VersionWorkflowStrategy: pass\n")
+        rejected_candidate = mutation_module.mutation_service.create_mutation(
+            MutationRequest(
+                strategy_name=strategy,
+                change_type=ChangeType.PARAMETER_CHANGE,
+                summary="Reject me",
+                created_by="ai_apply",
+                parameters={"stoploss": -0.08},
+                parent_version_id=baseline_version_id,
+            )
+        ).version_id
+        accepted_candidate = mutation_module.mutation_service.create_mutation(
+            MutationRequest(
+                strategy_name=strategy,
+                change_type=ChangeType.PARAMETER_CHANGE,
+                summary="Promote me",
+                created_by="ai_apply",
+                parameters={"stoploss": -0.07},
+                parent_version_id=baseline_version_id,
+            )
+        ).version_id
+
+        client = _make_full_client()
+
+        reject_response = client.post(
+            f"/api/versions/{strategy}/reject",
+            json={"version_id": rejected_candidate, "reason": "Not convincing"},
+        )
+        assert reject_response.status_code == 200, reject_response.text
+        assert mutation_module.mutation_service.get_version_by_id(rejected_candidate).status.value == "rejected"
+
+        accept_response = client.post(
+            f"/api/versions/{strategy}/accept",
+            json={"version_id": accepted_candidate, "notes": "Promote candidate"},
+        )
+        assert accept_response.status_code == 200, accept_response.text
+        assert mutation_module.mutation_service.get_version_by_id(accepted_candidate).status.value == "active"
+
+        rollback_response = client.post(
+            f"/api/versions/{strategy}/rollback",
+            json={"target_version_id": baseline_version_id, "reason": "Restore baseline"},
+        )
+        assert rollback_response.status_code == 200, rollback_response.text
+        assert mutation_module.mutation_service.get_version_by_id(baseline_version_id).status.value == "active"
+        print("[PASS] Version reject and rollback workflow updates version state correctly")
+
+
 def test_diagnosis_endpoint_states_and_ai_overlay() -> None:
     with _PatchedEnv() as env:
         strategy = "EndpointStrategy"
@@ -628,5 +852,8 @@ if __name__ == "__main__":
     test_run_bootstraps_minimal_initial_version()
     test_results_service_summary_states()
     test_diagnosis_rules_and_insufficient_evidence()
+    test_proposal_candidate_endpoint_supports_all_sources()
+    test_proposal_candidate_endpoint_falls_back_to_active_version_for_historical_run()
+    test_versions_reject_and_rollback_workflow()
     test_diagnosis_endpoint_states_and_ai_overlay()
     print("\n[SUCCESS] Run-scoped diagnosis tests passed")

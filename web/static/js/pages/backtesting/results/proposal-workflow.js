@@ -32,7 +32,7 @@ function escapeHtml(value) {
 function labelize(value) {
   return String(value || "-")
     .replace(/_/g, " ")
-    .replace(/\w/g, (letter) => letter.toUpperCase());
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function isObject(value) {
@@ -418,7 +418,7 @@ async function loadVersions(strategy, options = {}) {
     render();
     void ensureCompareLoaded();
   } catch (error) {
-    if (requestId != versionsRequestId) return;
+    if (requestId !== versionsRequestId) return;
     versionsState = {
       status: "error",
       strategy,
