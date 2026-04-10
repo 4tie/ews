@@ -361,6 +361,28 @@
   background: var(--color-surface-1);
 }
 
+.summary-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.summary-details .results-context {
+  min-width: 0;
+}
+
+.summary-details .results-context__meta {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.summary-details .results-context__meta span,
+.summary-details .results-context__note {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 @keyframes btFadeUp {
   from {
     opacity: 0;
@@ -391,3 +413,4 @@
     animation: none;
   }
 }
+

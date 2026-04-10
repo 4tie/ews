@@ -1,5 +1,5 @@
-﻿/**
- * results-controller.js — Fetches backtest summary and fans out results rendering.
+/**
+ * results-controller.js - Fetches backtest summary and fans out results rendering.
  */
 
 import api from "../../../core/api.js";
@@ -36,13 +36,13 @@ async function refresh() {
   const strategy = getState("backtest.strategy");
   if (!strategy) {
     latestResultsPayload = null;
-    renderSummaryCards(summaryCards, null);
+    renderSummaryCards(summaryCards, null, { expanded: true });
     return;
   }
 
   try {
     const { summary } = await api.backtest.summary(strategy);
-    renderSummaryCards(summaryCards, summary ?? null);
+    renderSummaryCards(summaryCards, summary ?? null, { expanded: true });
 
     const block = resolveStrategyBlock(summary, strategy);
     latestResultsPayload = {
