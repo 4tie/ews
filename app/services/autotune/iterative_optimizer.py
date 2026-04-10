@@ -40,8 +40,8 @@ class IterativeOptimizer:
         # TODO: send SIGTERM to running subprocess
         return {"run_id": self.run_id, "status": "stopped"}
 
-    def save_checkpoint(self, epoch: int, params: dict, profit_pct: float) -> dict:
-        """Persist a good epoch result as a checkpoint."""
+    def save_checkpoint(self, epoch: int, params: dict, profit_pct: float, strategy_name: str = "unknown") -> dict:
+        """Persist a good epoch result as a checkpoint with version control."""
         checkpoint_id = f"epoch_{epoch:04d}_{timestamp_slug()}"
         data = {
             "checkpoint_id": checkpoint_id,
@@ -51,6 +51,19 @@ class IterativeOptimizer:
             "saved_at": now_iso(),
         }
         persistence.save_checkpoint(self.run_id, checkpoint_id, data)
+        
+        mutation_result = mutation_service.create_mutation(
+            MutationRequest(
+                strategy_name=strategy_name,
+                change_type=ChangeType.EVOLUTION,
+                summary=f"Optimizer checkpoint epoch {epoch} with profit {profit_pct:.2f}%",
+                created_by="optimizer",
+                parameters={"hyperopt_params": params, "profit_pct": profit_pct},
+                source_ref=checkpoint_id,
+            )
+        )
+        data["version_id"] = mutation_result.version_id
+        
         return data
 
     def list_checkpoints(self) -> list[str]:

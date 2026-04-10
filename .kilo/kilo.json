@@ -38,5 +38,12 @@
         "@modelcontextprotocol/server-sequential-thinking"
       ]
     }
-  }
+  },
+    "instructions": [
+      "AGENTS.md",
+      ".kilo/rules/01-repo-audit.md",
+      ".kilo/rules/02-implementation.md",
+      ".kilo/rules/03-ai-routing.md",
+      ".kilo/rules/04-no-duplication.md"
+    ]
 }
