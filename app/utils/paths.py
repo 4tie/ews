@@ -4,11 +4,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def app_dir() -> str:
+    """Returns the path to the app directory (BASE_DIR/app)."""
     return os.path.join(BASE_DIR, "app")
 
 
 def storage_dir() -> str:
-    return os.path.join(app_dir(), "storage")
+    """Returns the path to the app storage directory (BASE_DIR/app/storage)."""
+    return os.path.join(BASE_DIR, "app", "storage")
 
 
 def saved_configs_dir() -> str:

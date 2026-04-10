@@ -12,7 +12,8 @@ from app.models.optimizer_models import (
 from app.services.mutation_service import mutation_service
 
 
-router = APIRouter(prefix="/versions", tags=["versions"])
+# Prefix is set in app/main.py
+router = APIRouter(tags=["versions"])
 
 
 @router.get("/{strategy_name}")
@@ -55,6 +56,12 @@ async def accept_version(
     request: AcceptRequest,
 ) -> dict:
     """Accept (promote) a candidate version to active."""
+    version = mutation_service.get_version(strategy_name, request.version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail=f"Version {request.version_id} not found")
+    if version.strategy_name != strategy_name:
+        raise HTTPException(status_code=400, detail=f"Version {request.version_id} does not belong to {strategy_name}")
+    
     result = mutation_service.accept_version(request.version_id, request.notes)
     
     if result.status == "error":
@@ -73,6 +80,12 @@ async def rollback_version(
     request: RollbackRequest,
 ) -> dict:
     """Rollback to an older version."""
+    version = mutation_service.get_version(strategy_name, request.target_version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail=f"Version {request.target_version_id} not found")
+    if version.strategy_name != strategy_name:
+        raise HTTPException(status_code=400, detail=f"Version {request.target_version_id} does not belong to {strategy_name}")
+    
     result = mutation_service.rollback_version(request.target_version_id, request.reason)
     
     if result.status == "error":
@@ -93,6 +106,12 @@ async def link_backtest(
     profit_pct: float | None = None,
 ) -> dict:
     """Link a backtest run to a version."""
+    version = mutation_service.get_version(strategy_name, version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail=f"Version {version_id} not found")
+    if version.strategy_name != strategy_name:
+        raise HTTPException(status_code=400, detail=f"Version {version_id} does not belong to {strategy_name}")
+    
     mutation_service.link_backtest(version_id, backtest_run_id, profit_pct)
     return {
         "version_id": version_id,
