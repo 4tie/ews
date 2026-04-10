@@ -118,14 +118,38 @@ class FreqtradeCliService:
             "process": process,
         }
 
+    def _data_file_exists(self, pair: str, timeframe: str) -> bool:
+        """Check if a data file exists for the given pair and timeframe."""
+        user_data_path = self._user_data_path()
+        if not user_data_path:
+            return False
+        pair_dir = pair.replace("/", "_")
+        data_file = os.path.join(user_data_path, "data", pair_dir, f"{timeframe}.json")
+        return os.path.exists(data_file)
+
+    def _should_prepend(self, pairs: list, timeframes: list) -> bool:
+        """Check if any data files exist - if so, use --prepend to extend existing data."""
+        for pair in pairs:
+            for tf in timeframes:
+                if self._data_file_exists(pair, tf):
+                    return True
+        return False
+
     def download_data(self, payload: dict) -> dict:
         """Run freqtrade download-data."""
+        pairs = payload.get("pairs", [])
+        timeframes = [payload.get("timeframe", "5m")]
+        timerange = payload.get("timerange")
+
+        prepend = self._should_prepend(pairs, timeframes) if pairs else False
+
         cmd = build_download_command(
             freqtrade_path=self._freqtrade_path(),
             config_path=self._config_path(),
-            pairs=payload.get("pairs", []),
-            timeframes=[payload.get("timeframe", "5m")],
-            timerange=payload.get("timerange"),
+            pairs=pairs,
+            timeframes=timeframes,
+            timerange=timerange,
+            prepend=prepend,
         )
         # TODO: run as async subprocess
-        return {"command": command_to_string(cmd), "status": "pending"}
+        return {"command": command_to_string(cmd), "status": "pending", "prepend": prepend}

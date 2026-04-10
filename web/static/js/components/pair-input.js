@@ -11,6 +11,7 @@ const addInput = $("#input-pair-add");
 const addBtn   = $("#btn-add-pair");
 const tagList  = $("#pairs-tag-list");
 const feedback = $("#json-parse-feedback");
+const quickPairsContainer = $("#quick-pairs");
 
 function renderTags() {
   if (!tagList) return;
@@ -46,6 +47,7 @@ function removePair(pair) {
   const pairs = (getState("backtest.pairs") || []).filter(p => p !== pair);
   setState("backtest.pairs", pairs);
   renderTags();
+  updateQuickPairButtons();
   emit(EVENTS.PAIRS_UPDATED, pairs);
 }
 
@@ -127,7 +129,44 @@ export function setPairsFromArray(pairs) {
   const validated = (pairs || []).map(normalizePair).filter(isValidPair);
   setState("backtest.pairs", [...new Set(validated)]);
   renderTags();
+  updateQuickPairButtons();
   emit(EVENTS.PAIRS_UPDATED, [...new Set(validated)]);
 }
 
-export { renderTags };
+function updateQuickPairButtons() {
+  if (!quickPairsContainer) return;
+  const pairs = getState("backtest.pairs") || [];
+  const buttons = quickPairsContainer.querySelectorAll(".quick-pair-btn");
+  buttons.forEach(btn => {
+    const pair = btn.dataset.pair;
+    if (pairs.includes(pair)) {
+      btn.classList.add("is-active");
+    } else {
+      btn.classList.remove("is-active");
+    }
+  });
+}
+
+function toggleQuickPair(pair) {
+  const pairs = [...(getState("backtest.pairs") || [])];
+  const index = pairs.indexOf(pair);
+  if (index === -1) {
+    pairs.push(pair);
+  } else {
+    pairs.splice(index, 1);
+  }
+  setState("backtest.pairs", pairs);
+  renderTags();
+  updateQuickPairButtons();
+  emit(EVENTS.PAIRS_UPDATED, pairs);
+}
+
+quickPairsContainer?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".quick-pair-btn");
+  if (btn) {
+    e.preventDefault();
+    toggleQuickPair(btn.dataset.pair);
+  }
+});
+
+export { renderTags, updateQuickPairButtons };

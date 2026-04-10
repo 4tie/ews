@@ -86,8 +86,6 @@
 .config-item__actions { display: flex; gap: var(--space-2); }
 
 /* Date inputs */
-.date-inputs { }
-
 .date-input-group {
   display: flex;
   align-items: center;
@@ -117,4 +115,22 @@
   cursor: pointer;
   padding: 0;
   font: inherit;
+}
+
+/* Quick pair buttons */
+.quick-pairs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.quick-pair-btn {
+  transition: all var(--transition-fast);
+}
+
+.quick-pair-btn.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
 }

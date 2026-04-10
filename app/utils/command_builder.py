@@ -62,6 +62,7 @@ def build_download_command(
     pairs: List[str],
     timeframes: List[str],
     timerange: Optional[str] = None,
+    prepend: bool = False,
 ) -> List[str]:
     cmd = [
         f"{freqtrade_path}/freqtrade" if freqtrade_path else "freqtrade",
@@ -71,6 +72,8 @@ def build_download_command(
     ] + pairs + ["--timeframes"] + timeframes
     if timerange:
         cmd += ["--timerange", timerange]
+    if prepend:
+        cmd += ["--prepend"]
     return cmd
 
 

@@ -71,11 +71,11 @@
         <div class="row-group">
           <div class="row-group__item">
             <label class="form-label form-label--sub" for="input-start-date">Start Date</label>
-            <input class="form-input" type="text" id="input-start-date" name="start_date" placeholder="mm/dd/yyyy" />
+            <input class="form-input" type="date" id="input-start-date" name="start_date" />
           </div>
           <div class="row-group__item">
             <label class="form-label form-label--sub" for="input-end-date">End Date</label>
-            <input class="form-input" type="text" id="input-end-date" name="end_date" placeholder="mm/dd/yyyy" />
+            <input class="form-input" type="date" id="input-end-date" name="end_date" />
           </div>
         </div>
       </div>
@@ -90,6 +90,14 @@
         </div>
         <div class="field-hint">Supported: BTC/USDT, ETH/USDT (comma or newline separated), or JSON {"pair_whitelist": [...]}</div>
         <div class="field-hint" id="json-parse-feedback"></div>
+        <div class="quick-pairs" id="quick-pairs">
+          <button class="btn btn--ghost btn--xs quick-pair-btn" data-pair="BTC/USDT">BTC/USDT</button>
+          <button class="btn btn--ghost btn--xs quick-pair-btn" data-pair="ETH/USDT">ETH/USDT</button>
+          <button class="btn btn--ghost btn--xs quick-pair-btn" data-pair="SOL/USDT">SOL/USDT</button>
+          <button class="btn btn--ghost btn--xs quick-pair-btn" data-pair="XRP/USDT">XRP/USDT</button>
+          <button class="btn btn--ghost btn--xs quick-pair-btn" data-pair="DOGE/USDT">DOGE/USDT</button>
+          <button class="btn btn--ghost btn--xs quick-pair-btn" data-pair="ADA/USDT">ADA/USDT</button>
+        </div>
         <div class="tag-list" id="pairs-tag-list"></div>
       </div>
 
