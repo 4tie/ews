@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 from typing import Any, Optional
 
@@ -114,16 +115,47 @@ class ResultsService:
             raise ValueError(f"summary path is outside strategy results directory: {path}")
         return os.path.realpath(path)
 
-    def _load_run_summary(self, run_record: BacktestRunRecord) -> Optional[dict]:
+    def _read_json_strict(self, path: str) -> dict:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, dict):
+            raise ValueError("summary payload must be a JSON object")
+        return payload
+
+    def load_run_summary_state(self, run_record: BacktestRunRecord) -> dict[str, Any]:
         if not run_record.summary_path:
-            return None
+            return {"state": "missing", "summary": None, "error": None}
+
         try:
             summary_path = self._assert_within_strategy_results(run_record.strategy, run_record.summary_path)
-        except ValueError:
-            return None
+        except ValueError as exc:
+            return {
+                "state": "load_failed",
+                "summary": None,
+                "error": f"summary_load_failed: {exc}",
+            }
+
         if not os.path.isfile(summary_path):
-            return None
-        return read_json(summary_path, fallback=None)
+            return {"state": "missing", "summary": None, "error": None}
+
+        try:
+            summary = self._read_json_strict(summary_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            return {
+                "state": "load_failed",
+                "summary": None,
+                "error": f"summary_load_failed: {exc}",
+            }
+
+        return {"state": "ready", "summary": summary, "error": None}
+
+    def _load_run_summary(self, run_record: BacktestRunRecord) -> Optional[dict]:
+        state = self.load_run_summary_state(run_record)
+        return state.get("summary") if state.get("state") == "ready" else None
+
+    def extract_run_summary_block(self, summary: dict | None, strategy: str | None = None) -> dict | None:
+        _, block = self._resolve_strategy_block(summary, strategy)
+        return block if isinstance(block, dict) else None
 
     def _normalize_summary_metrics(self, summary: dict | None, strategy: str | None = None) -> dict | None:
         strategy_name, block = self._resolve_strategy_block(summary, strategy)
@@ -219,9 +251,12 @@ class ResultsService:
     def summarize_backtest_run(self, run_record: BacktestRunRecord) -> dict:
         payload = run_record.model_dump(mode="json")
         summary_metrics = None
+        summary_state = {"state": "missing", "summary": None, "error": None}
         if getattr(run_record, "engine", "freqtrade") == "freqtrade":
-            summary_metrics = self._normalize_summary_metrics(self._load_run_summary(run_record), run_record.strategy)
-        payload["summary_available"] = summary_metrics is not None
+            summary_state = self.load_run_summary_state(run_record)
+            if summary_state.get("state") == "ready":
+                summary_metrics = self._normalize_summary_metrics(summary_state.get("summary"), run_record.strategy)
+        payload["summary_available"] = summary_state.get("state") == "ready"
         payload["summary_metrics"] = summary_metrics
         return payload
 

@@ -383,6 +383,30 @@
   word-break: break-word;
 }
 
+.summary-diagnosis {
+  margin-top: var(--space-4);
+}
+
+.diagnosis-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diagnosis-item {
+  color: var(--color-text);
+}
+
+.diagnosis-item--critical {
+  color: #fb7185;
+}
+
+.diagnosis-item--warning {
+  color: #f59e0b;
+}
+
 @keyframes btFadeUp {
   from {
     opacity: 0;

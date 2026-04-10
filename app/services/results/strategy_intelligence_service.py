@@ -3,6 +3,7 @@ Strategy Intelligence Service - AI-powered strategy analysis.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -101,6 +102,93 @@ async def analyze_metrics(
     )
 
 
+async def analyze_run_diagnosis_overlay(
+    strategy_name: str,
+    diagnosis: dict[str, Any],
+    summary_metrics: dict[str, Any] | None,
+    linked_version: Any | None,
+) -> dict[str, Any]:
+    """Produce an optional AI overlay for deterministic run diagnosis."""
+    dispatch = get_dispatch()
+
+    context = {
+        "strategy": strategy_name,
+        "summary_metrics": summary_metrics or {},
+        "diagnosis": {
+            "facts": diagnosis.get("facts") or {},
+            "primary_flags": diagnosis.get("primary_flags") or [],
+            "parameter_hints": diagnosis.get("parameter_hints") or [],
+            "rule_version": diagnosis.get("rule_version"),
+        },
+        "linked_version": {
+            "version_id": getattr(linked_version, "version_id", None),
+            "parent_version_id": getattr(linked_version, "parent_version_id", None),
+            "change_type": getattr(getattr(linked_version, "change_type", None), "value", getattr(linked_version, "change_type", None)),
+            "summary": getattr(linked_version, "summary", None),
+            "has_code_snapshot": bool(getattr(linked_version, "code_snapshot", None)),
+            "has_parameters_snapshot": bool(getattr(linked_version, "parameters_snapshot", None)),
+        },
+    }
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a trading strategy diagnosis assistant. Return strict JSON only with keys "
+                "summary, priorities, rationale, parameter_suggestions. "
+                "Keep all suggestions advisory and grounded in the provided deterministic diagnosis."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(context, indent=2, sort_keys=True),
+        },
+    ]
+
+    response = await dispatch.complete(
+        messages=messages,
+        model="openai/gpt-4o",
+        temperature=0.2,
+        max_tokens=1800,
+    )
+
+    payload = _extract_overlay_payload(response.content)
+    return {
+        "summary": str(payload.get("summary") or "").strip() or None,
+        "priorities": _string_list(payload.get("priorities")),
+        "rationale": _string_list(payload.get("rationale")),
+        "parameter_suggestions": _object_list(payload.get("parameter_suggestions")),
+        "ai_status": "ready",
+    }
+
+
+def _extract_overlay_payload(content: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("AI overlay did not return valid JSON")
+        payload = json.loads(content[start:end + 1])
+
+    if not isinstance(payload, dict):
+        raise ValueError("AI overlay payload must be a JSON object")
+    return payload
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _object_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
 def _format_metrics(results: dict[str, Any]) -> str:
     key_metrics = [
         "total_profit",
@@ -124,4 +212,4 @@ def _format_metrics(results: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["IntelligenceResult", "analyze_strategy", "analyze_metrics"]
+__all__ = ["IntelligenceResult", "analyze_strategy", "analyze_metrics", "analyze_run_diagnosis_overlay"]

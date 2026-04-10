@@ -13,19 +13,160 @@ from app.models.backtest_models import (
     BacktestRunStatus,
     ConfigSaveRequest,
 )
+from app.models.optimizer_models import ChangeType, MutationRequest
 from app.services.config_service import ConfigService
 from app.engines.base import EngineFeatureNotSupported
 from app.engines.resolver import engine_from_id, resolve_engine
 from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
+from app.services.results.diagnosis_service import diagnosis_service
+from app.services.results.strategy_intelligence_service import analyze_run_diagnosis_overlay
 from app.services.results_service import ResultsService
 from app.utils.datetime_utils import now_iso
-from app.utils.paths import download_runs_dir, user_data_results_dir
+from app.utils.paths import download_runs_dir, live_strategy_file, strategy_config_file, user_data_results_dir
 
 router = APIRouter()
 results_svc = ResultsService()
 config_svc = ConfigService()
 persistence = PersistenceService()
+
+_KNOWN_FAILURE_PREFIXES = (
+    "launch_failed:",
+    "process_failed:",
+    "artifact_resolution_failed:",
+    "ingestion_failed:",
+    "summary_load_failed:",
+)
+
+
+def _load_json_object(path: str, label: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{label} could not be loaded: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail=f"{label} must be a JSON object: {path}")
+    return payload
+
+
+def _bootstrap_initial_version(strategy_name: str):
+    settings = config_svc.get_settings()
+    user_data_path = settings.get("user_data_path")
+
+    try:
+        strategy_path = live_strategy_file(strategy_name, user_data_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
+
+    if not os.path.isfile(strategy_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Initial bootstrap failed: live strategy file not found for {strategy_name}",
+        )
+
+    try:
+        with open(strategy_path, "r", encoding="utf-8") as handle:
+            code_snapshot = handle.read()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
+
+    parameters_snapshot = None
+    try:
+        config_path = strategy_config_file(strategy_name, user_data_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
+
+    if os.path.isfile(config_path):
+        parameters_snapshot = _load_json_object(config_path, f"Strategy config snapshot for {strategy_name}")
+
+    mutation_result = mutation_service.create_mutation(
+        MutationRequest(
+            strategy_name=strategy_name,
+            change_type=ChangeType.INITIAL,
+            summary="Initial live strategy bootstrap",
+            created_by="system",
+            code=code_snapshot,
+            parameters=parameters_snapshot,
+            source_ref=strategy_path,
+        )
+    )
+    accept_result = mutation_service.accept_version(
+        mutation_result.version_id,
+        notes="Accepted initial live strategy bootstrap",
+    )
+    if accept_result.status == "error":
+        raise HTTPException(status_code=500, detail=accept_result.message)
+
+    version = mutation_service.get_version_by_id(mutation_result.version_id)
+    if version is None:
+        raise HTTPException(status_code=500, detail="Initial bootstrap version could not be loaded after creation")
+    return version
+
+
+def _resolve_version_for_launch(payload: BacktestRunRequest):
+    if payload.version_id:
+        version = mutation_service.get_version_by_id(payload.version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail=f"Version {payload.version_id} not found")
+        if version.strategy_name != payload.strategy:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Version {payload.version_id} belongs to {version.strategy_name}, not {payload.strategy}",
+            )
+        return version
+
+    active_version = mutation_service.get_active_version(payload.strategy)
+    if active_version is not None:
+        return active_version
+
+    return _bootstrap_initial_version(payload.strategy)
+
+
+def _build_request_snapshot(launch_payload: dict, engine_id: str) -> dict:
+    return {
+        "strategy": launch_payload.get("strategy"),
+        "timeframe": launch_payload.get("timeframe"),
+        "timerange": launch_payload.get("timerange"),
+        "pairs": list(launch_payload.get("pairs") or []),
+        "exchange": launch_payload.get("exchange"),
+        "max_open_trades": launch_payload.get("max_open_trades"),
+        "dry_run_wallet": launch_payload.get("dry_run_wallet"),
+        "extra_flags": list(launch_payload.get("extra_flags") or []),
+        "trigger_source": launch_payload.get("trigger_source"),
+        "config_path": launch_payload.get("config_path"),
+        "engine": engine_id,
+    }
+
+
+def _derive_diagnosis_status(run_record: BacktestRunRecord, summary_state: dict) -> str:
+    if summary_state.get("state") == "ready":
+        return "ready"
+
+    error = str(run_record.error or "")
+    if summary_state.get("state") == "load_failed":
+        return "ingestion_failed"
+    if error:
+        return "ingestion_failed"
+    if run_record.status == BacktestRunStatus.FAILED:
+        return "ingestion_failed"
+    if run_record.completed_at and not run_record.summary_path:
+        return "ingestion_failed"
+    if run_record.completed_at and not run_record.raw_result_path:
+        return "ingestion_failed"
+    if any(error.startswith(prefix) for prefix in _KNOWN_FAILURE_PREFIXES):
+        return "ingestion_failed"
+    return "pending_summary"
+
+
+def _default_ai_payload(status: str) -> dict:
+    return {
+        "summary": None,
+        "priorities": [],
+        "rationale": [],
+        "parameter_suggestions": [],
+        "ai_status": status,
+    }
 
 def _resolve_engine():
     settings = config_svc.get_settings()
@@ -348,21 +489,12 @@ async def get_options():
 @router.post("/run")
 async def run_backtest(payload: BacktestRunRequest):
     """Trigger a backtest subprocess using the selected engine."""
-    version = None
-    if payload.version_id:
-        version = mutation_service.get_version_by_id(payload.version_id)
-        if not version:
-            raise HTTPException(status_code=404, detail=f"Version {payload.version_id} not found")
-        if version.strategy_name != payload.strategy:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Version {payload.version_id} belongs to {version.strategy_name}, not {payload.strategy}",
-            )
-
+    version = _resolve_version_for_launch(payload)
     engine = _resolve_engine()
 
     run_id = f"bt-{uuid.uuid4().hex[:8]}"
     payload_data = payload.model_dump(mode="json")
+    payload_data["version_id"] = version.version_id
     launch_payload = {**payload_data, "run_id": run_id}
 
     try:
@@ -372,12 +504,17 @@ async def run_backtest(payload: BacktestRunRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    launch_payload["config_path"] = prepared.get("config_path") or launch_payload.get("config_path")
+    request_snapshot = _build_request_snapshot(launch_payload, engine.engine_id)
+
     created_at = now_iso()
     run_record = BacktestRunRecord(
         run_id=run_id,
         engine=engine.engine_id,
         strategy=payload.strategy,
-        version_id=payload.version_id,
+        version_id=version.version_id,
+        request_snapshot=request_snapshot,
+        request_snapshot_schema_version=1,
         trigger_source=payload.trigger_source,
         created_at=created_at,
         updated_at=created_at,
@@ -393,9 +530,7 @@ async def run_backtest(payload: BacktestRunRequest):
         error=None,
     )
     _save_run_record(run_record)
-
-    if version is not None:
-        mutation_service.link_backtest(version.version_id, run_id, None)
+    mutation_service.link_backtest(version.version_id, run_id, None)
 
     try:
         result = engine.run_backtest(launch_payload, prepared=prepared)
@@ -543,6 +678,69 @@ async def get_backtest_run(run_id: str):
     if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     return {"run": results_svc.summarize_backtest_run(run)}
+
+
+@router.get("/runs/{run_id}/diagnosis")
+async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
+    run = _load_run_record(run_id)
+    if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    summary_state = results_svc.load_run_summary_state(run)
+    summary_available = summary_state.get("state") == "ready"
+    summary = summary_state.get("summary") if summary_available else None
+    summary_block = results_svc.extract_run_summary_block(summary, run.strategy) if summary else None
+    summary_metrics = results_svc._normalize_summary_metrics(summary, run.strategy) if summary else None
+    trades = summary_block.get("trades") if isinstance(summary_block, dict) and isinstance(summary_block.get("trades"), list) else []
+    results_per_pair = (
+        summary_block.get("results_per_pair")
+        if isinstance(summary_block, dict) and isinstance(summary_block.get("results_per_pair"), list)
+        else []
+    )
+    linked_version = mutation_service.get_version_by_id(run.version_id) if run.version_id else None
+
+    diagnosis = diagnosis_service.empty_diagnosis()
+    if summary_available:
+        diagnosis = diagnosis_service.diagnose_run(
+            run_record=run,
+            summary_metrics=summary_metrics,
+            summary_block=summary_block,
+            trades=trades,
+            results_per_pair=results_per_pair,
+            request_snapshot=run.request_snapshot or {},
+            request_snapshot_schema_version=run.request_snapshot_schema_version,
+            linked_version=linked_version,
+        )
+
+    if include_ai:
+        if summary_available:
+            try:
+                ai_payload = await analyze_run_diagnosis_overlay(
+                    strategy_name=run.strategy,
+                    diagnosis=diagnosis,
+                    summary_metrics=summary_metrics,
+                    linked_version=linked_version,
+                )
+            except Exception:
+                ai_payload = _default_ai_payload("unavailable")
+        else:
+            ai_payload = _default_ai_payload("unavailable")
+    else:
+        ai_payload = _default_ai_payload("disabled")
+
+    return {
+        "run_id": run.run_id,
+        "strategy": run.strategy,
+        "version_id": run.version_id,
+        "run_status": run.status.value,
+        "summary_available": summary_available,
+        "diagnosis_status": _derive_diagnosis_status(run, summary_state),
+        "summary_metrics": summary_metrics,
+        "summary": summary,
+        "diagnosis": diagnosis,
+        "ai": ai_payload,
+        "error": summary_state.get("error") or run.error or None,
+    }
 
 
 @router.get("/compare")

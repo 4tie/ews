@@ -41,6 +41,7 @@ export const api = {
     validateData: (data) => api.post("/api/backtest/validate-data", data),
     listRuns: (filters = {}) => api.get(`/api/backtest/runs${toQuery(filters)}`),
     getRun: (runId) => api.get(`/api/backtest/runs/${encodeURIComponent(runId)}`),
+    getRunDiagnosis: (runId, options = {}) => api.get(`/api/backtest/runs/${encodeURIComponent(runId)}/diagnosis${toQuery({ include_ai: options.include_ai })}`),
     compareRuns: (leftRunId, rightRunId) => api.get(`/api/backtest/compare${toQuery({ left_run_id: leftRunId, right_run_id: rightRunId })}`),
     summary: (strat) => api.get(`/api/backtest/summary?strategy=${encodeURIComponent(strat)}`),
     trades: (strat) => api.get(`/api/backtest/trades?strategy=${encodeURIComponent(strat)}`),
