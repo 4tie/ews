@@ -30,6 +30,13 @@ class ResultsService:
             return None
         return number if number == number else None
 
+    def _first_number(self, *values: Any) -> float | None:
+        for value in values:
+            number = self._to_number(value)
+            if number is not None:
+                return number
+        return None
+
     def _resolve_strategy_block(self, summary: dict | None, strategy: str | None = None) -> tuple[str | None, dict | None]:
         if not isinstance(summary, dict):
             return None, None
@@ -201,9 +208,9 @@ class ResultsService:
             "pair_count": pair_count,
             "max_drawdown_pct": max_drawdown_pct,
             "max_drawdown_abs": max_drawdown_abs,
-            "sharpe": self._to_number(total.get("sharpe") if total else None) or self._to_number(block.get("sharpe")) or self._to_number(block.get("sharpe_ratio")),
-            "sortino": self._to_number(total.get("sortino") if total else None) or self._to_number(block.get("sortino")) or self._to_number(block.get("sortino_ratio")),
-            "calmar": self._to_number(total.get("calmar") if total else None) or self._to_number(block.get("calmar")),
+            "sharpe": self._first_number(total.get("sharpe") if total else None, block.get("sharpe"), block.get("sharpe_ratio")),
+            "sortino": self._first_number(total.get("sortino") if total else None, block.get("sortino"), block.get("sortino_ratio")),
+            "calmar": self._first_number(total.get("calmar") if total else None, block.get("calmar")),
             "avg_duration": (total or {}).get("duration_avg") or block.get("holding_avg"),
             "trade_start": trade_start,
             "trade_end": trade_end,
@@ -356,3 +363,4 @@ class ResultsService:
         if not os.path.isdir(base):
             return []
         return [d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))]
+
