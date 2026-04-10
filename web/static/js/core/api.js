@@ -62,8 +62,23 @@ export const api = {
     get: () => api.get("/api/settings"),
     save: (data) => api.post("/api/settings", data),
   },
+
+  aiChat: {
+    chat: (data) => api.post("/api/ai/chat/chat", data),
+    applyCode: (data) => api.post("/api/ai/chat/apply-code", data),
+    applyParameters: (data) => api.post("/api/ai/chat/apply-parameters", data),
+  },
+
+  aiEvolution: {
+    analyzeStrategy: (data) => api.post("/api/ai/evolution/analyze-strategy", data),
+    analyzeMetrics: (data) => api.post("/api/ai/evolution/analyze-metrics", data),
+  },
+
+  versions: {
+    getActive: (strategy) => api.get(`/api/versions/${encodeURIComponent(strategy)}/active`),
+    getVersion: (strategy, versionId) => api.get(`/api/versions/${encodeURIComponent(strategy)}/${encodeURIComponent(versionId)}`),
+  },
 };
 
 window.api = api;
 export default api;
-
