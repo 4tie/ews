@@ -1,4 +1,4 @@
-"""\
+﻿"""\
 Test script to verify run-scoped backtest ingestion artifacts.
 
 This is a lightweight smoke test (not pytest) mirroring the repo's current test style.
@@ -7,8 +7,12 @@ This is a lightweight smoke test (not pytest) mirroring the repo's current test 
 import json
 import os
 import shutil
+import tempfile
 import zipfile
+from datetime import datetime, timezone
 
+from app.engines.freqtrade import engine as freqtrade_engine_module
+from app.engines.freqtrade.engine import FreqtradeEngine
 from app.models.backtest_models import BacktestRunRecord, BacktestRunStatus, BacktestTriggerSource
 from app.services.freqtrade_cli_service import FreqtradeCliService
 from app.services.results_service import ResultsService
@@ -22,6 +26,17 @@ def _write_raw_zip(raw_zip_path: str, payload: dict) -> None:
     json_name = f"{os.path.splitext(os.path.basename(raw_zip_path))[0]}.json"
     with zipfile.ZipFile(raw_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(json_name, json.dumps(payload))
+
+
+def _write_ohlcv_json(path: str, timestamps_ms: list[int]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    candles = [[ts, 100.0, 101.0, 99.0, 100.5, 1.0] for ts in timestamps_ms]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(candles, handle)
+
+
+def _timestamp_ms(year: int, month: int, day: int) -> int:
+    return int(datetime(year, month, day, tzinfo=timezone.utc).timestamp() * 1000)
 
 
 def test_ingest_writes_run_scoped_artifacts() -> None:
@@ -105,6 +120,77 @@ def test_prepare_backtest_run_rejects_conflicting_export_flags() -> None:
         raise AssertionError("Expected ValueError for conflicting export flags")
     except ValueError:
         print("[PASS] Conflicting extra_flags are rejected")
+
+
+def test_freqtrade_engine_validate_data_reports_timerange_coverage() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        candle_path = os.path.join(tmpdir, "data", "binance", "ETH_USDT-5m.json")
+        _write_ohlcv_json(
+            candle_path,
+            [
+                _timestamp_ms(2025, 1, 1),
+                _timestamp_ms(2025, 1, 2),
+                _timestamp_ms(2025, 1, 3),
+            ],
+        )
+
+        original_get_settings = freqtrade_engine_module.config_svc.get_settings
+        base_settings = original_get_settings()
+        freqtrade_engine_module.config_svc.get_settings = lambda: {
+            **base_settings,
+            "user_data_path": tmpdir,
+            "default_exchange": "binance",
+        }
+        try:
+            engine = FreqtradeEngine()
+            results = engine.validate_data(
+                pairs=["ETH/USDT"],
+                timeframe="5m",
+                exchange="binance",
+                timerange="20250101-20250103",
+            )
+        finally:
+            freqtrade_engine_module.config_svc.get_settings = original_get_settings
+
+        assert results[0]["status"] == "valid"
+        assert results[0]["candle_count"] == 3
+        assert results[0]["coverage_start"] == "2025-01-01 00:00:00 UTC"
+        assert results[0]["coverage_end"] == "2025-01-03 00:00:00 UTC"
+        print("[PASS] Data validation reports full timerange coverage")
+
+
+def test_freqtrade_engine_validate_data_reports_partial_coverage() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        candle_path = os.path.join(tmpdir, "data", "binance", "ETH_USDT-5m.json")
+        _write_ohlcv_json(
+            candle_path,
+            [
+                _timestamp_ms(2025, 1, 1),
+                _timestamp_ms(2025, 1, 2),
+            ],
+        )
+
+        original_get_settings = freqtrade_engine_module.config_svc.get_settings
+        base_settings = original_get_settings()
+        freqtrade_engine_module.config_svc.get_settings = lambda: {
+            **base_settings,
+            "user_data_path": tmpdir,
+            "default_exchange": "binance",
+        }
+        try:
+            engine = FreqtradeEngine()
+            results = engine.validate_data(
+                pairs=["ETH/USDT"],
+                timeframe="5m",
+                exchange="binance",
+                timerange="20250101-20250105",
+            )
+        finally:
+            freqtrade_engine_module.config_svc.get_settings = original_get_settings
+
+        assert results[0]["status"] == "partial"
+        assert "requested timerange" in results[0]["message"]
+        print("[PASS] Data validation reports partial timerange coverage")
 
 
 def test_prepare_backtest_run_uses_strategy_directory_and_notes() -> None:
@@ -195,6 +281,7 @@ def test_prepare_download_data_uses_prepend_by_default() -> None:
     assert "--prepend" in prepared["command"]
     print("[PASS] Download-data preparation enables --prepend by default")
 
+
 def test_resolve_backtest_raw_result_matches_run_note() -> None:
     cli = FreqtradeCliService()
     strategy = "_TestStrategyResolve"
@@ -222,6 +309,8 @@ def test_resolve_backtest_raw_result_matches_run_note() -> None:
 if __name__ == "__main__":
     test_ingest_writes_run_scoped_artifacts()
     test_prepare_backtest_run_rejects_conflicting_export_flags()
+    test_freqtrade_engine_validate_data_reports_timerange_coverage()
+    test_freqtrade_engine_validate_data_reports_partial_coverage()
     test_prepare_backtest_run_uses_strategy_directory_and_notes()
     test_build_backtest_command_includes_backtest_directory_and_notes()
     test_prepare_backtest_run_preserves_explicit_cache_flag()
