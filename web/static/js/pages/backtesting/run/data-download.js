@@ -28,19 +28,22 @@ export function initDataDownload() {
       return;
     }
 
+    const prepend = true;
+
     await refreshDownloadPreview({
       strategy,
       timeframe,
       pairs,
       startDate,
       endDate,
+      prepend,
     });
 
     setButtonLoading(downloadBtn, true, "Downloading...");
     if (downloadOutput) downloadOutput.textContent = "Starting download...";
 
     try {
-      const res = await api.backtest.downloadData({ strategy, timeframe, pairs, timerange });
+      const res = await api.backtest.downloadData({ strategy, timeframe, pairs, timerange, prepend });
       if (res.error) throw new Error(res.error);
 
       const downloadId = res.download_id;

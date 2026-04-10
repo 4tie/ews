@@ -85,6 +85,7 @@ function buildDownloadCommand(state) {
   let cmd = `freqtrade download-data --config ${configPath} --pairs ${state.pairs.join(" ")}`;
   cmd += ` --timeframes ${state.timeframe}`;
   if (timerange) cmd += ` --timerange ${timerange}`;
+  cmd += " --prepend";
   return cmd;
 }
 

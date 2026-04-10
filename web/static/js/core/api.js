@@ -38,6 +38,7 @@ export const api = {
     options: () => api.get("/api/backtest/options"),
     run: (data) => api.post("/api/backtest/run", data),
     downloadData: (data) => api.post("/api/backtest/download-data", data),
+    validateData: (data) => api.post("/api/backtest/validate-data", data),
     listRuns: (filters = {}) => api.get(`/api/backtest/runs${toQuery(filters)}`),
     getRun: (runId) => api.get(`/api/backtest/runs/${encodeURIComponent(runId)}`),
     compareRuns: (leftRunId, rightRunId) => api.get(`/api/backtest/compare${toQuery({ left_run_id: leftRunId, right_run_id: rightRunId })}`),
@@ -64,3 +65,4 @@ export const api = {
 
 window.api = api;
 export default api;
+

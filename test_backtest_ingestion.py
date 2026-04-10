@@ -162,6 +162,21 @@ def test_build_backtest_command_includes_backtest_directory_and_notes() -> None:
     print("[PASS] Backtest command includes backtest directory and run notes")
 
 
+def test_prepare_download_data_uses_prepend_by_default() -> None:
+    cli = FreqtradeCliService()
+    prepared = cli.prepare_download_data(
+        {
+            "pairs": ["BTC/USDT"],
+            "timeframe": "5m",
+            "timerange": "20260101-20260131",
+        }
+    )
+
+    assert prepared["prepend"] is True
+    assert "--prepend" in prepared["cmd"]
+    assert "--prepend" in prepared["command"]
+    print("[PASS] Download-data preparation enables --prepend by default")
+
 def test_resolve_backtest_raw_result_matches_run_note() -> None:
     cli = FreqtradeCliService()
     strategy = "_TestStrategyResolve"
@@ -191,5 +206,6 @@ if __name__ == "__main__":
     test_prepare_backtest_run_rejects_conflicting_export_flags()
     test_prepare_backtest_run_uses_strategy_directory_and_notes()
     test_build_backtest_command_includes_backtest_directory_and_notes()
+    test_prepare_download_data_uses_prepend_by_default()
     test_resolve_backtest_raw_result_matches_run_note()
     print("\n[SUCCESS] Backtest ingestion tests passed")

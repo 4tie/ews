@@ -1,44 +1,51 @@
 /**
- * data-validator.js — Validate data availability before running backtest.
+ * data-validator.js - Validate data availability before running backtest.
  */
 
+import api from "../../../core/api.js";
 import { getState } from "../../../core/state.js";
 import showToast from "../../../components/toast.js";
 import { setButtonLoading } from "../../../components/loading-state.js";
 
-const validateBtn    = document.getElementById("btn-validate-data");
+const validateBtn = document.getElementById("btn-validate-data");
 const validationOutput = document.getElementById("data-validation-output");
 
 function renderResult(results) {
   if (!validationOutput) return;
-  
+
+  if (!results.length) {
+    validationOutput.innerHTML = '<span class="muted">No validation results were returned.</span>';
+    showToast("No validation results were returned.", "warning");
+    return;
+  }
+
   let html = '<ul class="validation-list">';
   let hasIssues = false;
-  
+
   for (const item of results) {
     const status = item.status;
     let icon = "";
     let cls = "";
-    
+
     if (status === "valid") {
-      icon = "✓";
+      icon = "[ok]";
       cls = "valid";
     } else if (status === "missing") {
-      icon = "⚠";
+      icon = "[!]";
       cls = "warning";
       hasIssues = true;
     } else if (status === "unconfigured") {
-      icon = "○";
+      icon = "[ ]";
       cls = "neutral";
       hasIssues = true;
     }
-    
+
     html += `<li class="${cls}"><span class="icon">${icon}</span> ${item.pair}: ${item.message || status}</li>`;
   }
   html += "</ul>";
-  
+
   validationOutput.innerHTML = html;
-  
+
   if (hasIssues) {
     showToast("Some pairs have data issues.", "warning");
   } else {
@@ -48,28 +55,27 @@ function renderResult(results) {
 
 export function initDataValidator() {
   validateBtn?.addEventListener("click", async () => {
-    const pairs     = getState("backtest.pairs") || [];
+    const pairs = getState("backtest.pairs") || [];
     const timeframe = getState("backtest.timeframe");
-    if (!pairs.length)  { showToast("Add pairs first.", "warning"); return; }
-    if (!timeframe)     { showToast("Select a timeframe first.", "warning"); return; }
+    if (!pairs.length) {
+      showToast("Add pairs first.", "warning");
+      return;
+    }
+    if (!timeframe) {
+      showToast("Select a timeframe first.", "warning");
+      return;
+    }
 
-    setButtonLoading(validateBtn, true, "Checking…");
-    if (validationOutput) validationOutput.textContent = "Checking data availability…";
+    setButtonLoading(validateBtn, true, "Checking...");
+    if (validationOutput) validationOutput.textContent = "Checking data availability...";
 
     try {
-      const res = await fetch("/api/backtest/validate-data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pairs, timeframe })
-      });
-      
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      
-      const data = await res.json();
+      const data = await api.backtest.validateData({ pairs, timeframe });
       renderResult(data.results || []);
     } catch (err) {
-      if (validationOutput) validationOutput.textContent = `Error: ${err.message}`;
-      showToast("Validation failed: " + err.message, "error");
+      const message = err?.message || String(err);
+      if (validationOutput) validationOutput.textContent = `Error: ${message}`;
+      showToast("Validation failed: " + message, "error");
     } finally {
       setButtonLoading(validateBtn, false);
     }

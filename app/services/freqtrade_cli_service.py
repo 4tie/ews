@@ -220,7 +220,9 @@ class FreqtradeCliService:
         timeframes = [timeframe]
         timerange = payload.get("timerange")
 
-        prepend = self._should_prepend(pairs, timeframes) if pairs else False
+        prepend = payload.get("prepend")
+        if prepend is None:
+            prepend = True
 
         cmd = build_download_command(
             freqtrade_path=self._freqtrade_path(),
@@ -285,3 +287,4 @@ class FreqtradeCliService:
         """Run freqtrade download-data (legacy helper)."""
         prepared = self.prepare_download_data(payload)
         return self.run_download_data(prepared)
+
