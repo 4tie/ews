@@ -6,14 +6,26 @@ from fastapi import APIRouter, HTTPException
 from app.models.optimizer_models import (
     AcceptRequest,
     RollbackRequest,
-    VersionListResponse,
     StrategyVersion,
+    VersionListResponse,
 )
 from app.services.mutation_service import mutation_service
 
 
 # Prefix is set in app/main.py
 router = APIRouter(tags=["versions"])
+
+
+def _require_owned_version(strategy_name: str, version_id: str) -> StrategyVersion:
+    version = mutation_service.get_version_by_id(version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail=f"Version {version_id} not found")
+    if version.strategy_name != strategy_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Version {version_id} belongs to {version.strategy_name}, not {strategy_name}",
+        )
+    return version
 
 
 @router.get("/{strategy_name}")
@@ -24,7 +36,7 @@ async def list_versions(
     """List all versions for a strategy."""
     versions = mutation_service.list_versions(strategy_name, include_archived)
     active_version = mutation_service.get_active_version(strategy_name)
-    
+
     return VersionListResponse(
         strategy_name=strategy_name,
         versions=versions,
@@ -44,10 +56,7 @@ async def get_active_version(strategy_name: str) -> StrategyVersion:
 @router.get("/{strategy_name}/{version_id}")
 async def get_version(strategy_name: str, version_id: str) -> StrategyVersion:
     """Get a specific version."""
-    version = mutation_service.get_version(strategy_name, version_id)
-    if not version:
-        raise HTTPException(status_code=404, detail=f"Version {version_id} not found")
-    return version
+    return _require_owned_version(strategy_name, version_id)
 
 
 @router.post("/{strategy_name}/accept")
@@ -56,17 +65,12 @@ async def accept_version(
     request: AcceptRequest,
 ) -> dict:
     """Accept (promote) a candidate version to active."""
-    version = mutation_service.get_version(strategy_name, request.version_id)
-    if not version:
-        raise HTTPException(status_code=404, detail=f"Version {request.version_id} not found")
-    if version.strategy_name != strategy_name:
-        raise HTTPException(status_code=400, detail=f"Version {request.version_id} does not belong to {strategy_name}")
-    
+    _require_owned_version(strategy_name, request.version_id)
+
     result = mutation_service.accept_version(request.version_id, request.notes)
-    
     if result.status == "error":
         raise HTTPException(status_code=400, detail=result.message)
-    
+
     return {
         "version_id": result.version_id,
         "status": result.status,
@@ -80,17 +84,12 @@ async def rollback_version(
     request: RollbackRequest,
 ) -> dict:
     """Rollback to an older version."""
-    version = mutation_service.get_version(strategy_name, request.target_version_id)
-    if not version:
-        raise HTTPException(status_code=404, detail=f"Version {request.target_version_id} not found")
-    if version.strategy_name != strategy_name:
-        raise HTTPException(status_code=400, detail=f"Version {request.target_version_id} does not belong to {strategy_name}")
-    
+    _require_owned_version(strategy_name, request.target_version_id)
+
     result = mutation_service.rollback_version(request.target_version_id, request.reason)
-    
     if result.status == "error":
         raise HTTPException(status_code=400, detail=result.message)
-    
+
     return {
         "version_id": result.version_id,
         "status": result.status,
@@ -106,12 +105,8 @@ async def link_backtest(
     profit_pct: float | None = None,
 ) -> dict:
     """Link a backtest run to a version."""
-    version = mutation_service.get_version(strategy_name, version_id)
-    if not version:
-        raise HTTPException(status_code=404, detail=f"Version {version_id} not found")
-    if version.strategy_name != strategy_name:
-        raise HTTPException(status_code=400, detail=f"Version {version_id} does not belong to {strategy_name}")
-    
+    _require_owned_version(strategy_name, version_id)
+
     mutation_service.link_backtest(version_id, backtest_run_id, profit_pct)
     return {
         "version_id": version_id,

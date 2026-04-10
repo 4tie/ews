@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any
 
-from app.services.ai_chat.loop_service import run_ai_loop, analyze_with_two_mode, LoopConfig
-from app.services.ai_chat.apply_code_service import ApplyResult, apply_code_patch, apply_parameters
 from app.ai.output_format import parse_ai_response
+from app.services.ai_chat.apply_code_service import apply_code_patch, apply_parameters
+from app.services.ai_chat.loop_service import LoopConfig, analyze_with_two_mode, run_ai_loop
 
 
 router = APIRouter()
@@ -48,7 +48,7 @@ async def chat(request: ChatRequest):
         max_iterations=request.max_iterations,
         temperature=request.temperature,
     )
-    
+
     result = await run_ai_loop(
         user_message=request.message,
         strategy_name=request.strategy_name,
@@ -57,10 +57,10 @@ async def chat(request: ChatRequest):
         optimizer_results=request.optimizer_results,
         config=config,
     )
-    
+
     if not result.success:
         raise HTTPException(status_code=400, detail=result.error)
-    
+
     return {
         "success": True,
         "mode": result.final_parameters and "parameter_only" or "code_patch",
@@ -78,7 +78,7 @@ async def analyze(request: AnalyzeRequest):
         context=request.context,
         strategy_code=request.strategy_code,
     )
-    
+
     return {
         "mode": parsed.mode,
         "is_applicable": parsed.is_applicable,
@@ -90,19 +90,21 @@ async def analyze(request: AnalyzeRequest):
 
 @router.post("/apply-code")
 async def apply_code(request: ApplyCodeRequest):
-    """Apply AI-generated code to strategy."""
+    """Create a candidate version from AI-generated code."""
     result = await apply_code_patch(
         strategy_name=request.strategy_name,
         code=request.code,
         strategy_dir=request.strategy_dir,
         create_backup=request.create_backup,
     )
-    
+
     if not result.success:
         raise HTTPException(status_code=400, detail=result.error)
-    
+
     return {
         "success": True,
+        "version_id": result.version_id,
+        "message": result.message,
         "file_path": result.file_path,
         "backup_path": result.backup_path,
     }
@@ -110,17 +112,19 @@ async def apply_code(request: ApplyCodeRequest):
 
 @router.post("/apply-parameters")
 async def apply_parameters_endpoint(request: ApplyParamsRequest):
-    """Apply AI-generated parameters to strategy config."""
+    """Create a candidate version from AI-generated parameters."""
     result = await apply_parameters(
         strategy_name=request.strategy_name,
         parameters=request.parameters,
     )
-    
+
     if not result.success:
         raise HTTPException(status_code=400, detail=result.error)
-    
+
     return {
         "success": True,
+        "version_id": result.version_id,
+        "message": result.message,
         "file_path": result.file_path,
     }
 
@@ -129,7 +133,7 @@ async def apply_parameters_endpoint(request: ApplyParamsRequest):
 async def validate_output(text: str):
     """Validate AI output follows two-mode format."""
     parsed = parse_ai_response(text)
-    
+
     return {
         "mode": parsed.mode,
         "is_applicable": parsed.is_applicable,

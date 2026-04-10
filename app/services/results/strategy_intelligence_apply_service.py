@@ -22,52 +22,51 @@ async def apply_strategy_recommendations(
     code: str | None = None,
     strategy_dir: str | None = None,
 ) -> ApplyIntelligenceResult:
-    """Apply AI recommendations to strategy."""
-    
+    """Create candidate versions from AI recommendations."""
     if parameters:
         result = await apply_parameters(
             strategy_name=strategy_name,
             parameters=parameters,
         )
-        
+
         if not result.success:
             return ApplyIntelligenceResult(
                 success=False,
-                message=f"Failed to apply parameters: {result.error}",
+                message=f"Failed to create parameter candidate: {result.error}",
                 parameters_applied=None,
                 code_applied=False,
             )
-    
+
     if code:
         result = await apply_code_patch(
             strategy_name=strategy_name,
             code=code,
             strategy_dir=strategy_dir,
         )
-        
+
         if not result.success:
             return ApplyIntelligenceResult(
                 success=False,
-                message=f"Failed to apply code: {result.error}",
+                message=f"Failed to create code candidate: {result.error}",
                 parameters_applied=parameters,
                 code_applied=False,
             )
-        
+
         return ApplyIntelligenceResult(
             success=True,
-            message="Code and parameters applied successfully",
+            message="Candidate version created for the recommended code changes.",
             parameters_applied=parameters,
             code_applied=True,
         )
-    
+
     if parameters:
         return ApplyIntelligenceResult(
             success=True,
-            message="Parameters applied successfully",
+            message="Candidate version created for the recommended parameter changes.",
             parameters_applied=parameters,
             code_applied=False,
         )
-    
+
     return ApplyIntelligenceResult(
         success=False,
         message="No changes to apply",
