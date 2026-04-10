@@ -4,10 +4,11 @@ import logging
 import os
 import subprocess
 from datetime import datetime
+from typing import Any
 
 from app.services.config_service import ConfigService
 from app.utils.command_builder import build_backtest_command, build_download_command, command_to_string
-from app.utils.paths import BASE_DIR, strategy_results_dir
+from app.utils.paths import BASE_DIR, default_freqtrade_config_path, strategy_results_dir
 
 config_svc = ConfigService()
 logger = logging.getLogger(__name__)
@@ -31,6 +32,16 @@ class FreqtradeCliService:
 
     def _config_path(self) -> str:
         return config_svc.get_settings().get("config_path", "")
+
+    def _settings(self) -> dict[str, Any]:
+        return config_svc.get_settings()
+
+    def resolve_backtest_config_path(self, payload: dict[str, Any] | None = None) -> str:
+        settings = self._settings()
+        configured = (payload or {}).get("config_path") or settings.get("config_path")
+        if configured:
+            return str(configured)
+        return default_freqtrade_config_path(settings.get("user_data_path"))
 
     def _freqtrade_subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -130,12 +141,13 @@ class FreqtradeCliService:
         run_id = payload.get("run_id") or datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         extra_flags = list(payload.get("extra_flags", []))
         self._validate_backtest_extra_flags(extra_flags)
+        config_path = self.resolve_backtest_config_path(payload)
 
         artifacts = self._backtest_artifact_paths(strategy, run_id)
         cmd = build_backtest_command(
             freqtrade_path=self._freqtrade_path(),
             strategy=strategy,
-            config_path=self._config_path(),
+            config_path=config_path,
             timerange=payload.get("timerange"),
             pairs=payload.get("pairs"),
             timeframe=payload.get("timeframe"),
@@ -150,6 +162,7 @@ class FreqtradeCliService:
             "run_id": run_id,
             "cmd": cmd,
             "command": command_to_string(cmd),
+            "config_path": config_path,
             **artifacts,
         }
 

@@ -37,6 +37,8 @@ class BacktestRunRecord(BaseModel):
     engine: str = "freqtrade"
     strategy: str
     version_id: Optional[str] = None
+    request_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    request_snapshot_schema_version: Optional[int] = None
     trigger_source: BacktestTriggerSource
     created_at: str
     updated_at: str

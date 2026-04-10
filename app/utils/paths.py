@@ -124,3 +124,19 @@ def user_data_results_dir() -> str:
 
 def strategy_results_dir(strategy: str) -> str:
     return resolve_safe(USER_DATA_RESULTS_DIR, strategy)
+
+
+def _resolved_user_data_dir(user_data_path: str | None = None) -> str:
+    return os.path.realpath(user_data_path or USER_DATA_DIR)
+
+
+def default_freqtrade_config_path(user_data_path: str | None = None) -> str:
+    return os.path.join(_resolved_user_data_dir(user_data_path), "config.json")
+
+
+def live_strategy_file(strategy_name: str, user_data_path: str | None = None) -> str:
+    return resolve_safe(_resolved_user_data_dir(user_data_path), "strategies", f"{strategy_name}.py")
+
+
+def strategy_config_file(strategy_name: str, user_data_path: str | None = None) -> str:
+    return resolve_safe(_resolved_user_data_dir(user_data_path), "config", f"config_{strategy_name}.json")
