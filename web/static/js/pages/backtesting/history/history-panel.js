@@ -2,39 +2,35 @@
  * history-panel.js - Renders persisted backtest run history from backend reads.
  */
 
-import api from "../../../core/api.js";
-import { on as onEvent, EVENTS } from "../../../core/events.js";
-import { getState, on as onState } from "../../../core/state.js";
 import { el, formatDate, formatNum, formatPct } from "../../../core/utils.js";
+import {
+  initPersistedRunsStore,
+  subscribePersistedRuns,
+} from "../results/persisted-runs-store.js";
 
 const historyList = document.getElementById("history-list");
-let latestHistoryToken = 0;
 
 export function initHistoryPanel() {
   if (!historyList) return;
 
-  onState("backtest.strategy", refreshHistoryPanel);
-  onEvent(EVENTS.BACKTEST_COMPLETE, refreshHistoryPanel);
-  onEvent(EVENTS.BACKTEST_FAILED, refreshHistoryPanel);
-
-  refreshHistoryPanel();
+  initPersistedRunsStore();
+  subscribePersistedRuns(renderHistoryState);
 }
 
-async function refreshHistoryPanel() {
+function renderHistoryState(state) {
   if (!historyList) return;
 
-  const token = ++latestHistoryToken;
-  historyList.innerHTML = '<div class="info-empty">Loading persisted backtest history...</div>';
-
-  try {
-    const strategy = getState("backtest.strategy") || "";
-    const { runs = [] } = await api.backtest.listRuns(strategy ? { strategy } : {});
-    if (token !== latestHistoryToken) return;
-    renderHistory(Array.isArray(runs) ? runs : [], strategy);
-  } catch (error) {
-    if (token !== latestHistoryToken) return;
-    historyList.innerHTML = `<div class="info-empty">Failed to load persisted backtest history: ${escapeHtml(error?.message || String(error))}</div>`;
+  if (state.status === "loading" && !state.runs.length) {
+    historyList.innerHTML = '<div class="info-empty">Loading persisted backtest history...</div>';
+    return;
   }
+
+  if (state.status === "error") {
+    historyList.innerHTML = `<div class="info-empty">Failed to load persisted backtest history: ${escapeHtml(state.error)}</div>`;
+    return;
+  }
+
+  renderHistory(Array.isArray(state.runs) ? state.runs : [], state.strategy || "");
 }
 
 function renderHistory(runs, strategy) {
@@ -106,17 +102,13 @@ function buildFooterText(run, metrics) {
     return `Trigger ${labelize(run?.trigger_source || "manual")} | Persisted run metadata exists, but no ingested summary artifact is linked to this run.`;
   }
 
-  const parts = [
-    `Trigger ${labelize(run?.trigger_source || "manual")}`,
-  ];
-
+  const parts = [`Trigger ${labelize(run?.trigger_source || "manual")}`];
   if (metrics?.timeframe) parts.push(`Timeframe ${metrics.timeframe}`);
   if (metrics?.max_drawdown_pct != null) parts.push(`Max drawdown ${formatPct(-Math.abs(metrics.max_drawdown_pct))}`);
   if (metrics?.profit_total_abs != null) {
     const currency = metrics?.stake_currency ? ` ${metrics.stake_currency}` : "";
     parts.push(`Abs profit ${formatSignedNumber(metrics.profit_total_abs)}${currency}`);
   }
-
   return parts.join(" | ");
 }
 
