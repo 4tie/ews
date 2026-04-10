@@ -30,6 +30,9 @@ async def apply_code_patch(
     strategy_dir: str | None = None,
     create_backup: bool = False,
     created_by: str = "ai_apply",
+    summary: str | None = None,
+    source_ref: str | None = None,
+    parent_version_id: str | None = None,
 ) -> ApplyResult:
     """Create a candidate version for an AI-generated code patch."""
     if not strategy_dir:
@@ -50,9 +53,11 @@ async def apply_code_patch(
         MutationRequest(
             strategy_name=strategy_name,
             change_type=ChangeType.CODE_CHANGE,
-            summary=f"AI code change applied to {strategy_name}",
+            summary=summary or f"AI code change applied to {strategy_name}",
             created_by=created_by,
             code=code,
+            source_ref=source_ref,
+            parent_version_id=parent_version_id,
         )
     )
 
@@ -72,6 +77,9 @@ async def apply_parameters(
     parameters: dict[str, Any],
     config_file: str | None = None,
     created_by: str = "ai_apply",
+    summary: str | None = None,
+    source_ref: str | None = None,
+    parent_version_id: str | None = None,
 ) -> ApplyResult:
     """Create a candidate version for AI-generated parameter changes."""
     if not config_file:
@@ -83,9 +91,11 @@ async def apply_parameters(
         MutationRequest(
             strategy_name=strategy_name,
             change_type=ChangeType.PARAMETER_CHANGE,
-            summary=f"Parameter-only change for {strategy_name}",
+            summary=summary or f"Parameter-only change for {strategy_name}",
             created_by=created_by,
             parameters=parameters,
+            source_ref=source_ref,
+            parent_version_id=parent_version_id,
         )
     )
 

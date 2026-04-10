@@ -5,6 +5,7 @@ Provides Accept (promote) and Rollback functionality.
 from fastapi import APIRouter, HTTPException
 from app.models.optimizer_models import (
     AcceptRequest,
+    RejectRequest,
     RollbackRequest,
     StrategyVersion,
     VersionListResponse,
@@ -87,6 +88,25 @@ async def rollback_version(
     _require_owned_version(strategy_name, request.target_version_id)
 
     result = mutation_service.rollback_version(request.target_version_id, request.reason)
+    if result.status == "error":
+        raise HTTPException(status_code=400, detail=result.message)
+
+    return {
+        "version_id": result.version_id,
+        "status": result.status,
+        "message": result.message,
+    }
+
+
+@router.post("/{strategy_name}/reject")
+async def reject_version(
+    strategy_name: str,
+    request: RejectRequest,
+) -> dict:
+    """Reject a candidate version without changing the active version."""
+    _require_owned_version(strategy_name, request.version_id)
+
+    result = mutation_service.reject_version(request.version_id, request.reason)
     if result.status == "error":
         raise HTTPException(status_code=400, detail=result.message)
 

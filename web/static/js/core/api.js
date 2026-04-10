@@ -42,6 +42,7 @@ export const api = {
     listRuns: (filters = {}) => api.get(`/api/backtest/runs${toQuery(filters)}`),
     getRun: (runId) => api.get(`/api/backtest/runs/${encodeURIComponent(runId)}`),
     getRunDiagnosis: (runId, options = {}) => api.get(`/api/backtest/runs/${encodeURIComponent(runId)}/diagnosis${toQuery({ include_ai: options.include_ai })}`),
+    createProposalCandidate: (runId, data) => api.post(`/api/backtest/runs/${encodeURIComponent(runId)}/proposal-candidates`, data),
     compareRuns: (leftRunId, rightRunId) => api.get(`/api/backtest/compare${toQuery({ left_run_id: leftRunId, right_run_id: rightRunId })}`),
     summary: (strat) => api.get(`/api/backtest/summary?strategy=${encodeURIComponent(strat)}`),
     trades: (strat) => api.get(`/api/backtest/trades?strategy=${encodeURIComponent(strat)}`),
@@ -75,8 +76,12 @@ export const api = {
   },
 
   versions: {
+    listVersions: (strategy, includeArchived = false) => api.get(`/api/versions/${encodeURIComponent(strategy)}${toQuery({ include_archived: includeArchived })}`),
     getActive: (strategy) => api.get(`/api/versions/${encodeURIComponent(strategy)}/active`),
     getVersion: (strategy, versionId) => api.get(`/api/versions/${encodeURIComponent(strategy)}/${encodeURIComponent(versionId)}`),
+    accept: (strategy, data) => api.post(`/api/versions/${encodeURIComponent(strategy)}/accept`, data),
+    reject: (strategy, data) => api.post(`/api/versions/${encodeURIComponent(strategy)}/reject`, data),
+    rollback: (strategy, data) => api.post(`/api/versions/${encodeURIComponent(strategy)}/rollback`, data),
   },
 };
 

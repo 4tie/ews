@@ -18,6 +18,18 @@ class BacktestRunStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class ProposalSourceKind(str, Enum):
+    RANKED_ISSUE = "ranked_issue"
+    PARAMETER_HINT = "parameter_hint"
+    AI_PARAMETER_SUGGESTION = "ai_parameter_suggestion"
+
+
+class ProposalCandidateMode(str, Enum):
+    AUTO = "auto"
+    PARAMETER_ONLY = "parameter_only"
+    CODE_PATCH = "code_patch"
+
+
 class BacktestRunRequest(BaseModel):
     strategy: str
     timeframe: str
@@ -30,6 +42,12 @@ class BacktestRunRequest(BaseModel):
     extra_flags: List[str] = Field(default_factory=list)
     version_id: Optional[str] = None
     trigger_source: BacktestTriggerSource = BacktestTriggerSource.MANUAL
+
+
+class ProposalCandidateRequest(BaseModel):
+    source_kind: ProposalSourceKind
+    source_index: int = Field(default=0, ge=0)
+    candidate_mode: ProposalCandidateMode = ProposalCandidateMode.AUTO
 
 
 class BacktestRunRecord(BaseModel):

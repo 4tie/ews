@@ -12,6 +12,7 @@ from app.models.backtest_models import (
     BacktestRunRequest,
     BacktestRunStatus,
     ConfigSaveRequest,
+    ProposalCandidateRequest,
 )
 from app.models.optimizer_models import ChangeType, MutationRequest
 from app.services.config_service import ConfigService
@@ -21,6 +22,7 @@ from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results.diagnosis_service import diagnosis_service
 from app.services.results.strategy_intelligence_service import analyze_run_diagnosis_overlay
+from app.services.results.strategy_intelligence_apply_service import create_proposal_candidate_from_diagnosis
 from app.services.results_service import ResultsService
 from app.services.validation_service import ValidationService
 from app.utils.datetime_utils import now_iso
@@ -169,6 +171,20 @@ def _default_ai_payload(status: str) -> dict:
         "parameter_suggestions": [],
         "ai_status": status,
     }
+
+
+def _resolve_linked_version_for_run(run_record: BacktestRunRecord):
+    if run_record.version_id:
+        linked_version = mutation_service.get_version_by_id(run_record.version_id)
+        if linked_version is not None:
+            return linked_version, "run"
+
+    active_version = mutation_service.get_active_version(run_record.strategy)
+    if active_version is not None:
+        return active_version, "active_fallback"
+
+    return None, "unavailable"
+
 
 def _resolve_engine():
     settings = config_svc.get_settings()
@@ -742,6 +758,96 @@ async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
         "diagnosis": diagnosis,
         "ai": ai_payload,
         "error": summary_state.get("error") or run.error or None,
+    }
+
+
+@router.post("/runs/{run_id}/proposal-candidates")
+async def create_backtest_run_proposal_candidate(run_id: str, payload: ProposalCandidateRequest):
+    run = _load_run_record(run_id)
+    if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    summary_state = results_svc.load_run_summary_state(run)
+    if summary_state.get("state") != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail=summary_state.get("error") or "Summary is not ready for proposal generation yet.",
+        )
+
+    summary = summary_state.get("summary")
+    summary_block = results_svc.extract_run_summary_block(summary, run.strategy) if summary else None
+    summary_metrics = results_svc._normalize_summary_metrics(summary, run.strategy) if summary else None
+    trades = summary_block.get("trades") if isinstance(summary_block, dict) and isinstance(summary_block.get("trades"), list) else []
+    results_per_pair = (
+        summary_block.get("results_per_pair")
+        if isinstance(summary_block, dict) and isinstance(summary_block.get("results_per_pair"), list)
+        else []
+    )
+
+    linked_version, linked_source = _resolve_linked_version_for_run(run)
+    if linked_version is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Run {run_id} is not linked to a version and no active version fallback is available.",
+        )
+
+    diagnosis = diagnosis_service.diagnose_run(
+        run_record=run,
+        summary_metrics=summary_metrics,
+        summary_block=summary_block,
+        trades=trades,
+        results_per_pair=results_per_pair,
+        request_snapshot=run.request_snapshot or {},
+        request_snapshot_schema_version=run.request_snapshot_schema_version,
+        linked_version=linked_version,
+    )
+
+    ai_payload = _default_ai_payload("disabled")
+    if payload.source_kind.value == "ai_parameter_suggestion":
+        try:
+            ai_payload = await analyze_run_diagnosis_overlay(
+                strategy_name=run.strategy,
+                diagnosis=diagnosis,
+                summary_metrics=summary_metrics,
+                linked_version=linked_version,
+            )
+        except Exception:
+            ai_payload = _default_ai_payload("unavailable")
+
+        if ai_payload.get("ai_status") != "ready":
+            raise HTTPException(
+                status_code=503,
+                detail="AI parameter suggestions are unavailable for this run.",
+            )
+
+    result = await create_proposal_candidate_from_diagnosis(
+        strategy_name=run.strategy,
+        run_id=run.run_id,
+        linked_version=linked_version,
+        request_snapshot=run.request_snapshot or {},
+        summary_metrics=summary_metrics,
+        diagnosis=diagnosis,
+        ai_payload=ai_payload,
+        source_kind=payload.source_kind.value,
+        source_index=payload.source_index,
+        candidate_mode=payload.candidate_mode.value,
+    )
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or result.message)
+
+    return {
+        "baseline_run_id": run.run_id,
+        "baseline_version_id": getattr(linked_version, "version_id", None),
+        "baseline_run_version_id": run.version_id,
+        "baseline_version_source": linked_source,
+        "candidate_version_id": result.version_id,
+        "candidate_change_type": result.candidate_change_type,
+        "candidate_status": result.candidate_status,
+        "source_kind": payload.source_kind.value,
+        "source_index": payload.source_index,
+        "source_title": result.source_title,
+        "candidate_ai_mode": result.ai_mode,
+        "message": result.message,
     }
 
 

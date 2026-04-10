@@ -73,6 +73,11 @@ class RollbackRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class RejectRequest(BaseModel):
+    version_id: str
+    reason: Optional[str] = None
+
+
 class VersionListResponse(BaseModel):
     strategy_name: str
     versions: List[StrategyVersion]

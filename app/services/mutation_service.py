@@ -164,6 +164,13 @@ class StrategyMutationService:
                 message=f"Version {version_id} is already active",
             )
 
+        if version.status == VersionStatus.REJECTED:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} has been rejected and cannot be accepted",
+            )
+
         active_id = self._get_active_version_id(version.strategy_name)
         if active_id and active_id != version.version_id:
             old_active = self.get_version(version.strategy_name, active_id) or self.get_version_by_id(active_id)
@@ -210,6 +217,40 @@ class StrategyMutationService:
             version_id=target_version_id,
             status="rolled_back",
             message=f"Rolled back to {target_version_id}" + (f": {reason}" if reason else ""),
+        )
+
+
+    def reject_version(self, version_id: str, reason: Optional[str] = None) -> MutationResult:
+        """Reject a candidate version without changing the active version."""
+        version = self.get_version_by_id(version_id)
+        if not version:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} not found",
+            )
+
+        if version.status == VersionStatus.ACTIVE:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} is active and cannot be rejected",
+            )
+
+        if version.status == VersionStatus.REJECTED:
+            return MutationResult(
+                version_id=version_id,
+                status="rejected",
+                message=f"Version {version_id} is already rejected" + (f": {reason}" if reason else ""),
+            )
+
+        version.status = VersionStatus.REJECTED
+        self._save_version(version)
+
+        return MutationResult(
+            version_id=version_id,
+            status="rejected",
+            message=f"Version {version_id} rejected" + (f": {reason}" if reason else ""),
         )
 
     def get_version(self, strategy_name: str, version_id: str) -> Optional[StrategyVersion]:

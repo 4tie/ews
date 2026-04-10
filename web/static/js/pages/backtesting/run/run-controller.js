@@ -42,6 +42,60 @@ function finishRun(status, exitCode, error) {
   setState("backtest.isRunning", false);
 }
 
+export async function startBacktestRun(payload, options = {}) {
+  const previewContext = options.previewContext || null;
+
+  if (previewContext) {
+    await refreshBacktestPreview(previewContext);
+  }
+
+  setButtonLoading(runBtn, true, "Running...");
+  if (stopBtn) stopBtn.disabled = false;
+  setStatus("running", "Running...");
+  setState("backtest.isRunning", true);
+  emit(EVENTS.BACKTEST_STARTED, payload);
+
+  try {
+    const res = await api.backtest.run(payload);
+    _currentRunId = res.run_id;
+    showToast(`Backtest started: ${_currentRunId}`, "info");
+
+    startStream(`/api/backtest/runs/${_currentRunId}/logs/stream`, {
+      onDone: (status, exitCode, error) => finishRun(status, exitCode, error),
+    });
+    return res;
+  } catch (error) {
+    stopStream();
+    showToast("Run failed: " + error.message, "error");
+    setStatus("error", "Error");
+    emit(EVENTS.BACKTEST_FAILED, error);
+    if (stopBtn) stopBtn.disabled = true;
+    setButtonLoading(runBtn, false);
+    setState("backtest.isRunning", false);
+    throw error;
+  }
+}
+
+function buildFormPayload() {
+  const strategy = getState("backtest.strategy");
+  const timeframe = getState("backtest.timeframe");
+  const startDate = getState("backtest.startDate");
+  const endDate = getState("backtest.endDate");
+  const timerange = startDate && endDate
+    ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
+    : undefined;
+
+  return {
+    strategy,
+    timeframe,
+    timerange,
+    pairs: getState("backtest.pairs") || [],
+    exchange: getState("backtest.exchange") || "binance",
+    dry_run_wallet: getState("backtest.dry_run_wallet") || undefined,
+    max_open_trades: getState("backtest.maxOpenTrades") || undefined,
+  };
+}
+
 export function initRunController() {
   runBtn?.addEventListener("click", async () => {
     const strategy = getState("backtest.strategy");
@@ -55,54 +109,24 @@ export function initRunController() {
       return;
     }
 
+    const payload = buildFormPayload();
     const startDate = getState("backtest.startDate");
     const endDate = getState("backtest.endDate");
-    const timerange = startDate && endDate
-      ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
-      : undefined;
-
-    const payload = {
-      strategy,
-      timeframe,
-      timerange,
-      pairs: getState("backtest.pairs") || [],
-      exchange: getState("backtest.exchange") || "binance",
-      dry_run_wallet: getState("backtest.dry_run_wallet") || undefined,
-      max_open_trades: getState("backtest.maxOpenTrades") || undefined,
-    };
-
-    await refreshBacktestPreview({
-      strategy: payload.strategy,
-      timeframe: payload.timeframe,
-      pairs: payload.pairs,
-      startDate,
-      endDate,
-      dryRunWallet: payload.dry_run_wallet,
-      maxOpenTrades: payload.max_open_trades,
-    });
-
-    setButtonLoading(runBtn, true, "Running...");
-    if (stopBtn) stopBtn.disabled = false;
-    setStatus("running", "Running...");
-    setState("backtest.isRunning", true);
-    emit(EVENTS.BACKTEST_STARTED, payload);
 
     try {
-      const res = await api.backtest.run(payload);
-      _currentRunId = res.run_id;
-      showToast(`Backtest started: ${_currentRunId}`, "info");
-
-      startStream(`/api/backtest/runs/${_currentRunId}/logs/stream`, {
-        onDone: (status, exitCode, error) => finishRun(status, exitCode, error),
+      await startBacktestRun(payload, {
+        previewContext: {
+          strategy: payload.strategy,
+          timeframe: payload.timeframe,
+          pairs: payload.pairs,
+          startDate,
+          endDate,
+          dryRunWallet: payload.dry_run_wallet,
+          maxOpenTrades: payload.max_open_trades,
+        },
       });
-    } catch (e) {
-      stopStream();
-      showToast("Run failed: " + e.message, "error");
-      setStatus("error", "Error");
-      emit(EVENTS.BACKTEST_FAILED, e);
-      if (stopBtn) stopBtn.disabled = true;
-      setButtonLoading(runBtn, false);
-      setState("backtest.isRunning", false);
+    } catch (error) {
+      // startBacktestRun already updates UI and toasts.
     }
   });
 
