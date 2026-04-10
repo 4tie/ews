@@ -1,3 +1,5 @@
+﻿import asyncio
+import logging
 import os
 import subprocess
 from datetime import datetime
@@ -7,6 +9,7 @@ from app.utils.command_builder import build_backtest_command, build_download_com
 from app.utils.paths import strategy_results_dir
 
 config_svc = ConfigService()
+logger = logging.getLogger(__name__)
 
 
 class FreqtradeCliService:
@@ -151,5 +154,41 @@ class FreqtradeCliService:
             timerange=timerange,
             prepend=prepend,
         )
-        # TODO: run as async subprocess
-        return {"command": command_to_string(cmd), "status": "pending", "prepend": prepend}
+
+        command = command_to_string(cmd)
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+        async def _run() -> None:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    creationflags=creationflags,
+                )
+                await process.wait()
+            except Exception:
+                logger.exception("download-data subprocess failed: %s", command)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+            return {
+                "command": command,
+                "status": "running",
+                "pid": process.pid,
+                "prepend": prepend,
+                "process": process,
+            }
+
+        loop.create_task(_run())
+        return {"command": command, "status": "queued", "prepend": prepend}
+

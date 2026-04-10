@@ -1,5 +1,7 @@
 from typing import List, Optional
 
+from app.utils.freqtrade_resolver import resolve_freqtrade_executable
+
 
 def build_backtest_command(
     freqtrade_path: str,
@@ -11,8 +13,9 @@ def build_backtest_command(
     extra_flags: Optional[List[str]] = None,
 ) -> List[str]:
     """Build a freqtrade backtesting command as a list of args."""
+    exe = resolve_freqtrade_executable(freqtrade_path)
     cmd = [
-        f"{freqtrade_path}/freqtrade" if freqtrade_path else "freqtrade",
+        exe,
         "backtesting",
         "--strategy", strategy,
         "--config", config_path,
@@ -39,8 +42,9 @@ def build_hyperopt_command(
     extra_flags: Optional[List[str]] = None,
 ) -> List[str]:
     """Build a freqtrade hyperopt command as a list of args."""
+    exe = resolve_freqtrade_executable(freqtrade_path)
     cmd = [
-        f"{freqtrade_path}/freqtrade" if freqtrade_path else "freqtrade",
+        exe,
         "hyperopt",
         "--strategy", strategy,
         "--config", config_path,
@@ -64,8 +68,9 @@ def build_download_command(
     timerange: Optional[str] = None,
     prepend: bool = False,
 ) -> List[str]:
+    exe = resolve_freqtrade_executable(freqtrade_path)
     cmd = [
-        f"{freqtrade_path}/freqtrade" if freqtrade_path else "freqtrade",
+        exe,
         "download-data",
         "--config", config_path,
         "--pairs",
