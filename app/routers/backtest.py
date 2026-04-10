@@ -149,6 +149,11 @@ async def save_config(payload: ConfigSaveRequest):
     return {"status": "saved", "name": payload.name}
 
 
+@router.get("/configs/{name}")
+async def load_config(name: str):
+    return {"name": name, "data": config_svc.load_config(name)}
+
+
 @router.delete("/configs/{name}")
 async def delete_config(name: str):
     config_svc.delete_config(name)

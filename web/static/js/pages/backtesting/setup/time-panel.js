@@ -67,6 +67,76 @@ function convertToBackend(value) {
   return toBackendFormat(parsed);
 }
 
+function setPreset(days, setSavedConfig) {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  
+  const startDate = {
+    year: start.getFullYear(),
+    month: start.getMonth() + 1,
+    day: start.getDate()
+  };
+  const endDate = {
+    year: end.getFullYear(),
+    month: end.getMonth() + 1,
+    day: end.getDate()
+  };
+  
+  startInput.value = toDisplayFormat(startDate);
+  endInput.value = toDisplayFormat(endDate);
+  
+  const backendStart = toBackendFormat(startDate);
+  const backendEnd = toBackendFormat(endDate);
+  setState("backtest.startDate", backendStart);
+  setState("backtest.endDate", backendEnd);
+  setSavedConfig(prev => ({ ...prev, startDate: backendStart, endDate: backendEnd }));
+}
+
+function setYtdPreset(setSavedConfig) {
+  const end = new Date();
+  const start = new Date();
+  start.setMonth(0, 1);
+  
+  const startDate = {
+    year: start.getFullYear(),
+    month: start.getMonth() + 1,
+    day: start.getDate()
+  };
+  const endDate = {
+    year: end.getFullYear(),
+    month: end.getMonth() + 1,
+    day: end.getDate()
+  };
+  
+  startInput.value = toDisplayFormat(startDate);
+  endInput.value = toDisplayFormat(endDate);
+  
+  const backendStart = toBackendFormat(startDate);
+  const backendEnd = toBackendFormat(endDate);
+  setState("backtest.startDate", backendStart);
+  setState("backtest.endDate", backendEnd);
+  setSavedConfig(prev => ({ ...prev, startDate: backendStart, endDate: backendEnd }));
+}
+
+function handlePresetClick(event, setSavedConfig) {
+  const preset = event.target.dataset.preset;
+  switch (preset) {
+    case "7":
+      setPreset(7, setSavedConfig);
+      break;
+    case "30":
+      setPreset(30, setSavedConfig);
+      break;
+    case "90":
+      setPreset(90, setSavedConfig);
+      break;
+    case "ytd":
+      setYtdPreset(setSavedConfig);
+      break;
+  }
+}
+
 export function initTimePanel() {
   if (!startInput || !endInput) return;
 
@@ -91,4 +161,7 @@ export function initTimePanel() {
     setState("backtest.endDate", backendValue);
     setSavedConfig(prev => ({ ...prev, endDate: backendValue }));
   });
+  
+  const presetButtons = document.querySelectorAll("[data-preset]");
+  presetButtons.forEach(btn => btn.addEventListener("click", (e) => handlePresetClick(e, setSavedConfig)));
 }

@@ -13,6 +13,7 @@ import { initDataValidator } from "./run/data-validator.js";
 import { initTradesTable }   from "./trades/table.js";
 import { initPairSummary }   from "./trades/pair-summary.js";
 import { initConfigsPanel }  from "./configs/configs-panel.js";
+import { initHeaderConfigButtons } from "./configs/header-config-buttons.js";
 import { setState }          from "../../core/state.js";
 import showToast             from "../../components/toast.js";
 
@@ -28,6 +29,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initTradesTable();
   initPairSummary();
   initConfigsPanel();
+  initHeaderConfigButtons();
 
   // Timeframe select → state
   const tfSelect = document.getElementById("select-timeframe");
