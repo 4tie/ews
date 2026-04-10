@@ -1,5 +1,6 @@
-import os
+﻿import os
 import re
+from datetime import datetime
 
 from app.utils.freqtrade_resolver import resolve_freqtrade_executable
 
@@ -31,11 +32,29 @@ class ValidationService:
         return bool(TIMEFRAME_PATTERN.match(tf))
 
     def validate_timerange(self, timerange: str) -> dict:
-        """Validate freqtrade timerange format: YYYYMMDD-YYYYMMDD"""
+        """Validate freqtrade timerange format: YYYYMMDD-YYYYMMDD."""
         parts = timerange.split("-")
         if len(parts) != 2:
             return {"valid": False, "error": "Expected format: YYYYMMDD-YYYYMMDD"}
+
+        parsed: list[datetime | None] = []
         for part in parts:
-            if part and not re.match(r"^\d{8}$", part):
+            if not part:
+                parsed.append(None)
+                continue
+            if not re.match(r"^\d{8}$", part):
                 return {"valid": False, "error": f"Invalid date segment: {part}"}
-        return {"valid": True}
+            try:
+                parsed.append(datetime.strptime(part, "%Y%m%d"))
+            except ValueError:
+                return {"valid": False, "error": f"Invalid calendar date: {part}"}
+
+        start_dt, end_dt = parsed
+        if start_dt and end_dt and start_dt > end_dt:
+            return {"valid": False, "error": "Timerange start must be before or equal to the end date"}
+
+        return {
+            "valid": True,
+            "start": parts[0] or None,
+            "end": parts[1] or None,
+        }

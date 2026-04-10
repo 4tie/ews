@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -59,5 +59,11 @@ class BacktestEngine(ABC):
     def run_download_data(self, prepared: dict[str, Any], log_path: str | None = None) -> dict[str, Any]:
         raise EngineFeatureNotSupported(self.engine_id, "download-data")
 
-    def validate_data(self, pairs: list[str], timeframe: str) -> list[dict[str, Any]]:
+    def validate_data(
+        self,
+        pairs: list[str],
+        timeframe: str,
+        exchange: str | None = None,
+        timerange: str | None = None,
+    ) -> list[dict[str, Any]]:
         raise EngineFeatureNotSupported(self.engine_id, "validate-data")
