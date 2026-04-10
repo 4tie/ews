@@ -382,7 +382,9 @@ async function requestCandidate(prompt) {
     max_iterations: 4,
     temperature: 0.25,
   });
-}function beginPrimaryAction(button, text) {
+}
+
+function beginPrimaryAction(button, text) {
   busy = true;
   if (askBtn) askBtn.disabled = true;
   if (candidateBtn) candidateBtn.disabled = true;
