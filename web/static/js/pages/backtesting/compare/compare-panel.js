@@ -3,84 +3,101 @@
  */
 
 import api from "../../../core/api.js";
-import { on as onEvent, EVENTS } from "../../../core/events.js";
-import { getState, on as onState } from "../../../core/state.js";
 import { el, formatDate, formatNum, formatPct } from "../../../core/utils.js";
+import {
+  initPersistedRunsStore,
+  subscribePersistedRuns,
+} from "../results/persisted-runs-store.js";
 
 const compareArea = document.getElementById("compare-area");
+let persistedRunsState = { status: "idle", strategy: "", runs: [], error: null };
 let comparableRuns = [];
 let selectedLeftRunId = "";
 let selectedRightRunId = "";
 let lastComparison = null;
-let latestLoadToken = 0;
+let lastComparedPairKey = "";
+let compareError = null;
+let compareLoading = false;
+let compareRequestId = 0;
 
 export function initComparePanel() {
   if (!compareArea) return;
 
-  onState("backtest.strategy", refreshComparePanel);
-  onEvent(EVENTS.BACKTEST_COMPLETE, refreshComparePanel);
-  onEvent(EVENTS.BACKTEST_FAILED, refreshComparePanel);
-
-  refreshComparePanel();
+  initPersistedRunsStore();
+  subscribePersistedRuns(handleRunsSnapshot);
 }
 
-async function refreshComparePanel() {
-  if (!compareArea) return;
+function handleRunsSnapshot(snapshot) {
+  persistedRunsState = snapshot;
+  comparableRuns = Array.isArray(snapshot?.runs) ? snapshot.runs.filter((run) => run?.summary_available) : [];
+  selectedLeftRunId = pickRetainedRunId(selectedLeftRunId, 0);
+  selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
 
-  const loadToken = ++latestLoadToken;
-  renderComparePanel({ loading: true });
-
-  try {
-    const strategy = getState("backtest.strategy") || "";
-    const { runs = [] } = await api.backtest.listRuns(strategy ? { strategy } : {});
-    if (loadToken !== latestLoadToken) return;
-
-    comparableRuns = Array.isArray(runs) ? runs.filter((run) => run?.summary_available) : [];
-    selectedLeftRunId = pickRetainedRunId(selectedLeftRunId, 0);
-    selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
+  if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
     lastComparison = null;
-
+    lastComparedPairKey = "";
+    compareLoading = false;
     renderComparePanel();
-
-    if (selectedLeftRunId && selectedRightRunId) {
-      await loadComparison();
-    }
-  } catch (error) {
-    if (loadToken !== latestLoadToken) return;
-    comparableRuns = [];
-    lastComparison = null;
-    renderComparePanel({ error: error?.message || String(error) });
+    return;
   }
+
+  const pairKey = `${selectedLeftRunId}:${selectedRightRunId}`;
+  if (snapshot.status === "ready" && pairKey !== lastComparedPairKey && !compareLoading) {
+    loadComparison();
+    return;
+  }
+
+  renderComparePanel();
 }
 
 async function loadComparison() {
   if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
     lastComparison = null;
+    lastComparedPairKey = "";
+    compareLoading = false;
     renderComparePanel();
     return;
   }
 
-  renderComparePanel({ loadingComparison: true });
+  const requestId = ++compareRequestId;
+  compareLoading = true;
+  compareError = null;
+  renderComparePanel();
 
   try {
-    lastComparison = await api.backtest.compareRuns(selectedLeftRunId, selectedRightRunId);
+    const comparison = await api.backtest.compareRuns(selectedLeftRunId, selectedRightRunId);
+    if (requestId !== compareRequestId) return;
+    lastComparison = comparison;
+    lastComparedPairKey = `${selectedLeftRunId}:${selectedRightRunId}`;
+    compareLoading = false;
+    compareError = null;
     renderComparePanel();
   } catch (error) {
+    if (requestId !== compareRequestId) return;
     lastComparison = null;
-    renderComparePanel({ compareError: error?.message || String(error) });
+    lastComparedPairKey = "";
+    compareLoading = false;
+    compareError = error?.message || String(error);
+    renderComparePanel();
   }
 }
 
-function renderComparePanel({ loading = false, error = null, loadingComparison = false, compareError = null } = {}) {
+function renderComparePanel() {
   if (!compareArea) return;
 
   compareArea.innerHTML = "";
 
   const layout = el("div", { class: "compare-layout" });
-  layout.appendChild(buildToolbar({ loading }));
+  layout.appendChild(buildToolbar());
 
-  if (error) {
-    layout.appendChild(el("div", { class: "info-empty" }, `Failed to load persisted compare runs: ${error}`));
+  if (persistedRunsState.status === "loading" && !persistedRunsState.runs.length) {
+    layout.appendChild(el("div", { class: "info-empty" }, "Loading persisted backtest runs for compare..."));
+    compareArea.appendChild(layout);
+    return;
+  }
+
+  if (persistedRunsState.status === "error") {
+    layout.appendChild(el("div", { class: "info-empty" }, `Failed to load persisted compare runs: ${persistedRunsState.error}`));
     compareArea.appendChild(layout);
     return;
   }
@@ -97,7 +114,7 @@ function renderComparePanel({ loading = false, error = null, loadingComparison =
     return;
   }
 
-  if (loadingComparison) {
+  if (compareLoading) {
     layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted comparison..."));
   }
 
@@ -119,50 +136,47 @@ function renderComparePanel({ loading = false, error = null, loadingComparison =
   compareArea.appendChild(layout);
 }
 
-function buildToolbar({ loading }) {
+function buildToolbar() {
   const toolbar = el("div", { class: "compare-toolbar" });
-  const leftField = buildSelectField({
+  toolbar.appendChild(buildSelectField({
     label: "Left run",
     id: "compare-left-run",
     value: selectedLeftRunId,
-    disabled: loading || comparableRuns.length < 2,
     onChange: (value) => {
       selectedLeftRunId = value;
       if (selectedLeftRunId === selectedRightRunId) {
         selectedRightRunId = pickAlternateRunId(selectedLeftRunId);
       }
       lastComparison = null;
-      renderComparePanel();
-      if (selectedLeftRunId && selectedRightRunId) loadComparison();
+      lastComparedPairKey = "";
+      compareError = null;
+      loadComparison();
     },
-  });
-  const rightField = buildSelectField({
+  }));
+  toolbar.appendChild(buildSelectField({
     label: "Right run",
     id: "compare-right-run",
     value: selectedRightRunId,
-    disabled: loading || comparableRuns.length < 2,
     onChange: (value) => {
       selectedRightRunId = value;
       if (selectedRightRunId === selectedLeftRunId) {
         selectedLeftRunId = pickAlternateRunId(selectedRightRunId);
       }
       lastComparison = null;
-      renderComparePanel();
-      if (selectedLeftRunId && selectedRightRunId) loadComparison();
+      lastComparedPairKey = "";
+      compareError = null;
+      loadComparison();
     },
-  });
-
-  toolbar.appendChild(leftField);
-  toolbar.appendChild(rightField);
+  }));
   return toolbar;
 }
 
-function buildSelectField({ label, id, value, disabled, onChange }) {
+function buildSelectField({ label, id, value, onChange }) {
   const wrapper = el("label", { class: "setup-field compare-toolbar__field" });
   wrapper.appendChild(el("span", { class: "form-label" }, label));
 
   const select = el("select", { class: "form-select", id });
-  select.disabled = disabled;
+  select.disabled = comparableRuns.length < 2 || persistedRunsState.status === "loading";
   comparableRuns.forEach((run) => {
     const option = el("option", { value: run.run_id }, formatRunOption(run));
     if (run.run_id === value) option.selected = true;
