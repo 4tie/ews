@@ -1,4 +1,6 @@
-﻿import logging
+import glob
+import json
+import logging
 import os
 import subprocess
 from datetime import datetime
@@ -18,6 +20,7 @@ class FreqtradeCliService:
         "--backtest-filename",
         "--export-directory",
         "--backtest-directory",
+        "--notes",
     }
 
     def _freqtrade_path(self) -> str:
@@ -37,7 +40,6 @@ class FreqtradeCliService:
         env["PYTHONPATH"] = BASE_DIR if not existing else BASE_DIR + os.pathsep + existing
         return env
 
-
     def _validate_backtest_extra_flags(self, extra_flags: list[str]) -> None:
         conflicting = []
         for token in extra_flags:
@@ -56,8 +58,72 @@ class FreqtradeCliService:
         os.makedirs(result_dir, exist_ok=True)
         return {
             "log_file": os.path.join(result_dir, f"{run_id}.backtest.log"),
-            "raw_result_path": os.path.join(result_dir, f"{run_id}.backtest.zip"),
+            "raw_result_dir": result_dir,
+            "raw_result_path": None,
         }
+
+    def _backtest_meta_paths(self, strategy: str) -> list[str]:
+        result_dir = strategy_results_dir(strategy)
+        pattern = os.path.join(result_dir, "backtest-result-*.meta.json")
+        return sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
+
+    def _zip_path_from_meta(self, meta_path: str) -> str:
+        if meta_path.endswith(".meta.json"):
+            return meta_path[: -len(".meta.json")] + ".zip"
+        return meta_path
+
+    def _read_json_file(self, path: str) -> dict:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def resolve_backtest_raw_result(
+        self,
+        strategy: str,
+        run_id: str,
+        created_at: str | None = None,
+    ) -> str | None:
+        started_ts = None
+        if created_at:
+            try:
+                started_ts = datetime.fromisoformat(created_at).timestamp()
+            except ValueError:
+                started_ts = None
+
+        for meta_path in self._backtest_meta_paths(strategy):
+            if started_ts is not None and os.path.getmtime(meta_path) + 1 < started_ts:
+                continue
+
+            try:
+                meta = self._read_json_file(meta_path)
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            strategy_meta = meta.get(strategy)
+            if not isinstance(strategy_meta, dict):
+                continue
+            if strategy_meta.get("notes") != run_id:
+                continue
+
+            zip_path = self._zip_path_from_meta(meta_path)
+            if os.path.isfile(zip_path):
+                return zip_path
+
+        result_dir = strategy_results_dir(strategy)
+        last_result_path = os.path.join(result_dir, ".last_result.json")
+        if os.path.isfile(last_result_path):
+            try:
+                last_result = self._read_json_file(last_result_path)
+            except (OSError, json.JSONDecodeError):
+                last_result = {}
+
+            latest_backtest = last_result.get("latest_backtest")
+            if latest_backtest:
+                zip_path = os.path.join(result_dir, latest_backtest)
+                if os.path.isfile(zip_path):
+                    if started_ts is None or os.path.getmtime(zip_path) + 1 >= started_ts:
+                        return zip_path
+
+        return None
 
     def prepare_backtest_run(self, payload: dict) -> dict:
         strategy = payload.get("strategy", "") or "unknown"
@@ -76,7 +142,8 @@ class FreqtradeCliService:
             dry_run_wallet=payload.get("dry_run_wallet"),
             max_open_trades=payload.get("max_open_trades"),
             export_mode="trades",
-            export_filename=artifacts["raw_result_path"],
+            backtest_directory=artifacts["raw_result_dir"],
+            notes=run_id,
             extra_flags=extra_flags,
         )
         return {
@@ -125,7 +192,7 @@ class FreqtradeCliService:
             "status": "running",
             "pid": process.pid,
             "log_file": log_path,
-            "raw_result_path": prepared["raw_result_path"],
+            "raw_result_path": prepared.get("raw_result_path"),
             "process": process,
         }
 
@@ -218,5 +285,3 @@ class FreqtradeCliService:
         """Run freqtrade download-data (legacy helper)."""
         prepared = self.prepare_download_data(payload)
         return self.run_download_data(prepared)
-
-

@@ -98,7 +98,7 @@ def test_prepare_backtest_run_rejects_conflicting_export_flags() -> None:
         "run_id": "bt-test-flags",
         "strategy": "Anything",
         "timeframe": "5m",
-        "extra_flags": ["--export", "trades"],
+        "extra_flags": ["--notes", "custom-note"],
     }
     try:
         cli.prepare_backtest_run(payload)
@@ -107,7 +107,35 @@ def test_prepare_backtest_run_rejects_conflicting_export_flags() -> None:
         print("[PASS] Conflicting extra_flags are rejected")
 
 
-def test_build_backtest_command_includes_export_flags() -> None:
+def test_prepare_backtest_run_uses_strategy_directory_and_notes() -> None:
+    cli = FreqtradeCliService()
+    strategy = "_TestStrategyPrepared"
+    result_dir = strategy_results_dir(strategy)
+
+    try:
+        prepared = cli.prepare_backtest_run(
+            {
+                "run_id": "bt-test-prepared",
+                "strategy": strategy,
+                "timeframe": "5m",
+            }
+        )
+
+        assert prepared["raw_result_dir"] == result_dir
+        assert prepared["raw_result_path"] is None
+        assert prepared["log_file"] == os.path.join(result_dir, "bt-test-prepared.backtest.log")
+        assert "--backtest-directory" in prepared["cmd"]
+        assert result_dir in prepared["cmd"]
+        assert "--notes" in prepared["cmd"]
+        assert "bt-test-prepared" in prepared["cmd"]
+        assert "--export-filename" not in prepared["cmd"]
+        print("[PASS] Prepared backtest run uses strategy directory and notes")
+    finally:
+        if os.path.isdir(result_dir):
+            shutil.rmtree(result_dir, ignore_errors=True)
+
+
+def test_build_backtest_command_includes_backtest_directory_and_notes() -> None:
     cmd = build_backtest_command(
         freqtrade_path="",
         strategy="Anything",
@@ -116,7 +144,8 @@ def test_build_backtest_command_includes_export_flags() -> None:
         dry_run_wallet=0,
         max_open_trades=0,
         export_mode="trades",
-        export_filename="results.zip",
+        backtest_directory="results",
+        notes="bt-test-run",
         extra_flags=["--cache", "none"],
     )
 
@@ -125,14 +154,42 @@ def test_build_backtest_command_includes_export_flags() -> None:
     assert "--max-open-trades" in cmd
     assert "--export" in cmd
     assert "trades" in cmd
-    assert "--export-filename" in cmd
-    assert "results.zip" in cmd
+    assert "--backtest-directory" in cmd
+    assert "results" in cmd
+    assert "--notes" in cmd
+    assert "bt-test-run" in cmd
     assert cmd[-2:] == ["--cache", "none"]
-    print("[PASS] Backtest command includes export and extra flags")
+    print("[PASS] Backtest command includes backtest directory and run notes")
+
+
+def test_resolve_backtest_raw_result_matches_run_note() -> None:
+    cli = FreqtradeCliService()
+    strategy = "_TestStrategyResolve"
+    run_id = "bt-test-resolve"
+    result_dir = strategy_results_dir(strategy)
+    zip_path = os.path.join(result_dir, "backtest-result-2026-04-10_12-00-27.zip")
+    meta_path = zip_path[:-4] + ".meta.json"
+
+    try:
+        os.makedirs(result_dir, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("placeholder.json", "{}")
+
+        with open(meta_path, "w", encoding="utf-8") as handle:
+            json.dump({strategy: {"notes": run_id}}, handle)
+
+        resolved = cli.resolve_backtest_raw_result(strategy, run_id)
+        assert resolved == zip_path
+        print("[PASS] Raw backtest artifact is resolved from metadata notes")
+    finally:
+        if os.path.isdir(result_dir):
+            shutil.rmtree(result_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
     test_ingest_writes_run_scoped_artifacts()
     test_prepare_backtest_run_rejects_conflicting_export_flags()
-    test_build_backtest_command_includes_export_flags()
+    test_prepare_backtest_run_uses_strategy_directory_and_notes()
+    test_build_backtest_command_includes_backtest_directory_and_notes()
+    test_resolve_backtest_raw_result_matches_run_note()
     print("\n[SUCCESS] Backtest ingestion tests passed")

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import threading
 import uuid
 import asyncio
@@ -15,7 +15,7 @@ from app.models.backtest_models import (
 )
 from app.services.config_service import ConfigService
 from app.engines.base import EngineFeatureNotSupported
-from app.engines.resolver import resolve_engine
+from app.engines.resolver import engine_from_id, resolve_engine
 from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results_service import ResultsService
@@ -98,13 +98,26 @@ def _watch_backtest_process(run_id: str, process) -> None:
             return
 
         try:
+            current.raw_result_path = engine_from_id(current.engine).resolve_backtest_raw_result_path(current)
+        except Exception as exc:
+            current.status = BacktestRunStatus.FAILED
+            current.error = f"artifact_resolution_failed: {exc}"
+            _save_run_record(current)
+            return
+
+        if not current.raw_result_path:
+            current.status = BacktestRunStatus.FAILED
+            current.error = "artifact_resolution_failed: raw result artifact not found"
+            _save_run_record(current)
+            return
+
+        try:
             ingest_result = results_svc.ingest_backtest_run(current)
         except Exception as exc:
             current.status = BacktestRunStatus.FAILED
             current.error = f"ingestion_failed: {exc}"
             _save_run_record(current)
             return
-
         current.status = BacktestRunStatus.COMPLETED
         current.raw_result_path = ingest_result.get("raw_result_path", current.raw_result_path)
         current.result_path = ingest_result.get("result_path")
@@ -230,6 +243,20 @@ def _assert_within_base(path: str, base: str) -> str:
 
 
 def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[str]):
+    def _terminal_payload(meta: dict) -> dict:
+        status = meta.get("status")
+        exit_code = meta.get("exit_code")
+        error = meta.get("error")
+        line = f"[done] status={status} exit_code={exit_code}"
+        if error:
+            line = f"{line} error={error}"
+        return {
+            "line": line,
+            "status": status,
+            "exit_code": exit_code,
+            "error": error,
+        }
+
     async def log_generator():
         yield _sse({"line": "[stream] streaming started"})
 
@@ -247,15 +274,8 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
                 break
 
             if str(status) in terminal_statuses:
-                yield _sse(
-                    {
-                        "line": f"[done] status={status} exit_code={exit_code}",
-                        "status": status,
-                        "exit_code": exit_code,
-                    }
-                )
+                yield _sse(_terminal_payload(meta))
                 return
-
             await asyncio.sleep(0.25)
 
         log_path = _assert_within_base(log_path, allowed_base)
@@ -266,15 +286,8 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
             exit_code = meta.get("exit_code")
 
             if str(status) in terminal_statuses:
-                yield _sse(
-                    {
-                        "line": f"[done] status={status} exit_code={exit_code}",
-                        "status": status,
-                        "exit_code": exit_code,
-                    }
-                )
+                yield _sse(_terminal_payload(meta))
                 return
-
             yield _sse({"line": "[stream] waiting for log file..."})
             await asyncio.sleep(0.25)
 
@@ -290,15 +303,8 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
                 exit_code = meta.get("exit_code")
 
                 if str(status) in terminal_statuses:
-                    yield _sse(
-                        {
-                            "line": f"[done] status={status} exit_code={exit_code}",
-                            "status": status,
-                            "exit_code": exit_code,
-                        }
-                    )
+                    yield _sse(_terminal_payload(meta))
                     return
-
                 await asyncio.sleep(0.25)
 
     return StreamingResponse(
@@ -575,3 +581,5 @@ async def validate_data(payload: dict):
         "message": f"Found data for {sum(1 for r in results if r['status'] == 'valid')} of {len(pairs)} pairs" if has_data else "No data found for any pairs",
         "results": results
     }
+
+

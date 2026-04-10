@@ -1,5 +1,5 @@
-﻿/**
- * log-panel.js — Manages the backtesting live log viewer.
+/**
+ * log-panel.js � Manages the backtesting live log viewer.
  */
 
 import { appendLogLine, clearLog } from "../../shared/backtest/log_renderer.js";
@@ -40,7 +40,7 @@ export function startStream(url, { onDone } = {}) {
     trimViewer();
 
     if (payload?.status) {
-      onDone?.(payload.status, payload.exit_code);
+      onDone?.(payload.status, payload.exit_code, payload.error);
       stopStream();
     }
   };

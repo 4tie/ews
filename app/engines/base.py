@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -49,6 +49,9 @@ class BacktestEngine(ABC):
     @abstractmethod
     def run_backtest(self, payload: dict[str, Any], prepared: dict[str, Any] | None = None) -> dict[str, Any]:
         raise NotImplementedError
+
+    def resolve_backtest_raw_result_path(self, run_record: BacktestRunRecord) -> str | None:
+        return run_record.raw_result_path
 
     def prepare_download_data(self, payload: dict[str, Any]) -> dict[str, Any]:
         raise EngineFeatureNotSupported(self.engine_id, "download-data")

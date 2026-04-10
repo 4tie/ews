@@ -22,19 +22,19 @@ function setStatus(state, label) {
   if (statusLbl) statusLbl.textContent = label;
 }
 
-function finishRun(status, exitCode) {
+function finishRun(status, exitCode, error) {
   const s = String(status || "");
   if (s === "completed") {
     setStatus("done", `Completed (exit ${exitCode ?? 0})`);
     showToast("Backtest completed.", "success");
-    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode });
+    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
   } else if (s === "failed") {
     setStatus("error", `Failed (exit ${exitCode ?? "?"})`);
-    showToast("Backtest failed.", "error");
-    emit(EVENTS.BACKTEST_FAILED, { run_id: _currentRunId, status: s, exit_code: exitCode });
+    showToast(error ? `Backtest failed: ${error}` : "Backtest failed.", "error");
+    emit(EVENTS.BACKTEST_FAILED, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
   } else {
     setStatus("idle", s || "Done");
-    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode });
+    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
   }
 
   if (stopBtn) stopBtn.disabled = true;
@@ -93,7 +93,7 @@ export function initRunController() {
       showToast(`Backtest started: ${_currentRunId}`, "info");
 
       startStream(`/api/backtest/runs/${_currentRunId}/logs/stream`, {
-        onDone: (status, exitCode) => finishRun(status, exitCode),
+        onDone: (status, exitCode, error) => finishRun(status, exitCode, error),
       });
     } catch (e) {
       stopStream();

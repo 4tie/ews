@@ -1,9 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 from typing import Any
 
 from app.engines.base import BacktestEngine
+from app.models.backtest_models import BacktestRunRecord
 from app.services.freqtrade_cli_service import FreqtradeCliService
 from app.utils.paths import BASE_DIR
 
@@ -23,10 +24,17 @@ class FreqtradeEngine(BacktestEngine):
     def run_backtest(self, payload: dict[str, Any], prepared: dict[str, Any] | None = None) -> dict[str, Any]:
         return self._cli.run_backtest(payload, prepared=prepared)
 
+    def resolve_backtest_raw_result_path(self, run_record: BacktestRunRecord) -> str | None:
+        return self._cli.resolve_backtest_raw_result(
+            run_record.strategy,
+            run_record.run_id,
+            run_record.created_at,
+        )
+
     def prepare_download_data(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._cli.prepare_download_data(payload)
 
-    def run_download_data(self, prepared: dict[str, Any], log_path: str | None = None) -> dict[str, Any]:
+    def run_download_data(self, prepared: dict, log_path: str | None = None) -> dict:
         return self._cli.run_download_data(prepared, log_path=log_path)
 
     def validate_data(self, pairs: list[str], timeframe: str) -> list[dict[str, Any]]:
