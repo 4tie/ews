@@ -163,7 +163,9 @@ function renderContext() {
         ? "No latest run summary is loaded, so AI will rely mainly on the resolved strategy snapshot. Candidate creation still stays versioned."
         : "Load a run or ensure the strategy has a saved version snapshot for stronger AI context.";
   }
-}function summarizeHistoryEntry(message) {
+}
+
+function summarizeHistoryEntry(message) {
   if (message.parameters) {
     return `Structured parameter suggestion: ${compactText(JSON.stringify(message.parameters))}`;
   }
