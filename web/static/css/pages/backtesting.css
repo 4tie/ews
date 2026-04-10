@@ -414,3 +414,64 @@
   }
 }
 
+.compare-layout,
+.history-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.compare-layout .info-empty,
+.history-stack .info-empty {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.compare-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.compare-toolbar__field {
+  min-width: 0;
+}
+
+.compare-context-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.compare-table td.positive {
+  color: #2dd4bf;
+}
+
+.compare-table td.negative {
+  color: #fb7185;
+}
+
+.history-summary {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.history-card__badge--completed {
+  color: #2dd4bf;
+  background: color-mix(in srgb, #2dd4bf 14%, transparent);
+}
+
+.history-card__badge--failed {
+  color: #fb7185;
+  background: color-mix(in srgb, #fb7185 14%, transparent);
+}
+
+.history-card__badge--running,
+.history-card__badge--queued {
+  color: #f59e0b;
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+}

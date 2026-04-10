@@ -1,116 +1,170 @@
 /**
- * history-panel.js — Shows the latest loaded result entry from the unified flow.
+ * history-panel.js - Renders persisted backtest run history from backend reads.
  */
 
-import { on, EVENTS } from "../../../core/events.js";
-import { getState } from "../../../core/state.js";
-import { el, formatDate, formatPct } from "../../../core/utils.js";
-import { getLatestResultsPayload } from "../results/results-controller.js";
+import api from "../../../core/api.js";
+import { on as onEvent, EVENTS } from "../../../core/events.js";
+import { getState, on as onState } from "../../../core/state.js";
+import { el, formatDate, formatNum, formatPct } from "../../../core/utils.js";
 
 const historyList = document.getElementById("history-list");
-let latestCompletedRun = null;
+let latestHistoryToken = 0;
 
 export function initHistoryPanel() {
   if (!historyList) return;
 
-  on(EVENTS.BACKTEST_COMPLETE, (event) => {
-    if (event?.status === "completed" && event?.run_id) {
-      latestCompletedRun = {
-        runId: event.run_id,
-        strategy: getState("backtest.strategy") || "",
-      };
-    }
+  onState("backtest.strategy", refreshHistoryPanel);
+  onEvent(EVENTS.BACKTEST_COMPLETE, refreshHistoryPanel);
+  onEvent(EVENTS.BACKTEST_FAILED, refreshHistoryPanel);
 
-    const cached = getLatestResultsPayload();
-    if (cached) renderHistory(cached);
-  });
-
-  on(EVENTS.RESULTS_LOADED, renderHistory);
-  renderHistory(getLatestResultsPayload());
+  refreshHistoryPanel();
 }
 
-function renderHistory(payload) {
+async function refreshHistoryPanel() {
   if (!historyList) return;
 
-  if (!payload?.summary) {
-    historyList.innerHTML = `
-      <div class="info-empty">
-        No latest persisted result is loaded yet. Full historical run browsing still needs backend support.
-      </div>
-    `;
+  const token = ++latestHistoryToken;
+  historyList.innerHTML = '<div class="info-empty">Loading persisted backtest history...</div>';
+
+  try {
+    const strategy = getState("backtest.strategy") || "";
+    const { runs = [] } = await api.backtest.listRuns(strategy ? { strategy } : {});
+    if (token !== latestHistoryToken) return;
+    renderHistory(Array.isArray(runs) ? runs : [], strategy);
+  } catch (error) {
+    if (token !== latestHistoryToken) return;
+    historyList.innerHTML = `<div class="info-empty">Failed to load persisted backtest history: ${escapeHtml(error?.message || String(error))}</div>`;
+  }
+}
+
+function renderHistory(runs, strategy) {
+  if (!historyList) return;
+
+  historyList.innerHTML = "";
+
+  if (!runs.length) {
+    const scope = strategy ? ` for ${escapeHtml(strategy)}` : "";
+    historyList.innerHTML = `<div class="info-empty">No persisted backtest runs are available${scope}.</div>`;
     return;
   }
 
-  const totalRow = findTotalRow(payload.results_per_pair);
-  const profitPct = getProfitPct(totalRow);
-  const profitLabel = profitPct == null ? "—" : formatPct(profitPct);
-  const totalTrades = Number(totalRow?.trades ?? payload?.trades?.length ?? 0) || 0;
-  const pairCount = Array.isArray(payload?.results_per_pair)
-    ? payload.results_per_pair.filter((row) => String(row?.key ?? row?.pair ?? "") !== "TOTAL").length
-    : 0;
-  const tradeRange = getTradeRange(payload?.trades);
-  const runId = latestCompletedRun?.strategy === payload.strategy ? latestCompletedRun.runId : null;
+  const stack = el("div", { class: "history-stack" });
+  const summary = el(
+    "div",
+    { class: "history-summary" },
+    strategy
+      ? `Showing ${runs.length} persisted freqtrade run(s) for ${strategy}.`
+      : `Showing ${runs.length} persisted freqtrade run(s).`
+  );
+  stack.appendChild(summary);
+
+  runs.forEach((run) => stack.appendChild(buildHistoryCard(run)));
+  historyList.appendChild(stack);
+}
+
+function buildHistoryCard(run) {
+  const metrics = run?.summary_metrics || {};
+  const profitLabel = metrics.profit_total_pct == null ? "No summary" : formatPct(metrics.profit_total_pct);
+  const pairCount = metrics.pair_count == null ? "-" : `${metrics.pair_count}`;
+  const tradeCount = metrics.total_trades == null ? "-" : `${metrics.total_trades}`;
+  const tradeRange = formatTradeRange(metrics);
+  const createdAt = formatDate(run?.created_at);
+  const completedAt = run?.completed_at ? formatDate(run.completed_at) : "Not completed";
+  const strategy = metrics.strategy || run?.strategy || "Unknown strategy";
+  const footerText = buildFooterText(run, metrics);
 
   const card = el("article", { class: "history-card" });
   card.innerHTML = `
     <div class="history-card__header">
       <div>
-        <h3 class="history-card__title">Latest persisted result</h3>
-        <p class="history-card__subtitle">${payload.strategy || "Unknown strategy"}</p>
+        <h3 class="history-card__title">${escapeHtml(strategy)}</h3>
+        <p class="history-card__subtitle">Created ${createdAt}</p>
       </div>
-      <span class="history-card__badge">Latest only</span>
+      <span class="history-card__badge history-card__badge--${escapeAttr(run?.status || "unknown")}">${escapeHtml(labelize(run?.status || "unknown"))}</span>
     </div>
     <div class="history-card__grid">
-      <div><span class="history-card__label">Run ID</span><strong>${runId ?? "Not available in current payload"}</strong></div>
+      <div><span class="history-card__label">Run ID</span><strong>${escapeHtml(run?.run_id || "-")}</strong></div>
+      <div><span class="history-card__label">Version</span><strong>${escapeHtml(run?.version_id || "Base")}</strong></div>
       <div><span class="history-card__label">Total Profit</span><strong>${profitLabel}</strong></div>
-      <div><span class="history-card__label">Trades</span><strong>${totalTrades}</strong></div>
+      <div><span class="history-card__label">Trades</span><strong>${tradeCount}</strong></div>
       <div><span class="history-card__label">Pairs</span><strong>${pairCount}</strong></div>
-      <div><span class="history-card__label">Trade Range</span><strong>${tradeRange}</strong></div>
-      <div><span class="history-card__label">Source</span><strong>Latest summary payload</strong></div>
+      <div><span class="history-card__label">Trade Range</span><strong>${escapeHtml(tradeRange)}</strong></div>
+      <div><span class="history-card__label">Completed</span><strong>${completedAt}</strong></div>
+      <div><span class="history-card__label">Exit Code</span><strong>${formatExitCode(run?.exit_code)}</strong></div>
     </div>
-    <div class="history-card__footer">
-      Full backtest history listing still needs backend support. This tab now reflects the current latest persisted result without adding a second fetch flow.
-    </div>
+    <div class="history-card__footer">${escapeHtml(footerText)}</div>
   `;
 
-  historyList.innerHTML = "";
-  historyList.appendChild(card);
+  return card;
 }
 
-function findTotalRow(rows) {
-  if (!Array.isArray(rows)) return null;
-  return rows.find((row) => String(row?.key ?? row?.pair ?? "") === "TOTAL") ?? null;
+function buildFooterText(run, metrics) {
+  if (run?.error) {
+    return `Trigger ${labelize(run?.trigger_source || "manual")} | ${run.error}`;
+  }
+  if (!run?.summary_available) {
+    return `Trigger ${labelize(run?.trigger_source || "manual")} | Persisted run metadata exists, but no ingested summary artifact is linked to this run.`;
+  }
+
+  const parts = [
+    `Trigger ${labelize(run?.trigger_source || "manual")}`,
+  ];
+
+  if (metrics?.timeframe) parts.push(`Timeframe ${metrics.timeframe}`);
+  if (metrics?.max_drawdown_pct != null) parts.push(`Max drawdown ${formatPct(-Math.abs(metrics.max_drawdown_pct))}`);
+  if (metrics?.profit_total_abs != null) {
+    const currency = metrics?.stake_currency ? ` ${metrics.stake_currency}` : "";
+    parts.push(`Abs profit ${formatSignedNumber(metrics.profit_total_abs)}${currency}`);
+  }
+
+  return parts.join(" | ");
 }
 
-function getProfitPct(totalRow) {
-  const direct = Number(totalRow?.profit_total_pct);
-  if (Number.isFinite(direct)) return direct;
-
-  const ratio = Number(totalRow?.profit_total);
-  if (Number.isFinite(ratio)) return ratio * 100;
-
-  return null;
+function formatTradeRange(metrics) {
+  if (metrics?.trade_start || metrics?.trade_end) {
+    return `${formatDate(metrics.trade_start)} -> ${formatDate(metrics.trade_end)}`;
+  }
+  if (metrics?.timerange) {
+    return formatTimerange(metrics.timerange);
+  }
+  return "No persisted trade range";
 }
 
-function getTradeRange(trades) {
-  if (!Array.isArray(trades) || !trades.length) return "Latest persisted summary";
-
-  const dates = trades
-    .map((trade) => ({
-      open: toTimestamp(trade?.open_date),
-      close: toTimestamp(trade?.close_date),
-    }))
-    .filter((item) => item.open != null || item.close != null);
-
-  if (!dates.length) return "Latest persisted summary";
-
-  const start = Math.min(...dates.map((item) => item.open ?? item.close));
-  const end = Math.max(...dates.map((item) => item.close ?? item.open));
-  return `${formatDate(new Date(start).toISOString())} → ${formatDate(new Date(end).toISOString())}`;
+function formatTimerange(timerange) {
+  const value = String(timerange || "");
+  const parts = value.split("-");
+  if (parts.length === 2 && parts[0].length === 8 && parts[1].length === 8) {
+    return `${parts[0].slice(0, 4)}-${parts[0].slice(4, 6)}-${parts[0].slice(6, 8)} -> ${parts[1].slice(0, 4)}-${parts[1].slice(4, 6)}-${parts[1].slice(6, 8)}`;
+  }
+  return value || "No persisted trade range";
 }
 
-function toTimestamp(value) {
-  if (!value) return null;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
+function formatExitCode(value) {
+  return value == null ? "-" : String(value);
+}
+
+function formatSignedNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value || "-");
+  const prefix = number > 0 ? "+" : "";
+  return `${prefix}${formatNum(number, 2)}`;
+}
+
+function labelize(value) {
+  return String(value || "-")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(value) {
+  return String(value ?? "").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
 }

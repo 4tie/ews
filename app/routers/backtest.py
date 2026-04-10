@@ -58,6 +58,21 @@ def _save_run_record(run_record: BacktestRunRecord) -> None:
     persistence.save_backtest_run(run_record.run_id, run_record.model_dump(mode="json"))
 
 
+
+def _list_freqtrade_runs(strategy: str | None = None) -> list[BacktestRunRecord]:
+    runs = []
+    for data in persistence.list_backtest_runs():
+        if not isinstance(data, dict):
+            continue
+        if str(data.get("engine") or "freqtrade") != "freqtrade":
+            continue
+        if strategy and data.get("strategy") != strategy:
+            continue
+        try:
+            runs.append(BacktestRunRecord(**data))
+        except Exception:
+            continue
+    return runs
 def _mark_failed_run(run_record: BacktestRunRecord, error: str, exit_code: int | None = None) -> None:
     failed_at = now_iso()
     run_record.status = BacktestRunStatus.FAILED
@@ -516,6 +531,35 @@ async def stream_download_logs(download_id: str):
     )
 
 
+@router.get("/runs")
+async def list_backtest_runs(strategy: str | None = None):
+    runs = [results_svc.summarize_backtest_run(run) for run in _list_freqtrade_runs(strategy=strategy)]
+    return {"runs": runs}
+
+
+@router.get("/runs/{run_id}")
+async def get_backtest_run(run_id: str):
+    run = _load_run_record(run_id)
+    if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return {"run": results_svc.summarize_backtest_run(run)}
+
+
+@router.get("/compare")
+async def compare_backtest_runs(left_run_id: str, right_run_id: str):
+    left_run = _load_run_record(left_run_id)
+    if left_run is None or str(getattr(left_run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {left_run_id} not found")
+
+    right_run = _load_run_record(right_run_id)
+    if right_run is None or str(getattr(right_run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {right_run_id} not found")
+
+    try:
+        return results_svc.compare_backtest_runs(left_run, right_run)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 @router.get("/summary")
 async def get_summary(strategy: str | None = None):
     """Load latest backtest summary for a strategy."""
@@ -581,5 +625,8 @@ async def validate_data(payload: dict):
         "message": f"Found data for {sum(1 for r in results if r['status'] == 'valid')} of {len(pairs)} pairs" if has_data else "No data found for any pairs",
         "results": results
     }
+
+
+
 
 

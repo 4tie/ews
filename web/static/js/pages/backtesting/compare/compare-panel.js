@@ -1,157 +1,316 @@
 /**
- * compare-panel.js — Renders the current summary strategy comparison block.
+ * compare-panel.js - Compares persisted backtest runs via the backend compare read.
  */
 
-import { on, EVENTS } from "../../../core/events.js";
-import { el } from "../../../core/utils.js";
-import { getLatestResultsPayload } from "../results/results-controller.js";
+import api from "../../../core/api.js";
+import { on as onEvent, EVENTS } from "../../../core/events.js";
+import { getState, on as onState } from "../../../core/state.js";
+import { el, formatDate, formatNum, formatPct } from "../../../core/utils.js";
 
 const compareArea = document.getElementById("compare-area");
+let comparableRuns = [];
+let selectedLeftRunId = "";
+let selectedRightRunId = "";
+let lastComparison = null;
+let latestLoadToken = 0;
 
 export function initComparePanel() {
   if (!compareArea) return;
 
-  on(EVENTS.RESULTS_LOADED, renderComparison);
-  renderComparison(getLatestResultsPayload());
+  onState("backtest.strategy", refreshComparePanel);
+  onEvent(EVENTS.BACKTEST_COMPLETE, refreshComparePanel);
+  onEvent(EVENTS.BACKTEST_FAILED, refreshComparePanel);
+
+  refreshComparePanel();
 }
 
-function renderComparison(payload) {
+async function refreshComparePanel() {
   if (!compareArea) return;
 
-  const comparison = payload?.summary?.strategy_comparison;
-  if (!hasComparisonData(comparison)) {
-    compareArea.innerHTML = `
-      <div class="info-empty">
-        No in-summary strategy comparison is available for the latest result. Comparing multiple saved results still needs backend support.
-      </div>
-    `;
+  const loadToken = ++latestLoadToken;
+  renderComparePanel({ loading: true });
+
+  try {
+    const strategy = getState("backtest.strategy") || "";
+    const { runs = [] } = await api.backtest.listRuns(strategy ? { strategy } : {});
+    if (loadToken !== latestLoadToken) return;
+
+    comparableRuns = Array.isArray(runs) ? runs.filter((run) => run?.summary_available) : [];
+    selectedLeftRunId = pickRetainedRunId(selectedLeftRunId, 0);
+    selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
+    lastComparison = null;
+
+    renderComparePanel();
+
+    if (selectedLeftRunId && selectedRightRunId) {
+      await loadComparison();
+    }
+  } catch (error) {
+    if (loadToken !== latestLoadToken) return;
+    comparableRuns = [];
+    lastComparison = null;
+    renderComparePanel({ error: error?.message || String(error) });
+  }
+}
+
+async function loadComparison() {
+  if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
+    lastComparison = null;
+    renderComparePanel();
     return;
   }
 
-  compareArea.innerHTML = "";
-  const rows = normalizeRows(comparison);
+  renderComparePanel({ loadingComparison: true });
 
-  if (rows?.length) {
-    compareArea.appendChild(buildComparisonTable(rows));
-  } else if (isObject(comparison)) {
-    compareArea.appendChild(buildComparisonStats(comparison));
-  } else {
-    const pre = el("pre", { class: "compare-json" });
-    pre.textContent = JSON.stringify(comparison, null, 2);
-    compareArea.appendChild(pre);
+  try {
+    lastComparison = await api.backtest.compareRuns(selectedLeftRunId, selectedRightRunId);
+    renderComparePanel();
+  } catch (error) {
+    lastComparison = null;
+    renderComparePanel({ compareError: error?.message || String(error) });
   }
-
-  compareArea.appendChild(el(
-    "div",
-    { class: "compare-note" },
-    "This tab is driven by the latest summary payload only. Multi-result compare still needs backend support."
-  ));
 }
 
-function buildComparisonTable(rows) {
-  const table = el("table", { class: "data-table compare-table" });
-  const columns = collectColumns(rows);
-  const thead = el("thead");
-  const headRow = el("tr");
+function renderComparePanel({ loading = false, error = null, loadingComparison = false, compareError = null } = {}) {
+  if (!compareArea) return;
 
-  columns.forEach((column) => {
-    headRow.appendChild(el("th", {}, labelize(column)));
+  compareArea.innerHTML = "";
+
+  const layout = el("div", { class: "compare-layout" });
+  layout.appendChild(buildToolbar({ loading }));
+
+  if (error) {
+    layout.appendChild(el("div", { class: "info-empty" }, `Failed to load persisted compare runs: ${error}`));
+    compareArea.appendChild(layout);
+    return;
+  }
+
+  if (!comparableRuns.length) {
+    layout.appendChild(el("div", { class: "info-empty" }, "No persisted completed runs with saved summary artifacts are available to compare yet."));
+    compareArea.appendChild(layout);
+    return;
+  }
+
+  if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
+    layout.appendChild(el("div", { class: "info-empty" }, "Select two different persisted runs to compare."));
+    compareArea.appendChild(layout);
+    return;
+  }
+
+  if (loadingComparison) {
+    layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted comparison..."));
+  }
+
+  if (compareError) {
+    layout.appendChild(el("div", { class: "info-empty" }, `Unable to compare the selected runs: ${compareError}`));
+    compareArea.appendChild(layout);
+    return;
+  }
+
+  if (!lastComparison) {
+    layout.appendChild(el("div", { class: "compare-note" }, "Choose the two saved runs you want to compare. The latest successful pair loads automatically."));
+    compareArea.appendChild(layout);
+    return;
+  }
+
+  layout.appendChild(buildContextGrid(lastComparison));
+  layout.appendChild(buildMetricsTable(lastComparison));
+  layout.appendChild(el("div", { class: "compare-note" }, "Compare rows are computed from the persisted run-linked summary artifacts. Delta is right minus left."));
+  compareArea.appendChild(layout);
+}
+
+function buildToolbar({ loading }) {
+  const toolbar = el("div", { class: "compare-toolbar" });
+  const leftField = buildSelectField({
+    label: "Left run",
+    id: "compare-left-run",
+    value: selectedLeftRunId,
+    disabled: loading || comparableRuns.length < 2,
+    onChange: (value) => {
+      selectedLeftRunId = value;
+      if (selectedLeftRunId === selectedRightRunId) {
+        selectedRightRunId = pickAlternateRunId(selectedLeftRunId);
+      }
+      lastComparison = null;
+      renderComparePanel();
+      if (selectedLeftRunId && selectedRightRunId) loadComparison();
+    },
+  });
+  const rightField = buildSelectField({
+    label: "Right run",
+    id: "compare-right-run",
+    value: selectedRightRunId,
+    disabled: loading || comparableRuns.length < 2,
+    onChange: (value) => {
+      selectedRightRunId = value;
+      if (selectedRightRunId === selectedLeftRunId) {
+        selectedLeftRunId = pickAlternateRunId(selectedRightRunId);
+      }
+      lastComparison = null;
+      renderComparePanel();
+      if (selectedLeftRunId && selectedRightRunId) loadComparison();
+    },
   });
 
-  thead.appendChild(headRow);
-  table.appendChild(thead);
+  toolbar.appendChild(leftField);
+  toolbar.appendChild(rightField);
+  return toolbar;
+}
+
+function buildSelectField({ label, id, value, disabled, onChange }) {
+  const wrapper = el("label", { class: "setup-field compare-toolbar__field" });
+  wrapper.appendChild(el("span", { class: "form-label" }, label));
+
+  const select = el("select", { class: "form-select", id });
+  select.disabled = disabled;
+  comparableRuns.forEach((run) => {
+    const option = el("option", { value: run.run_id }, formatRunOption(run));
+    if (run.run_id === value) option.selected = true;
+    select.appendChild(option);
+  });
+  select.addEventListener("change", (event) => onChange(event.target.value));
+  wrapper.appendChild(select);
+  return wrapper;
+}
+
+function buildContextGrid(comparison) {
+  const grid = el("div", { class: "compare-context-grid" });
+  grid.appendChild(buildRunContext(comparison.left, "Left run"));
+  grid.appendChild(buildRunContext(comparison.right, "Right run"));
+  return grid;
+}
+
+function buildRunContext(run, title) {
+  const metrics = run?.summary_metrics || {};
+  const profit = metrics.profit_total_pct == null ? "-" : formatPct(metrics.profit_total_pct);
+  const tradeRange = formatTradeRange(metrics);
+  const section = el("section", { class: "results-context" });
+  section.innerHTML = `
+    <div class="results-context__title">${title}</div>
+    <div class="results-context__meta">
+      <span><strong>Run ID:</strong> ${run?.run_id || "-"}</span>
+      <span><strong>Strategy:</strong> ${metrics.strategy || run?.strategy || "-"}</span>
+      <span><strong>Created:</strong> ${formatDate(run?.created_at)}</span>
+      <span><strong>Status:</strong> ${labelize(run?.status)}</span>
+      <span><strong>Total Profit:</strong> ${profit}</span>
+      <span><strong>Trades:</strong> ${formatCount(metrics.total_trades)}</span>
+      <span><strong>Pairs:</strong> ${formatCount(metrics.pair_count)}</span>
+      <span><strong>Range:</strong> ${tradeRange}</span>
+    </div>
+  `;
+  return section;
+}
+
+function buildMetricsTable(comparison) {
+  const table = el("table", { class: "data-table compare-table" });
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Left</th>
+        <th>Right</th>
+        <th>Delta</th>
+      </tr>
+    </thead>
+  `;
 
   const tbody = el("tbody");
-  rows.forEach((row) => {
-    const tr = el("tr");
-    columns.forEach((column) => {
-      const td = el("td");
-      td.textContent = formatValue(column, row[column]);
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
+  const leftCurrency = comparison?.left?.summary_metrics?.stake_currency || "";
+  const rightCurrency = comparison?.right?.summary_metrics?.stake_currency || leftCurrency;
+  comparison?.metrics?.forEach((metric) => {
+    const row = el("tr");
+    const deltaClass = classifyDelta(metric.key, metric.delta);
+    row.innerHTML = `
+      <td>${metric.label}</td>
+      <td>${formatMetricValue(metric.format, metric.left, leftCurrency)}</td>
+      <td>${formatMetricValue(metric.format, metric.right, rightCurrency)}</td>
+      <td class="${deltaClass}">${formatMetricValue(metric.format, metric.delta, rightCurrency, { signed: true })}</td>
+    `;
+    tbody.appendChild(row);
   });
 
   table.appendChild(tbody);
   return table;
 }
 
-function buildComparisonStats(comparison) {
-  const stats = el("div", { class: "compare-stats" });
-
-  Object.entries(comparison).forEach(([key, value]) => {
-    const item = el("div", { class: "compare-stat" });
-    const label = el("span", { class: "compare-stat__label" }, labelize(key));
-    const text = el("span", { class: "compare-stat__value" }, formatValue(key, value));
-    item.appendChild(label);
-    item.appendChild(text);
-    stats.appendChild(item);
-  });
-
-  return stats;
+function pickRetainedRunId(currentRunId, fallbackIndex) {
+  if (currentRunId && comparableRuns.some((run) => run.run_id === currentRunId)) {
+    return currentRunId;
+  }
+  return comparableRuns[fallbackIndex]?.run_id || "";
 }
 
-function normalizeRows(comparison) {
-  if (Array.isArray(comparison)) {
-    return comparison.filter(isObject);
+function pickRetainedRightRunId(leftRunId, currentRunId) {
+  if (currentRunId && currentRunId !== leftRunId && comparableRuns.some((run) => run.run_id === currentRunId)) {
+    return currentRunId;
   }
-
-  if (!isObject(comparison)) return null;
-
-  const entries = Object.entries(comparison);
-  if (entries.length && entries.every(([, value]) => isObject(value))) {
-    return entries.map(([key, value]) => ({ strategy: value.strategy ?? value.key ?? key, ...value }));
-  }
-
-  return null;
+  return pickAlternateRunId(leftRunId);
 }
 
-function collectColumns(rows) {
-  const preferred = ["strategy", "key", "pair", "profit_total_pct", "profit_total", "total_trades"];
-  const seen = new Set();
-  const columns = [];
-
-  preferred.forEach((column) => {
-    if (rows.some((row) => column in row)) {
-      seen.add(column);
-      columns.push(column);
-    }
-  });
-
-  rows.forEach((row) => {
-    Object.entries(row).forEach(([key, value]) => {
-      if (seen.has(key) || isObject(value) || Array.isArray(value)) return;
-      seen.add(key);
-      columns.push(key);
-    });
-  });
-
-  return columns;
+function pickAlternateRunId(runId) {
+  return comparableRuns.find((run) => run.run_id !== runId)?.run_id || "";
 }
 
-function formatValue(key, value) {
-  if (value == null || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") {
-    if (/pct|percent|drawdown|winrate/i.test(key)) return value.toFixed(2);
-    return Number.isInteger(value) ? String(value) : value.toFixed(Math.abs(value) >= 10 ? 2 : 4);
+function formatRunOption(run) {
+  const profit = run?.summary_metrics?.profit_total_pct;
+  const profitLabel = profit == null ? "no profit metric" : formatPct(profit);
+  const when = run?.completed_at || run?.created_at;
+  return `${run.run_id} | ${run.strategy || "Unknown"} | ${labelize(run.status)} | ${profitLabel} | ${formatDate(when)}`;
+}
+
+function formatMetricValue(valueFormat, value, currency = "", options = {}) {
+  if (value == null || value === "") return "-";
+  if (valueFormat === "pct") return formatPct(value);
+  if (valueFormat === "count") return formatCount(value);
+  if (valueFormat === "money") {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return String(value);
+    const prefix = options.signed && number > 0 ? "+" : "";
+    return `${prefix}${formatNum(number, 2)}${currency ? ` ${currency}` : ""}`;
   }
-  if (Array.isArray(value) || isObject(value)) return JSON.stringify(value);
+  const number = Number(value);
+  if (Number.isFinite(number)) {
+    const prefix = options.signed && number > 0 ? "+" : "";
+    return `${prefix}${formatNum(number, 3)}`;
+  }
   return String(value);
 }
 
-function hasComparisonData(comparison) {
-  if (Array.isArray(comparison)) return comparison.length > 0;
-  if (isObject(comparison)) return Object.keys(comparison).length > 0;
-  return Boolean(comparison);
+function formatCount(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${Math.round(number)}` : "-";
 }
 
-function labelize(key) {
-  return String(key)
+function formatTradeRange(metrics) {
+  if (metrics?.trade_start || metrics?.trade_end) {
+    return `${formatDate(metrics.trade_start)} -> ${formatDate(metrics.trade_end)}`;
+  }
+  if (metrics?.timerange) {
+    return formatTimerange(metrics.timerange);
+  }
+  return "No persisted trade range";
+}
+
+function formatTimerange(timerange) {
+  const value = String(timerange || "");
+  const parts = value.split("-");
+  if (parts.length === 2 && parts[0].length === 8 && parts[1].length === 8) {
+    return `${parts[0].slice(0, 4)}-${parts[0].slice(4, 6)}-${parts[0].slice(6, 8)} -> ${parts[1].slice(0, 4)}-${parts[1].slice(4, 6)}-${parts[1].slice(6, 8)}`;
+  }
+  return value || "No persisted trade range";
+}
+
+function classifyDelta(key, delta) {
+  const number = Number(delta);
+  if (!Number.isFinite(number) || number === 0) return "";
+  if (key === "max_drawdown_pct") {
+    return number < 0 ? "positive" : "negative";
+  }
+  return number > 0 ? "positive" : "negative";
+}
+
+function labelize(value) {
+  return String(value || "-")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function isObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value);
 }
