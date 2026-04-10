@@ -53,6 +53,7 @@ function makeEmptyPayload(strategy = "") {
   return {
     strategy,
     run_id: null,
+    version_id: null,
     summary: null,
     summary_metrics: null,
     diagnosis_status: "pending_summary",
@@ -72,6 +73,7 @@ function buildResultsPayload(response) {
   return {
     strategy,
     run_id: response?.run_id ?? null,
+    version_id: response?.version_id ?? null,
     summary,
     summary_metrics: response?.summary_metrics ?? null,
     diagnosis_status: response?.diagnosis_status ?? "pending_summary",
