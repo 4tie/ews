@@ -417,9 +417,7 @@ def _build_candidate_prompt(
         f"Linked version id: {linked_version_id or 'unavailable'}",
         f"Linked version change type: {linked_change_type or 'unavailable'}",
     ]
-    return "
-
-".join(prompt_sections)
+    return "\n\n".join(prompt_sections)
 
 
 __all__ = [
