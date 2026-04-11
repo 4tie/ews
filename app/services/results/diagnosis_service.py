@@ -45,6 +45,34 @@ _HINTS: dict[str, dict[str, Any]] = {
     },
 }
 
+_ACTION_SPECS: dict[str, dict[str, Any]] = {
+    "tighten_entries": {
+        "label": "Tighten Entries",
+        "summary": "Tighten entry conditions to reduce weak or noisy trades.",
+    },
+    "reduce_weak_pairs": {
+        "label": "Reduce Weak Pairs",
+        "summary": "Reduce exposure to the diagnosed dragger pair before rerunning.",
+    },
+    "tighten_stoploss": {
+        "label": "Tighten Stoploss",
+        "summary": "Tighten downside controls to reduce drawdown and cut losses sooner.",
+    },
+    "review_exit_timing": {
+        "label": "Review Exit Timing",
+        "summary": "Review ROI and exit timing controls to avoid overstaying trades.",
+    },
+}
+
+_RULE_TO_ACTIONS: dict[str, list[str]] = {
+    "low_win_rate": ["tighten_entries"],
+    "overtrading": ["tighten_entries"],
+    "pair_dragger": ["reduce_weak_pairs"],
+    "high_drawdown": ["tighten_stoploss"],
+    "long_hold_time": ["review_exit_timing"],
+    "exit_inefficiency": ["review_exit_timing"],
+}
+
 
 class DiagnosisService:
     def empty_diagnosis(self) -> dict[str, Any]:
@@ -71,6 +99,7 @@ class DiagnosisService:
             "ranked_issues": [],
             "evidence": {},
             "parameter_hints": [],
+            "proposal_actions": [],
             "insufficient_evidence": {},
             "rule_version": RULE_VERSION,
         }
@@ -169,7 +198,59 @@ class DiagnosisService:
             for item in ranked
             if item["rule"] in _HINTS
         ]
+        diagnosis["proposal_actions"] = self._build_proposal_actions(
+            ranked_issues=ranked,
+            parameter_hints=diagnosis["parameter_hints"],
+        )
         return diagnosis
+
+    def _build_proposal_actions(
+        self,
+        ranked_issues: list[dict[str, Any]],
+        parameter_hints: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        hints_by_rule = {
+            str(item.get("rule")): item
+            for item in parameter_hints
+            if isinstance(item, dict) and item.get("rule")
+        }
+        actions: list[dict[str, Any]] = []
+        action_index: dict[str, dict[str, Any]] = {}
+
+        for issue in ranked_issues:
+            if not isinstance(issue, dict):
+                continue
+
+            rule = str(issue.get("rule") or "").strip()
+            if not rule:
+                continue
+
+            for action_type in _RULE_TO_ACTIONS.get(rule, []):
+                hint = hints_by_rule.get(rule) or {}
+                spec = _ACTION_SPECS.get(action_type) or {}
+                existing = action_index.get(action_type)
+                if existing is None:
+                    existing = {
+                        "action_type": action_type,
+                        "label": spec.get("label") or action_type.replace("_", " ").title(),
+                        "summary": spec.get("summary") or issue.get("message") or rule,
+                        "message": issue.get("message") or spec.get("summary") or rule,
+                        "severity": issue.get("severity") or "warning",
+                        "matched_rules": [],
+                        "parameters": [],
+                    }
+                    action_index[action_type] = existing
+                    actions.append(existing)
+
+                if rule not in existing["matched_rules"]:
+                    existing["matched_rules"].append(rule)
+
+                for parameter in hint.get("parameters") or []:
+                    parameter_text = str(parameter).strip()
+                    if parameter_text and parameter_text not in existing["parameters"]:
+                        existing["parameters"].append(parameter_text)
+
+        return actions
 
     def _evaluate_negative_profit(self, facts, flags, evidence, insufficient) -> None:
         actual = self._to_number(facts.get("profit_total_pct"))

@@ -832,6 +832,9 @@ async def create_backtest_run_proposal_candidate(run_id: str, payload: ProposalC
         source_index=payload.source_index,
         candidate_mode=payload.candidate_mode.value,
         action_type=payload.action_type.value if payload.action_type else None,
+        candidate_parameters=payload.parameters,
+        candidate_code=payload.code,
+        candidate_summary=payload.summary,
     )
     if not result.success:
         raise HTTPException(status_code=400, detail=result.error or result.message)
