@@ -148,11 +148,13 @@ class OllamaClient:
         show_details = show_payload.get("details") if isinstance(show_payload.get("details"), dict) else {}
         details = {**base_details, **show_details}
         capabilities = show_payload.get("capabilities") if isinstance(show_payload.get("capabilities"), list) else []
+        normalized_capabilities = [str(item) for item in capabilities if str(item).strip()]
+        capability_set = {item.lower() for item in normalized_capabilities}
         source = "cloud" if entry.get("remote_host") else "local"
         recommended_for, not_recommended_for = self._infer_capability_guidance(
             name=str(entry.get("name") or entry.get("model") or ""),
             family=str(details.get("family") or ""),
-            capabilities=[str(item) for item in capabilities if str(item).strip()],
+            capabilities=normalized_capabilities,
             source=source,
         )
         return {
@@ -163,7 +165,9 @@ class OllamaClient:
             "family": str(details.get("family") or "").strip(),
             "parameter_size": str(details.get("parameter_size") or "").strip(),
             "quantization_level": str(details.get("quantization_level") or "").strip(),
-            "raw_capabilities": [str(item) for item in capabilities if str(item).strip()],
+            "raw_capabilities": normalized_capabilities,
+            "tool_calling_supported_by_model": "tools" in capability_set,
+            "tool_calling_enabled_in_app": False,
             "app_recommended_for": recommended_for,
             "app_not_recommended_for": not_recommended_for,
             "modified_at": entry.get("modified_at"),
