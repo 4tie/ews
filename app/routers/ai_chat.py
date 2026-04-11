@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI Chat Router - Endpoints for AI-powered chat with unified run-scoped candidate creation.
 """
 from __future__ import annotations
@@ -355,3 +355,4 @@ async def _create_run_scoped_ai_candidate(
         "candidate_status": result.candidate_status,
         "message": result.message,
     }
+

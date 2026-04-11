@@ -1,4 +1,4 @@
-"""
+﻿"""
 Evolution Router - Endpoints for AI-powered strategy evolution.
 """
 from fastapi import APIRouter, HTTPException
@@ -47,6 +47,9 @@ async def analyze_strategy_endpoint(request: StrategyAnalysisRequest):
         "parameters": result.parameters,
         "code_suggestions": result.code_suggestions[:500] if result.code_suggestions else None,
         "is_applicable": result.is_applicable,
+        "analysis_payload": result.analysis_payload,
+        "provider": result.provider,
+        "model": result.model,
     }
 
 
@@ -61,6 +64,9 @@ async def analyze_metrics_endpoint(request: MetricsAnalysisRequest):
     return {
         "analysis": result.analysis,
         "recommendations": result.recommendations,
+        "analysis_payload": result.analysis_payload,
+        "provider": result.provider,
+        "model": result.model,
     }
 
 
@@ -89,3 +95,4 @@ async def apply_recommendations_endpoint(request: ApplyRecommendationsRequest):
 async def health():
     """Health check for AI services."""
     return {"status": "ok", "service": "evolution"}
+
