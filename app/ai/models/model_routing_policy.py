@@ -1,4 +1,4 @@
-﻿"""
+"""
 Model routing policy - determines which provider/model pair to use per AI task.
 """
 from __future__ import annotations
@@ -58,6 +58,9 @@ class RoutingPolicy:
     model: str
     temperature: float = 0.3
     max_tokens: int | None = None
+    fallback_provider: str | None = None
+    fallback_model: str | None = None
+    stream_preferred: bool = False
 
     @property
     def preferred_provider(self) -> str:
@@ -71,13 +74,38 @@ def normalize_provider(provider: str | None) -> str:
     return normalized
 
 
+def _ollama_default_model(settings: Mapping[str, Any]) -> str:
+    configured = str(settings.get("ollama_default_model") or "").strip()
+    if configured:
+        return configured
+    return _PROVIDER_DEFAULT_MODELS["ollama"]["analysis"]
+
+
 def _get_model_for_task(task_type: str, provider: str, settings: Mapping[str, Any]) -> str:
     setting_key = _TASK_SETTING_KEYS.get(task_type, "ai_analysis_model")
     configured = str(settings.get(setting_key) or "").strip()
     if configured:
         return configured
+    if provider == "ollama":
+        return _ollama_default_model(settings)
     provider_defaults = _PROVIDER_DEFAULT_MODELS.get(provider, _PROVIDER_DEFAULT_MODELS[DEFAULT_AI_PROVIDER])
     return provider_defaults.get(task_type, provider_defaults["analysis"])
+
+
+def _select_primary_provider(task_type: str, provider_override: str | None) -> str:
+    if provider_override:
+        return normalize_provider(provider_override)
+    if task_type == "candidate":
+        return "openrouter"
+    return "ollama"
+
+
+def _select_fallback_provider(primary_provider: str) -> str | None:
+    if primary_provider == "ollama":
+        return "openrouter"
+    if primary_provider == "openrouter":
+        return "ollama"
+    return None
 
 
 def get_routing_policy(
@@ -90,15 +118,24 @@ def get_routing_policy(
     del complexity
     normalized_task = task_type if task_type in AI_TASK_TYPES else "analysis"
     payload = dict(settings or {})
-    provider = normalize_provider(provider_override or payload.get("ai_provider"))
+    provider = _select_primary_provider(normalized_task, provider_override)
     model = str(model_override or "").strip() or _get_model_for_task(normalized_task, provider, payload)
     defaults = _TASK_DEFAULTS.get(normalized_task, _TASK_DEFAULTS["analysis"])
+
+    fallback_provider = _select_fallback_provider(provider)
+    fallback_model = None
+    if fallback_provider:
+        fallback_model = _get_model_for_task(normalized_task, fallback_provider, payload)
+
     return RoutingPolicy(
         task_type=normalized_task,
         provider=provider,
         model=model,
         temperature=float(defaults["temperature"]),
         max_tokens=int(defaults["max_tokens"]) if defaults.get("max_tokens") is not None else None,
+        fallback_provider=fallback_provider,
+        fallback_model=fallback_model,
+        stream_preferred=provider == "ollama" and normalized_task in {"classifier", "analysis", "overlay"},
     )
 
 

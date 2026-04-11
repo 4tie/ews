@@ -1,4 +1,4 @@
-﻿"""
+"""
 Provider dispatch - selects and instantiates the appropriate LLM client.
 """
 from __future__ import annotations
@@ -7,7 +7,7 @@ import os
 from typing import Any, Literal, Mapping
 
 from app.ai.models.huggingface_client import HuggingFaceClient
-from app.ai.models.model_routing_policy import DEFAULT_AI_PROVIDER, get_routing_policy, normalize_provider
+from app.ai.models.model_routing_policy import DEFAULT_AI_PROVIDER, RoutingPolicy, get_routing_policy, normalize_provider
 from app.ai.models.ollama_client import OllamaClient
 from app.ai.models.openrouter_client import OpenRouterClient
 from app.ai.models.registry import ModelResponse
@@ -33,7 +33,11 @@ class ProviderDispatch:
 
     def _resolve_cache_key(self, provider: str, settings: Mapping[str, Any]) -> tuple[Any, ...]:
         if provider == "ollama":
-            return (provider, str(settings.get("ollama_host") or "http://localhost:11434").strip())
+            return (
+                provider,
+                str(settings.get("ollama_host") or "http://127.0.0.1:11434").strip(),
+                str(settings.get("ollama_default_model") or "llama3").strip(),
+            )
         if provider == "openrouter":
             return (provider, str(settings.get("openrouter_api_key_env") or "OPENROUTER_API_KEY").strip())
         if provider == "huggingface":
@@ -48,7 +52,7 @@ class ProviderDispatch:
         settings: Mapping[str, Any] | None = None,
     ) -> object:
         payload = self._load_settings(settings)
-        resolved_provider = normalize_provider(provider or payload.get("ai_provider") or self.default_provider)
+        resolved_provider = normalize_provider(provider or self.default_provider)
         cache_key = self._resolve_cache_key(resolved_provider, payload)
         if cache_key in self._clients:
             return self._clients[cache_key]
@@ -61,7 +65,8 @@ class ProviderDispatch:
             client = OpenRouterClient(api_key=api_key, api_key_env=env_name)
         elif resolved_provider == "ollama":
             client = OllamaClient(
-                host=str(payload.get("ollama_host") or "http://localhost:11434").strip() or None,
+                host=str(payload.get("ollama_host") or "http://127.0.0.1:11434").strip() or None,
+                model=str(payload.get("ollama_default_model") or "llama3").strip() or None,
             )
         elif resolved_provider == "huggingface":
             env_name = str(payload.get("hf_token_env") or "HF_TOKEN").strip()
@@ -82,6 +87,22 @@ class ProviderDispatch:
         self._clients[cache_key] = client
         return client
 
+    def get_task_policy(
+        self,
+        task_type: str,
+        *,
+        settings: Mapping[str, Any] | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> RoutingPolicy:
+        payload = self._load_settings(settings)
+        return get_routing_policy(
+            task_type=task_type,
+            settings=payload,
+            provider_override=provider,
+            model_override=model,
+        )
+
     async def complete(
         self,
         messages: list[dict[str, str]],
@@ -92,7 +113,7 @@ class ProviderDispatch:
         settings: Mapping[str, Any] | None = None,
     ) -> ModelResponse:
         payload = self._load_settings(settings)
-        resolved_provider = normalize_provider(provider or payload.get("ai_provider") or self.default_provider)
+        resolved_provider = normalize_provider(provider or self.default_provider)
         client = self.get_client(resolved_provider, settings=payload)
 
         if hasattr(client, "complete"):
@@ -132,23 +153,34 @@ class ProviderDispatch:
         max_tokens: int | None = None,
     ) -> ModelResponse:
         payload = self._load_settings(settings)
-        policy = get_routing_policy(
-            task_type=task_type,
-            settings=payload,
-            provider_override=provider,
-            model_override=model,
-        )
-        response = await self.complete(
-            messages=messages,
-            provider=policy.provider,
-            model=policy.model,
-            temperature=policy.temperature if temperature is None else temperature,
-            max_tokens=policy.max_tokens if max_tokens is None else max_tokens,
-            settings=payload,
-        )
-        response.task_type = task_type
-        response.provider = response.provider or policy.provider
-        return response
+        policy = self.get_task_policy(task_type, settings=payload, provider=provider, model=model)
+        attempts = [(policy.provider, policy.model)]
+        if policy.fallback_provider and policy.fallback_model:
+            attempts.append((policy.fallback_provider, policy.fallback_model))
+
+        errors: list[str] = []
+        for index, (attempt_provider, attempt_model) in enumerate(attempts):
+            try:
+                response = await self.complete(
+                    messages=messages,
+                    provider=attempt_provider,
+                    model=attempt_model,
+                    temperature=policy.temperature if temperature is None else temperature,
+                    max_tokens=policy.max_tokens if max_tokens is None else max_tokens,
+                    settings=payload,
+                )
+                response.task_type = task_type
+                response.provider = response.provider or attempt_provider
+                if index > 0:
+                    usage = dict(response.usage or {})
+                    usage["fallback_used"] = True
+                    usage["routing_errors"] = list(errors)
+                    response.usage = usage
+                return response
+            except Exception as exc:
+                errors.append(f"{attempt_provider}:{attempt_model} => {exc}")
+
+        raise RuntimeError("; ".join(errors) or "No AI provider could satisfy the request")
 
 
 _default_dispatch: ProviderDispatch | None = None

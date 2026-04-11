@@ -27,7 +27,8 @@ class AppSettings(BaseModel):
     ai_analysis_model: str = ""
     ai_candidate_model: str = ""
     ai_overlay_model: str = ""
-    ollama_host: str = "http://localhost:11434"
+    ollama_host: str = "http://127.0.0.1:11434"
+    ollama_default_model: str = ""
     openrouter_api_key_env: str = "OPENROUTER_API_KEY"
     hf_token_env: str = "HF_TOKEN"
 
@@ -53,6 +54,7 @@ class AppSettings(BaseModel):
         "ai_candidate_model",
         "ai_overlay_model",
         "ollama_host",
+        "ollama_default_model",
         mode="before",
     )
     @classmethod
