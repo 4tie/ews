@@ -66,14 +66,37 @@
 }
 
 .dashboard-sidebar__body {
+  height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
+  flex-wrap: nowrap;
   gap: var(--space-5);
-  min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: #232736 transparent;
+}
+
+/* Webkit scrollbar (Chrome, Edge, Safari) */
+.dashboard-sidebar__body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dashboard-sidebar__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-sidebar__body::-webkit-scrollbar-thumb {
+  background-color: #232736;
+  border-radius: 4px;
 }
 
 .sidebar-stack {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);

@@ -104,6 +104,9 @@ def test_ai_chat_thread_and_job_persist_across_reconnect(monkeypatch, tmp_path):
     assert final_job is not None
     assert final_job["status"] == "completed"
     assert final_job["resolved_mode"] == "analysis"
+    timeline_types = [event["type"] for event in final_job.get("timeline_events", [])]
+    assert timeline_types[:3] == ["queued", "started", "classified"]
+    assert timeline_types[-1] == "completed"
 
     reconnected_thread = client.get("/api/ai/chat/threads/TestStrat")
     assert reconnected_thread.status_code == 200
