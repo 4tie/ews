@@ -22,6 +22,14 @@ class ProposalSourceKind(str, Enum):
     RANKED_ISSUE = "ranked_issue"
     PARAMETER_HINT = "parameter_hint"
     AI_PARAMETER_SUGGESTION = "ai_parameter_suggestion"
+    DETERMINISTIC_ACTION = "deterministic_action"
+
+
+class DeterministicActionType(str, Enum):
+    TIGHTEN_ENTRIES = "tighten_entries"
+    REDUCE_WEAK_PAIRS = "reduce_weak_pairs"
+    TIGHTEN_STOPLOSS = "tighten_stoploss"
+    ACCELERATE_EXITS = "accelerate_exits"
 
 
 class ProposalCandidateMode(str, Enum):
@@ -47,8 +55,7 @@ class BacktestRunRequest(BaseModel):
 class ProposalCandidateRequest(BaseModel):
     source_kind: ProposalSourceKind
     source_index: int = Field(default=0, ge=0)
-    candidate_mode: ProposalCandidateMode = ProposalCandidateMode.AUTO
-
+    candidate_mode: ProposalCandidateMode = ProposalCandidateMode.AUTO    action_type: Optional[DeterministicActionType] = None
 
 class BacktestRunRecord(BaseModel):
     run_id: str

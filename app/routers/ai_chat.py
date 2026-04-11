@@ -33,7 +33,6 @@ class ApplyCodeRequest(BaseModel):
     strategy_name: str
     code: str
     strategy_dir: str | None = None
-    create_backup: bool = True
 
 
 class ApplyParamsRequest(BaseModel):
@@ -95,7 +94,6 @@ async def apply_code(request: ApplyCodeRequest):
         strategy_name=request.strategy_name,
         code=request.code,
         strategy_dir=request.strategy_dir,
-        create_backup=request.create_backup,
     )
 
     if not result.success:

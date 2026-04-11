@@ -28,13 +28,16 @@ async def apply_code_patch(
     strategy_name: str,
     code: str,
     strategy_dir: str | None = None,
-    create_backup: bool = False,
     created_by: str = "ai_apply",
     summary: str | None = None,
     source_ref: str | None = None,
     parent_version_id: str | None = None,
 ) -> ApplyResult:
-    """Create a candidate version for an AI-generated code patch."""
+    """
+    Create a candidate version for an AI-generated code patch.
+    
+    This NEVER writes to live files. Use promote_candidate() to apply to live strategy files.
+    """
     if not strategy_dir:
         strategy_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "user_data", "strategies")
         strategy_dir = os.path.abspath(strategy_dir)
@@ -81,7 +84,11 @@ async def apply_parameters(
     source_ref: str | None = None,
     parent_version_id: str | None = None,
 ) -> ApplyResult:
-    """Create a candidate version for AI-generated parameter changes."""
+    """
+    Create a candidate version for AI-generated parameter changes.
+    
+    This NEVER writes to live files. Use promote_candidate() to apply to live config files.
+    """
     if not config_file:
         config_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "user_data", "config")
         config_dir = os.path.abspath(config_dir)
@@ -110,48 +117,19 @@ async def apply_parameters(
     )
 
 
-async def restore_backup(backup_path: str) -> ApplyResult:
-    """Restore strategy from backup."""
-    if not os.path.exists(backup_path):
-        return ApplyResult(
-            success=False,
-            file_path=None,
-            error=f"Backup file not found: {backup_path}",
-            backup_path=None,
-            version_id=None,
-            message=None,
-        )
-
-    try:
-        original_path = backup_path.replace(".bak", "")
-        shutil.copy2(backup_path, original_path)
-
-        return ApplyResult(
-            success=True,
-            file_path=original_path,
-            error=None,
-            backup_path=backup_path,
-            version_id=None,
-            message="Backup restored successfully.",
-        )
-    except Exception as e:
-        return ApplyResult(
-            success=False,
-            file_path=None,
-            error=f"Failed to restore backup: {str(e)}",
-            backup_path=None,
-            version_id=None,
-            message=None,
-        )
-
-
 async def promote_candidate(
     version_id: str,
     strategy_name: str | None = None,
     strategy_dir: str | None = None,
     config_dir: str | None = None,
 ) -> ApplyResult:
-    """Promote a candidate version by writing its snapshots to live files."""
+    """
+    Promote a candidate version by writing its snapshots to live files.
+    
+    CRITICAL: This is the ONLY path to live file writes in this service.
+    apply_code_patch() and apply_parameters() only create CANDIDATE versions without touching live files.
+    This function must only be called for versions with status == CANDIDATE.
+    """
     if not strategy_dir:
         strategy_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "user_data", "strategies")
         strategy_dir = os.path.abspath(strategy_dir)
@@ -266,4 +244,4 @@ async def promote_candidate(
     )
 
 
-__all__ = ["ApplyResult", "apply_code_patch", "apply_parameters", "promote_candidate", "restore_backup"]
+__all__ = ["ApplyResult", "apply_code_patch", "apply_parameters", "promote_candidate"]
