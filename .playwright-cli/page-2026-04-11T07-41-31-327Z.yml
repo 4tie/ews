@@ -1,0 +1,608 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: 4tie
+      - generic [ref=e6]: Control Panel
+    - navigation [ref=e7]:
+      - link "Backtesting" [ref=e8] [cursor=pointer]:
+        - /url: /backtesting
+        - img [ref=e9]
+        - generic [ref=e11]: Backtesting
+      - link "Optimizer" [ref=e12] [cursor=pointer]:
+        - /url: /optimizer
+        - img [ref=e13]
+        - generic [ref=e16]: Optimizer
+      - link "Settings" [ref=e17] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e18]
+        - generic [ref=e21]: Settings
+    - generic [ref=e22]: v0.1.0
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - heading "Backtesting" [level=1] [ref=e26]
+      - generic [ref=e30]: Idle
+    - main [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - heading "Run Configuration" [level=2] [ref=e35]
+            - generic [ref=e36]:
+              - button "Load Config" [ref=e37] [cursor=pointer]
+              - button "Save Config" [ref=e38] [cursor=pointer]
+          - generic [ref=e39]:
+            - generic [ref=e40]:
+              - generic [ref=e41]: Strategy
+              - combobox "Strategy" [ref=e42] [cursor=pointer]:
+                - option "Select strategy…"
+                - option "AIStrategy"
+                - option "Diamond"
+                - option "mabStra"
+                - option "MohsBaseline"
+                - option "MultiMa" [selected]
+                - option "PatternRecognition"
+                - option "SwingHighToSky"
+                - option "TestLatestResults"
+                - option "UniversalMACD"
+            - generic [ref=e43]:
+              - generic [ref=e44]: Timeframe
+              - combobox "Timeframe" [ref=e45] [cursor=pointer]:
+                - option "Select timeframe…"
+                - option "1m"
+                - option "3m"
+                - option "5m" [selected]
+                - option "15m"
+                - option "30m"
+                - option "1h"
+                - option "2h"
+                - option "4h"
+                - option "6h"
+                - option "8h"
+                - option "12h"
+                - option "1d"
+                - option "3d"
+                - option "1w"
+            - generic [ref=e46]:
+              - generic [ref=e47]: Exchange
+              - combobox "Exchange" [ref=e48] [cursor=pointer]:
+                - option "Binance" [selected]
+                - option "KuCoin"
+                - option "Bybit"
+                - option "OKX"
+                - option "Gate.io"
+            - generic [ref=e49]:
+              - generic [ref=e50]: Max Open Trades
+              - spinbutton "Max Open Trades" [ref=e51]: "1"
+            - generic [ref=e52]:
+              - generic [ref=e53]: Dry Run Wallet
+              - spinbutton "Dry Run Wallet" [ref=e54]: "100"
+            - generic [ref=e55]:
+              - generic [ref=e56]: Time Range
+              - generic [ref=e57]:
+                - button "Last 7 days" [ref=e58] [cursor=pointer]
+                - button "Last 30 days" [ref=e59] [cursor=pointer]
+                - button "Last 90 days" [ref=e60] [cursor=pointer]
+                - button "YTD" [ref=e61] [cursor=pointer]
+              - generic [ref=e62]:
+                - generic [ref=e63]:
+                  - generic [ref=e64]: Start Date
+                  - textbox "Start Date" [ref=e65]
+                - generic [ref=e66]:
+                  - generic [ref=e67]: End Date
+                  - textbox "End Date" [ref=e68]
+            - generic [ref=e69]:
+              - generic [ref=e70]: Pairs
+              - generic [ref=e71]:
+                - textbox "Pairs" [ref=e72]:
+                  - /placeholder: BTC/USDT, ETH/USDT (one per line) or paste JSON config
+                - button "Add" [ref=e73] [cursor=pointer]
+              - generic [ref=e74]: "Supported: BTC/USDT, ETH/USDT (comma or newline separated), or JSON {\"pair_whitelist\": [...]}"
+              - generic [ref=e75]:
+                - button "BTC/USDT" [ref=e76] [cursor=pointer]
+                - button "ETH/USDT" [ref=e77] [cursor=pointer]
+                - button "SOL/USDT" [ref=e78] [cursor=pointer]
+                - button "XRP/USDT" [ref=e79] [cursor=pointer]
+                - button "DOGE/USDT" [ref=e80] [cursor=pointer]
+                - button "ADA/USDT" [ref=e81] [cursor=pointer]
+                - button "BNB/USDT" [ref=e82] [cursor=pointer]
+                - button "AVAX/USDT" [ref=e83] [cursor=pointer]
+                - button "LINK/USDT" [ref=e84] [cursor=pointer]
+                - button "DOT/USDT" [ref=e85] [cursor=pointer]
+                - button "MATIC/USDT" [ref=e86] [cursor=pointer]
+                - button "UNI/USDT" [ref=e87] [cursor=pointer]
+                - button "AAVE/USDT" [ref=e88] [cursor=pointer]
+                - button "SAND/USDT" [ref=e89] [cursor=pointer]
+                - button "FIL/USDT" [ref=e90] [cursor=pointer]
+                - button "MANA/USDT" [ref=e91] [cursor=pointer]
+                - button "AXS/USDT" [ref=e92] [cursor=pointer]
+                - button "GRT/USDT" [ref=e93] [cursor=pointer]
+                - button "NEAR/USDT" [ref=e94] [cursor=pointer]
+              - generic [ref=e96]:
+                - text: BTC/USDT
+                - generic [ref=e97] [cursor=pointer]: ×
+        - generic [ref=e98]:
+          - generic [ref=e99]:
+            - heading "Command Preview" [level=2] [ref=e100]
+            - button "Copy" [ref=e101] [cursor=pointer]
+          - generic [ref=e103]: freqtrade backtesting --strategy MultiMa --config T:\Optimizer\user_data\config.json --timeframe 5m --pairs BTC/USDT --dry-run-wallet 100 --max-open-trades 1 --export trades --backtest-directory user_data/backtest_results\MultiMa --notes <run_id> --cache none
+        - generic [ref=e104]:
+          - heading "Data" [level=2] [ref=e106]
+          - generic [ref=e107]:
+            - generic [ref=e108]:
+              - heading "Validation" [level=3] [ref=e109]
+              - generic [ref=e110]: Run validation to check available OHLCV data.
+              - button "Validate Data" [ref=e111] [cursor=pointer]
+            - generic [ref=e112]:
+              - heading "Download" [level=3] [ref=e113]
+              - generic [ref=e114]: No download in progress.
+              - button "Download Data" [ref=e115] [cursor=pointer]
+        - generic [ref=e117]:
+          - button "Run Backtest" [ref=e118] [cursor=pointer]
+          - button "Stop" [disabled]
+          - generic [ref=e121]: Ready
+        - generic [ref=e123]:
+          - heading "Live Log" [level=2] [ref=e124]
+          - button "Clear" [ref=e125] [cursor=pointer]
+        - generic [ref=e128]:
+          - heading "Results" [level=2] [ref=e130]
+          - generic [ref=e131]:
+            - generic [ref=e132]:
+              - button "Summary" [ref=e133] [cursor=pointer]
+              - button "Trades" [ref=e134] [cursor=pointer]
+              - button "Pairs" [ref=e135] [cursor=pointer]
+              - button "Charts" [ref=e136] [cursor=pointer]
+              - button "Compare" [ref=e137] [cursor=pointer]
+              - button "History" [ref=e138] [cursor=pointer]
+              - button "Configs" [ref=e139] [cursor=pointer]
+              - button "Export" [ref=e140] [cursor=pointer]
+            - generic [ref=e141]:
+              - generic [ref=e142]:
+                - generic [ref=e143]:
+                  - generic [ref=e178]:
+                    - generic [ref=e179]:
+                      - generic [ref=e180]: Total Profit %
+                      - generic [ref=e181]: +12.13%
+                    - generic [ref=e182]:
+                      - generic [ref=e183]: Win Rate
+                      - generic [ref=e184]: +53.3%
+                    - generic [ref=e185]:
+                      - generic [ref=e186]: Total Trades
+                      - generic [ref=e187]: "30"
+                    - generic [ref=e188]:
+                      - generic [ref=e189]: Avg Duration
+                      - generic [ref=e190]: 4:27:00
+                    - generic [ref=e191]:
+                      - generic [ref=e192]: Max Drawdown %
+                      - generic [ref=e193]: "-3.70%"
+                      - generic [ref=e194]: 2.00 USDT abs
+                    - generic [ref=e195]:
+                      - generic [ref=e196]: Sharpe
+                      - generic [ref=e197]: "1.520"
+                    - generic [ref=e198]:
+                      - generic [ref=e199]: Sortino
+                      - generic [ref=e200]: "5.974"
+                    - generic [ref=e201]:
+                      - generic [ref=e202]: Calmar
+                      - generic [ref=e203]: "63.303"
+                    - generic [ref=e204]:
+                      - generic [ref=e205]: Absolute Profit
+                      - generic [ref=e206]: +6.07 USDT
+                    - generic [ref=e207]:
+                      - generic [ref=e208]: Final Balance
+                      - generic [ref=e209]: 56.07 USDT
+                      - generic [ref=e210]: Start 50.00 USDT
+                    - generic [ref=e211]:
+                      - generic [ref=e212]: Profit Factor
+                      - generic [ref=e213]: "2.082"
+                    - generic [ref=e214]:
+                      - generic [ref=e215]: Expectancy
+                      - generic [ref=e216]: "0.202"
+                    - generic [ref=e217]:
+                      - generic [ref=e218]: Avg Trade %
+                      - generic [ref=e219]: +0.39%
+                    - generic [ref=e220]:
+                      - generic [ref=e221]: Trades / Day
+                      - generic [ref=e222]: "0.30"
+                    - generic [ref=e223]:
+                      - generic [ref=e224]: CAGR
+                      - generic [ref=e225]: +52.54%
+                    - generic [ref=e226]:
+                      - generic [ref=e227]: SQN
+                      - generic [ref=e228]: "1.414"
+                    - generic [ref=e229]:
+                      - generic [ref=e230]: Best Pair
+                      - generic [ref=e231]: ETH/USDT
+                      - generic [ref=e232]: +12.13% | 30 trades
+                    - generic [ref=e233]:
+                      - generic [ref=e234]: Worst Pair
+                      - generic [ref=e235]: ETH/USDT
+                      - generic [ref=e236]: +12.13% | 30 trades
+                    - generic [ref=e237]:
+                      - generic [ref=e238]: Best Day
+                      - generic [ref=e239]: +2.42 USDT
+                    - generic [ref=e240]:
+                      - generic [ref=e241]: Worst Day
+                      - generic [ref=e242]: "-0.77 USDT"
+                    - generic [ref=e243]:
+                      - generic [ref=e244]: Avg Stake
+                      - generic [ref=e245]: 53.00 USDT
+                    - generic [ref=e246]:
+                      - generic [ref=e247]: Market Change
+                      - generic [ref=e248]: "-26.42%"
+                  - generic [ref=e249]:
+                    - generic [ref=e250]:
+                      - generic [ref=e251]: Run Context
+                      - generic [ref=e252]:
+                        - generic [ref=e253]:
+                          - strong [ref=e254]: Strategy
+                          - generic [ref=e255]: MultiMa
+                        - generic [ref=e256]:
+                          - strong [ref=e257]: Timeframe
+                          - generic [ref=e258]: 5m
+                        - generic [ref=e259]:
+                          - strong [ref=e260]: Requested Range
+                          - generic [ref=e261]: 2026-01-01 to 2026-04-10
+                        - generic [ref=e262]:
+                          - strong [ref=e263]: Backtest Window
+                          - generic [ref=e264]: 2026-01-01 00:00:00 to 2026-04-10 00:00:00
+                        - generic [ref=e265]:
+                          - strong [ref=e266]: Backtest Days
+                          - generic [ref=e267]: "99"
+                        - generic [ref=e268]:
+                          - strong [ref=e269]: Mode
+                          - generic [ref=e270]: spot
+                      - generic [ref=e271]: Latest persisted summary for MultiMa | Universe 1 pair.
+                    - generic [ref=e272]:
+                      - generic [ref=e273]: Capital & Risk
+                      - generic [ref=e274]:
+                        - generic [ref=e275]:
+                          - strong [ref=e276]: Starting Balance
+                          - generic [ref=e277]: 50.00 USDT
+                        - generic [ref=e278]:
+                          - strong [ref=e279]: Final Balance
+                          - generic [ref=e280]: 56.07 USDT
+                        - generic [ref=e281]:
+                          - strong [ref=e282]: Absolute Profit
+                          - generic [ref=e283]: +6.07 USDT
+                        - generic [ref=e284]:
+                          - strong [ref=e285]: Max Drawdown
+                          - generic [ref=e286]: "-3.70%"
+                        - generic [ref=e287]:
+                          - strong [ref=e288]: Drawdown Abs
+                          - generic [ref=e289]: 2.00 USDT
+                        - generic [ref=e290]:
+                          - strong [ref=e291]: Drawdown Duration
+                          - generic [ref=e292]: 11 days 09:20:00
+                        - generic [ref=e293]:
+                          - strong [ref=e294]: CAGR
+                          - generic [ref=e295]: +52.54%
+                      - generic [ref=e296]: Market change -26.42% | Drawdown window 2026-02-13 19:45:00 to 2026-02-25 05:05:00.
+                    - generic [ref=e297]:
+                      - generic [ref=e298]: Execution Quality
+                      - generic [ref=e299]:
+                        - generic [ref=e300]:
+                          - strong [ref=e301]: Profit Factor
+                          - generic [ref=e302]: "2.082"
+                        - generic [ref=e303]:
+                          - strong [ref=e304]: Expectancy
+                          - generic [ref=e305]: "0.202"
+                        - generic [ref=e306]:
+                          - strong [ref=e307]: Expectancy Ratio
+                          - generic [ref=e308]: "0.505"
+                        - generic [ref=e309]:
+                          - strong [ref=e310]: Sharpe
+                          - generic [ref=e311]: "1.520"
+                        - generic [ref=e312]:
+                          - strong [ref=e313]: Sortino
+                          - generic [ref=e314]: "5.974"
+                        - generic [ref=e315]:
+                          - strong [ref=e316]: Calmar
+                          - generic [ref=e317]: "63.303"
+                        - generic [ref=e318]:
+                          - strong [ref=e319]: SQN
+                          - generic [ref=e320]: "1.414"
+                        - generic [ref=e321]:
+                          - strong [ref=e322]: Avg Trade
+                          - generic [ref=e323]: +0.39%
+                        - generic [ref=e324]:
+                          - strong [ref=e325]: Median Trade
+                          - generic [ref=e326]: +0.18%
+                        - generic [ref=e327]:
+                          - strong [ref=e328]: Trades / Day
+                          - generic [ref=e329]: "0.30"
+                      - generic [ref=e330]: Best day +2.42 USDT | Worst day -0.77 USDT.
+                    - generic [ref=e331]:
+                      - generic [ref=e332]: Trade Distribution
+                      - generic [ref=e333]:
+                        - generic [ref=e334]:
+                          - strong [ref=e335]: Best Pair
+                          - generic [ref=e336]: ETH/USDT (+12.13% | 30 trades)
+                        - generic [ref=e337]:
+                          - strong [ref=e338]: Worst Pair
+                          - generic [ref=e339]: ETH/USDT (+12.13% | 30 trades)
+                        - generic [ref=e340]:
+                          - strong [ref=e341]: Pairs
+                          - generic [ref=e342]: "1"
+                        - generic [ref=e343]:
+                          - strong [ref=e344]: Long Trades
+                          - generic [ref=e345]: "30"
+                        - generic [ref=e346]:
+                          - strong [ref=e347]: Short Trades
+                          - generic [ref=e348]: "0"
+                        - generic [ref=e349]:
+                          - strong [ref=e350]: Max Win Streak
+                          - generic [ref=e351]: "5"
+                        - generic [ref=e352]:
+                          - strong [ref=e353]: Max Loss Streak
+                          - generic [ref=e354]: "5"
+                        - generic [ref=e355]:
+                          - strong [ref=e356]: Stake Size
+                          - generic [ref=e357]: unlimited
+                        - generic [ref=e358]:
+                          - strong [ref=e359]: Avg Stake
+                          - generic [ref=e360]: 53.00 USDT
+                      - generic [ref=e361]: Win rate +53.3% across 30 trades | Volume 3192.72 USDT.
+                    - generic [ref=e362]:
+                      - generic [ref=e363]: Day Outcomes
+                      - generic [ref=e364]:
+                        - generic [ref=e365]:
+                          - strong [ref=e366]: Winning Days
+                          - generic [ref=e367]: "13"
+                        - generic [ref=e368]:
+                          - strong [ref=e369]: Flat Days
+                          - generic [ref=e370]: "71"
+                        - generic [ref=e371]:
+                          - strong [ref=e372]: Losing Days
+                          - generic [ref=e373]: "11"
+                        - generic [ref=e374]:
+                          - strong [ref=e375]: Best Day
+                          - generic [ref=e376]: +2.42 USDT
+                        - generic [ref=e377]:
+                          - strong [ref=e378]: Worst Day
+                          - generic [ref=e379]: "-0.77 USDT"
+                        - generic [ref=e380]:
+                          - strong [ref=e381]: Trades / Day
+                          - generic [ref=e382]: "0.30"
+                      - generic [ref=e383]: Backtest window 2026-01-01 00:00:00 to 2026-04-10 00:00:00 | 99 calendar days covered.
+                    - generic [ref=e384]:
+                      - generic [ref=e385]: Holding Profile
+                      - generic [ref=e386]:
+                        - generic [ref=e387]:
+                          - strong [ref=e388]: Avg Hold
+                          - generic [ref=e389]: 4:27:00
+                        - generic [ref=e390]:
+                          - strong [ref=e391]: Winner Avg
+                          - generic [ref=e392]: 0d 05:44
+                        - generic [ref=e393]:
+                          - strong [ref=e394]: Winner Range
+                          - generic [ref=e395]: 0d 01:30 to 0d 21:05
+                        - generic [ref=e396]:
+                          - strong [ref=e397]: Loser Avg
+                          - generic [ref=e398]: 0d 03:00
+                        - generic [ref=e399]:
+                          - strong [ref=e400]: Loser Range
+                          - generic [ref=e401]: 0d 01:10 to 0d 04:45
+                      - generic [ref=e402]: Drawdown duration 11 days 09:20:00 | Net result +6.07 USDT.
+                    - generic [ref=e403]:
+                      - generic [ref=e404]: Entry Tags
+                      - table [ref=e406]:
+                        - rowgroup [ref=e407]:
+                          - row "Tag Trades Win Rate Total Profit % Profit Abs Avg Duration" [ref=e408]:
+                            - columnheader "Tag" [ref=e409] [cursor=pointer]
+                            - columnheader "Trades" [ref=e410] [cursor=pointer]
+                            - columnheader "Win Rate" [ref=e411] [cursor=pointer]
+                            - columnheader "Total Profit %" [ref=e412] [cursor=pointer]
+                            - columnheader "Profit Abs" [ref=e413] [cursor=pointer]
+                            - columnheader "Avg Duration" [ref=e414] [cursor=pointer]
+                        - rowgroup [ref=e415]:
+                          - row "Default 30 +53.3% +12.13% +6.07 USDT 4:27:00" [ref=e416]:
+                            - cell "Default" [ref=e417]
+                            - cell "30" [ref=e418]
+                            - cell "+53.3%" [ref=e419]
+                            - cell "+12.13%" [ref=e420]
+                            - cell "+6.07 USDT" [ref=e421]
+                            - cell "4:27:00" [ref=e422]
+                    - generic [ref=e423]:
+                      - generic [ref=e424]: Exit Reasons
+                      - table [ref=e426]:
+                        - rowgroup [ref=e427]:
+                          - row "Reason Trades Win Rate Total Profit % Profit Abs Avg Duration" [ref=e428]:
+                            - columnheader "Reason" [ref=e429] [cursor=pointer]
+                            - columnheader "Trades" [ref=e430] [cursor=pointer]
+                            - columnheader "Win Rate" [ref=e431] [cursor=pointer]
+                            - columnheader "Total Profit %" [ref=e432] [cursor=pointer]
+                            - columnheader "Profit Abs" [ref=e433] [cursor=pointer]
+                            - columnheader "Avg Duration" [ref=e434] [cursor=pointer]
+                        - rowgroup [ref=e435]:
+                          - row "exit_signal 30 +53.3% +12.13% +6.07 USDT 4:27:00" [ref=e436]:
+                            - cell "exit_signal" [ref=e437]
+                            - cell "30" [ref=e438]
+                            - cell "+53.3%" [ref=e439]
+                            - cell "+12.13%" [ref=e440]
+                            - cell "+6.07 USDT" [ref=e441]
+                            - cell "4:27:00" [ref=e442]
+                    - generic [ref=e443]:
+                      - generic [ref=e444]: Entry / Exit Mix
+                      - table [ref=e446]:
+                        - rowgroup [ref=e447]:
+                          - row "Path Trades Win Rate Total Profit % Profit Abs Avg Duration" [ref=e448]:
+                            - columnheader "Path" [ref=e449] [cursor=pointer]
+                            - columnheader "Trades" [ref=e450] [cursor=pointer]
+                            - columnheader "Win Rate" [ref=e451] [cursor=pointer]
+                            - columnheader "Total Profit %" [ref=e452] [cursor=pointer]
+                            - columnheader "Profit Abs" [ref=e453] [cursor=pointer]
+                            - columnheader "Avg Duration" [ref=e454] [cursor=pointer]
+                        - rowgroup [ref=e455]:
+                          - row "Default -> exit_signal 30 +53.3% +12.13% +6.07 USDT 4:27:00" [ref=e456]:
+                            - cell "Default -> exit_signal" [ref=e457]
+                            - cell "30" [ref=e458]
+                            - cell "+53.3%" [ref=e459]
+                            - cell "+12.13%" [ref=e460]
+                            - cell "+6.07 USDT" [ref=e461]
+                            - cell "4:27:00" [ref=e462]
+                - generic [ref=e463]:
+                  - generic [ref=e464]:
+                    - generic [ref=e465]: Run Diagnosis
+                    - generic [ref=e466]:
+                      - generic [ref=e467]:
+                        - strong [ref=e468]: "Strategy:"
+                        - text: MultiMa
+                      - generic [ref=e469]:
+                        - strong [ref=e470]: "Run:"
+                        - text: bt-e54efd47
+                      - generic [ref=e471]:
+                        - strong [ref=e472]: "Version:"
+                        - text: v_MultiMa_20260410_174436_531abc
+                      - generic [ref=e473]:
+                        - strong [ref=e474]: "Status:"
+                        - text: ready
+                    - generic [ref=e475]: Diagnosis is reading the persisted run-linked summary artifact.
+                  - generic [ref=e476]:
+                    - generic [ref=e477]: Primary Issues
+                    - list [ref=e478]:
+                      - listitem [ref=e479]:
+                        - strong [ref=e480]: exit_inefficiency
+                        - text: ": Exit behavior looks inefficient because only -163.99% of available MFE is captured."
+                  - generic [ref=e481]:
+                    - generic [ref=e482]: Evidence Gaps
+                    - generic [ref=e483]: All deterministic rules had the evidence they needed.
+                  - generic [ref=e484]:
+                    - generic [ref=e485]: AI Overlay
+                    - generic [ref=e486]: AI overlay unavailable. Deterministic diagnosis remains available.
+                - generic [ref=e487]:
+                  - generic [ref=e488]:
+                    - generic [ref=e489]: Primary Flags
+                    - article [ref=e491]:
+                      - generic [ref=e492]:
+                        - generic [ref=e493]: exit_inefficiency
+                        - generic [ref=e494]: Warning
+                      - generic [ref=e495]: Exit behavior looks inefficient because only -163.99% of available MFE is captured.
+                  - generic [ref=e496]:
+                    - generic [ref=e497]: Deterministic Actions
+                    - article [ref=e499]:
+                      - generic [ref=e500]:
+                        - generic [ref=e501]:
+                          - generic [ref=e502]: Review Exit Timing
+                          - generic [ref=e503]: deterministic action
+                        - button "Create Candidate" [ref=e504] [cursor=pointer]
+                      - generic [ref=e505]: Review ROI and exit timing controls to avoid overstaying trades.
+                      - generic [ref=e506]:
+                        - generic [ref=e507]:
+                          - strong [ref=e508]: "Action:"
+                          - text: Review Exit Timing
+                        - generic [ref=e509]:
+                          - strong [ref=e510]: "Rules:"
+                          - text: exit_inefficiency
+                        - generic [ref=e511]:
+                          - strong [ref=e512]: "Parameters:"
+                          - text: minimal_roi, stoploss, trailing_stop, exit signal timing
+                  - generic [ref=e513]:
+                    - generic [ref=e514]: Ranked Issues
+                    - article [ref=e516]:
+                      - generic [ref=e517]:
+                        - generic [ref=e518]:
+                          - generic [ref=e519]: exit_inefficiency
+                          - generic [ref=e520]: ranked issue
+                        - button "Create Candidate" [ref=e521] [cursor=pointer]
+                      - generic [ref=e522]: Exit behavior looks inefficient because only -163.99% of available MFE is captured.
+                      - generic [ref=e523]:
+                        - generic [ref=e524]:
+                          - strong [ref=e525]: "Rule:"
+                          - text: exit_inefficiency
+                        - generic [ref=e526]:
+                          - strong [ref=e527]: "Severity:"
+                          - text: Warning
+                        - generic [ref=e528]:
+                          - strong [ref=e529]: "Distance:"
+                          - text: "223.99"
+                  - generic [ref=e530]:
+                    - generic [ref=e531]: Parameter Hints
+                    - article [ref=e533]:
+                      - generic [ref=e534]:
+                        - generic [ref=e535]:
+                          - generic [ref=e536]: exit_inefficiency
+                          - generic [ref=e537]: parameter hint
+                        - button "Create Candidate" [ref=e538] [cursor=pointer]
+                      - generic [ref=e539]: Exit inefficiency is usually improved by faster profit capture, earlier loss cuts, or less permissive stop behavior.
+                      - generic [ref=e540]:
+                        - generic [ref=e541]:
+                          - strong [ref=e542]: "Rule:"
+                          - text: exit_inefficiency
+                        - generic [ref=e543]:
+                          - strong [ref=e544]: "Parameters:"
+                          - text: minimal_roi, stoploss, trailing_stop, exit signal timing
+                  - generic [ref=e545]:
+                    - generic [ref=e546]: AI Parameter Suggestions
+                    - generic [ref=e548]: AI suggestions are unavailable for this run right now. Deterministic proposal sources remain usable.
+                  - generic [ref=e549]:
+                    - generic [ref=e550]: Candidate State
+                    - generic [ref=e551]: Create a candidate from one of the diagnosis-backed proposal sources to start the run-scoped workflow.
+                - generic [ref=e146]:
+                  - generic [ref=e147]: AI Chat
+                  - generic [ref=e552]:
+                    - generic [ref=e553]:
+                      - strong [ref=e554]: Strategy
+                      - text: MultiMa
+                    - generic [ref=e555]:
+                      - strong [ref=e556]: Run Context
+                      - text: bt-e54efd47
+                    - generic [ref=e557]:
+                      - strong [ref=e558]: Version
+                      - text: v_MultiMa_20260410_174436_531abc
+                    - generic [ref=e559]:
+                      - strong [ref=e560]: Version Source
+                      - text: Run-linked version snapshot
+                    - generic [ref=e561]:
+                      - strong [ref=e562]: Code Context
+                      - text: Code snapshot ready (active)
+                    - generic [ref=e563]:
+                      - strong [ref=e564]: Result Context
+                      - text: Latest persisted run summary loaded
+                  - generic [ref=e162]:
+                    - button "Explain Weaknesses" [ref=e163] [cursor=pointer]
+                    - button "Lower Drawdown" [ref=e164] [cursor=pointer]
+                    - button "Improve Exits" [ref=e165] [cursor=pointer]
+                  - article [ref=e167]:
+                    - generic [ref=e169]: AI Panel
+                    - generic [ref=e170]: Ask for analysis of the selected strategy or generate a candidate change from the latest loaded backtest. Candidate creation stages a new version only. Nothing is promoted automatically.
+                  - generic [ref=e171]: Ask AI
+                  - textbox "Ask AI" [ref=e172]:
+                    - /placeholder: Ask for analysis, risk reduction ideas, or a candidate change grounded in the current strategy and latest backtest context.
+                  - generic [ref=e173]:
+                    - generic [ref=e174]: Questions and candidates are grounded in the latest loaded run. Candidate creation stages a new version only; it does not promote changes.
+                    - generic [ref=e175]:
+                      - button "Generate Candidate" [ref=e176] [cursor=pointer]
+                      - button "Ask AI" [ref=e177] [cursor=pointer]
+              - option "bt-e54efd47 | MultiMa | Completed | +12.13% | 4/11/2026, 9:41:49 AM" [selected]
+              - option "bt-aac87cac | MultiMa | Completed | +12.13% | 4/11/2026, 9:24:28 AM"
+              - option "bt-01a6edfa | MultiMa | Completed | +1.13% | 4/11/2026, 9:24:07 AM"
+              - option "bt-1115979f | MultiMa | Completed | +1.13% | 4/11/2026, 8:49:14 AM"
+              - option "bt-21fd45b8 | MultiMa | Completed | +1.13% | 4/11/2026, 8:57:14 AM"
+              - option "bt-8f3e2379 | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-de9efeba | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-684e2b6d | MultiMa | Completed | +13.46% | 4/10/2026, 6:45:16 PM"
+              - option "bt-86d39e4c | MultiMa | Completed | +13.46% | 4/10/2026, 6:27:20 PM"
+              - option "bt-278b6bfd | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:36 PM"
+              - option "bt-b2cdaa4c | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:19 PM"
+              - option "bt-5302f014 | MultiMa | Completed | +12.13% | 4/10/2026, 5:45:16 PM"
+              - option "bt-636f0dbf | MultiMa | Completed | +12.13% | 4/10/2026, 5:44:40 PM"
+              - option "bt-8f392464 | MultiMa | Completed | +12.13% | 4/10/2026, 4:26:48 PM"
+              - option "bt-b09471d3 | MultiMa | Completed | +12.13% | 4/10/2026, 3:43:35 PM"
+              - option "bt-7a798361 | MultiMa | Completed | +12.13% | 4/10/2026, 3:42:52 PM"
+              - option "bt-f68fbd99 | MultiMa | Completed | +12.13% | 4/10/2026, 2:50:38 PM"
+              - option "bt-e54efd47 | MultiMa | Completed | +12.13% | 4/11/2026, 9:41:49 AM"
+              - option "bt-aac87cac | MultiMa | Completed | +12.13% | 4/11/2026, 9:24:28 AM" [selected]
+              - option "bt-01a6edfa | MultiMa | Completed | +1.13% | 4/11/2026, 9:24:07 AM"
+              - option "bt-1115979f | MultiMa | Completed | +1.13% | 4/11/2026, 8:49:14 AM"
+              - option "bt-21fd45b8 | MultiMa | Completed | +1.13% | 4/11/2026, 8:57:14 AM"
+              - option "bt-8f3e2379 | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-de9efeba | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-684e2b6d | MultiMa | Completed | +13.46% | 4/10/2026, 6:45:16 PM"
+              - option "bt-86d39e4c | MultiMa | Completed | +13.46% | 4/10/2026, 6:27:20 PM"
+              - option "bt-278b6bfd | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:36 PM"
+              - option "bt-b2cdaa4c | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:19 PM"
+              - option "bt-5302f014 | MultiMa | Completed | +12.13% | 4/10/2026, 5:45:16 PM"
+              - option "bt-636f0dbf | MultiMa | Completed | +12.13% | 4/10/2026, 5:44:40 PM"
+              - option "bt-8f392464 | MultiMa | Completed | +12.13% | 4/10/2026, 4:26:48 PM"
+              - option "bt-b09471d3 | MultiMa | Completed | +12.13% | 4/10/2026, 3:43:35 PM"
+              - option "bt-7a798361 | MultiMa | Completed | +12.13% | 4/10/2026, 3:42:52 PM"
+              - option "bt-f68fbd99 | MultiMa | Completed | +12.13% | 4/10/2026, 2:50:38 PM"
