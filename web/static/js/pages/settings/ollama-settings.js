@@ -100,6 +100,7 @@ function renderModels(result) {
           <div class="settings-ai-card__badges">
             <span class="settings-ai-badge ${model.tool_calling_supported_by_model ? "" : "settings-ai-badge--muted"}">Model Tools: ${escapeHtml(model.tool_calling_supported_by_model ? "supported" : "not reported")}</span>
             <span class="settings-ai-badge settings-ai-badge--muted">App Tools: ${escapeHtml(model.tool_calling_enabled_in_app ? "enabled" : "disabled")}</span>
+          </div>
         </header>
         <div class="settings-ai-card__caps">
           ${capabilities.length ? capabilities.map((capability) => `<span class="settings-ai-badge">${escapeHtml(capability)}</span>`).join("") : '<span class="settings-ai-badge settings-ai-badge--muted">No raw capabilities reported</span>'}
