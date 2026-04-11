@@ -1,139 +1,121 @@
-"""
-Model routing policy - determines which provider/model to use for a task.
+﻿"""
+Model routing policy - determines which provider/model pair to use per AI task.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any, Mapping
 
-from app.freqtrade.settings import DEFAULT_OLLAMA_HOST, DEFAULT_OLLAMA_MODEL
-from app.services.config_service import ConfigService
+
+DEFAULT_AI_PROVIDER = "ollama"
+SUPPORTED_AI_PROVIDERS = {"ollama", "openrouter", "huggingface", "openai"}
+AI_TASK_TYPES = ("classifier", "analysis", "candidate", "overlay")
+
+_TASK_SETTING_KEYS = {
+    "classifier": "ai_classifier_model",
+    "analysis": "ai_analysis_model",
+    "candidate": "ai_candidate_model",
+    "overlay": "ai_overlay_model",
+}
+_TASK_DEFAULTS = {
+    "classifier": {"temperature": 0.2, "max_tokens": 800},
+    "analysis": {"temperature": 0.3, "max_tokens": 4000},
+    "candidate": {"temperature": 0.25, "max_tokens": 4000},
+    "overlay": {"temperature": 0.2, "max_tokens": 1800},
+}
+_PROVIDER_DEFAULT_MODELS = {
+    "ollama": {
+        "classifier": "llama3",
+        "analysis": "llama3",
+        "candidate": "llama3",
+        "overlay": "llama3",
+    },
+    "openrouter": {
+        "classifier": "meta-llama/llama-3.3-70b-instruct:free",
+        "analysis": "meta-llama/llama-3.3-70b-instruct:free",
+        "candidate": "meta-llama/llama-3.3-70b-instruct:free",
+        "overlay": "meta-llama/llama-3.3-70b-instruct:free",
+    },
+    "huggingface": {
+        "classifier": "openai/gpt-oss-20b",
+        "analysis": "openai/gpt-oss-20b",
+        "candidate": "openai/gpt-oss-20b",
+        "overlay": "openai/gpt-oss-20b",
+    },
+    "openai": {
+        "classifier": "gpt-4o-mini",
+        "analysis": "gpt-4o",
+        "candidate": "gpt-4o",
+        "overlay": "gpt-4o-mini",
+    },
+}
 
 
 @dataclass
 class RoutingPolicy:
     task_type: str
-    complexity: Literal["low", "medium", "high"]
-    preferred_provider: str
+    provider: str
     model: str
-    temperature: float = 0.7
+    temperature: float = 0.3
     max_tokens: int | None = None
-    fallback_provider: str | None = None
-    fallback_model: str | None = None
-    stream_preferred: bool = False
-    ollama_host: str | None = None
-    settings_snapshot: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def preferred_provider(self) -> str:
+        return self.provider
 
 
-ROUTING_POLICIES: list[RoutingPolicy] = [
-    RoutingPolicy(task_type="casual_chat", complexity="low", preferred_provider="ollama", model=DEFAULT_OLLAMA_MODEL, fallback_provider="openrouter", fallback_model="openai/gpt-4o-mini", stream_preferred=True),
-    RoutingPolicy(task_type="classification", complexity="low", preferred_provider="ollama", model=DEFAULT_OLLAMA_MODEL, fallback_provider="openrouter", fallback_model="openai/gpt-4o-mini", stream_preferred=False),
-    RoutingPolicy(task_type="analysis", complexity="medium", preferred_provider="ollama", model=DEFAULT_OLLAMA_MODEL, fallback_provider="openrouter", fallback_model="openai/gpt-4o-mini", stream_preferred=True),
-    RoutingPolicy(task_type="candidate_generation", complexity="high", preferred_provider="openrouter", model="openai/gpt-4o", fallback_provider="ollama", fallback_model=DEFAULT_OLLAMA_MODEL, stream_preferred=False),
-    RoutingPolicy(task_type="comparison", complexity="high", preferred_provider="openrouter", model="openai/gpt-4o", fallback_provider="ollama", fallback_model=DEFAULT_OLLAMA_MODEL, stream_preferred=False),
-]
+def normalize_provider(provider: str | None) -> str:
+    normalized = str(provider or DEFAULT_AI_PROVIDER).strip().lower()
+    if normalized not in SUPPORTED_AI_PROVIDERS:
+        return DEFAULT_AI_PROVIDER
+    return normalized
 
 
-def _load_ai_settings() -> dict[str, Any]:
-    try:
-        settings = ConfigService().get_settings()
-        return settings if isinstance(settings, dict) else {}
-    except Exception:
-        return {}
+def _get_model_for_task(task_type: str, provider: str, settings: Mapping[str, Any]) -> str:
+    setting_key = _TASK_SETTING_KEYS.get(task_type, "ai_analysis_model")
+    configured = str(settings.get(setting_key) or "").strip()
+    if configured:
+        return configured
+    provider_defaults = _PROVIDER_DEFAULT_MODELS.get(provider, _PROVIDER_DEFAULT_MODELS[DEFAULT_AI_PROVIDER])
+    return provider_defaults.get(task_type, provider_defaults["analysis"])
 
 
-def _ollama_host(settings: dict[str, Any]) -> str:
-    return str(settings.get("ollama_host") or DEFAULT_OLLAMA_HOST).strip() or DEFAULT_OLLAMA_HOST
-
-
-def _ollama_model(settings: dict[str, Any]) -> str:
-    return str(settings.get("ollama_default_model") or DEFAULT_OLLAMA_MODEL).strip() or DEFAULT_OLLAMA_MODEL
-
-
-def _openrouter_model(task_type: str, complexity: str) -> str:
-    normalized_task = str(task_type or "").strip().lower()
-    normalized_complexity = str(complexity or "medium").strip().lower()
-    if normalized_task in {"casual_chat", "classification"} or normalized_complexity == "low":
-        return "openai/gpt-4o-mini"
-    return "openai/gpt-4o"
-
-
-def _default_temperature(task_type: str, complexity: str) -> float:
-    normalized_task = str(task_type or "").strip().lower()
-    if normalized_task in {"candidate_generation", "code_generation", "structured_output"}:
-        return 0.2
-    if normalized_task in {"classification", "diagnosis_overlay"}:
-        return 0.2
-    if normalized_task in {"comparison", "deep_reasoning"} or str(complexity or "").strip().lower() == "high":
-        return 0.3
-    if normalized_task in {"analysis", "explanation"}:
-        return 0.4
-    return 0.7
-
-
-def _default_max_tokens(task_type: str, complexity: str) -> int | None:
-    normalized_task = str(task_type or "").strip().lower()
-    normalized_complexity = str(complexity or "medium").strip().lower()
-    if normalized_task in {"candidate_generation", "code_generation", "structured_output"}:
-        return 4000 if normalized_complexity != "high" else 8000
-    if normalized_task in {"analysis", "comparison", "deep_reasoning"}:
-        return 4000
-    if normalized_task == "classification":
-        return 500
-    if normalized_task == "diagnosis_overlay":
-        return 1800
-    return None
-
-
-def get_routing_policy(task_type: str, complexity: str = "medium", model_override: str | None = None) -> RoutingPolicy:
-    normalized_task = str(task_type or "analysis").strip().lower() or "analysis"
-    normalized_complexity = str(complexity or "medium").strip().lower() or "medium"
-    settings = _load_ai_settings()
-    ollama_host = _ollama_host(settings)
-    ollama_model = model_override or _ollama_model(settings)
-    openrouter_model = model_override or _openrouter_model(normalized_task, normalized_complexity)
-
-    local_first_tasks = {"casual_chat", "classification", "analysis", "explanation", "simple", "diagnosis_overlay"}
-    deep_tasks = {"candidate_generation", "code_generation", "structured_output", "comparison", "deep_reasoning", "tool_calling"}
-
-    if normalized_task in deep_tasks:
-        preferred_provider = "openrouter"
-        preferred_model = openrouter_model
-        fallback_provider = "ollama"
-        fallback_model = ollama_model
-        stream_preferred = False
-    else:
-        preferred_provider = "ollama"
-        preferred_model = ollama_model
-        fallback_provider = "openrouter"
-        fallback_model = _openrouter_model(normalized_task, normalized_complexity)
-        stream_preferred = normalized_task in local_first_tasks
-
+def get_routing_policy(
+    task_type: str,
+    complexity: str = "medium",
+    settings: Mapping[str, Any] | None = None,
+    provider_override: str | None = None,
+    model_override: str | None = None,
+) -> RoutingPolicy:
+    del complexity
+    normalized_task = task_type if task_type in AI_TASK_TYPES else "analysis"
+    payload = dict(settings or {})
+    provider = normalize_provider(provider_override or payload.get("ai_provider"))
+    model = str(model_override or "").strip() or _get_model_for_task(normalized_task, provider, payload)
+    defaults = _TASK_DEFAULTS.get(normalized_task, _TASK_DEFAULTS["analysis"])
     return RoutingPolicy(
         task_type=normalized_task,
-        complexity=normalized_complexity if normalized_complexity in {"low", "medium", "high"} else "medium",
-        preferred_provider=preferred_provider,
-        model=preferred_model,
-        temperature=_default_temperature(normalized_task, normalized_complexity),
-        max_tokens=_default_max_tokens(normalized_task, normalized_complexity),
-        fallback_provider=fallback_provider,
-        fallback_model=fallback_model,
-        stream_preferred=stream_preferred and preferred_provider == "ollama",
-        ollama_host=ollama_host,
-        settings_snapshot={
-            "ollama_host": ollama_host,
-            "ollama_default_model": ollama_model,
-        },
+        provider=provider,
+        model=model,
+        temperature=float(defaults["temperature"]),
+        max_tokens=int(defaults["max_tokens"]) if defaults.get("max_tokens") is not None else None,
     )
 
 
-def get_fallback_policy() -> RoutingPolicy:
-    return get_routing_policy("analysis", "medium")
+ROUTING_POLICIES: list[RoutingPolicy] = [get_routing_policy(task_type) for task_type in AI_TASK_TYPES]
+
+
+def get_fallback_policy(settings: Mapping[str, Any] | None = None) -> RoutingPolicy:
+    return get_routing_policy("analysis", settings=settings)
 
 
 __all__ = [
+    "AI_TASK_TYPES",
+    "DEFAULT_AI_PROVIDER",
+    "SUPPORTED_AI_PROVIDERS",
     "RoutingPolicy",
     "ROUTING_POLICIES",
+    "normalize_provider",
     "get_routing_policy",
     "get_fallback_policy",
 ]
