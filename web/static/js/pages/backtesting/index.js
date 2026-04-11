@@ -1,4 +1,4 @@
-/**
+﻿/**
  * index.js - Backtesting page entry point. Initializes all modules.
  */
 

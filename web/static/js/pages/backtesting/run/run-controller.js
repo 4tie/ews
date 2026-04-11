@@ -3,6 +3,7 @@
  */
 
 import api from "../../../core/api.js";
+import persistence, { KEYS } from "../../../core/persistence.js";
 import { getState, setState } from "../../../core/state.js";
 import { emit, EVENTS } from "../../../core/events.js";
 import showToast from "../../../components/toast.js";
@@ -15,11 +16,35 @@ const stopBtn = document.getElementById("btn-stop-backtest");
 const statusDot = document.getElementById("run-status-dot");
 const statusLbl = document.getElementById("run-status-label");
 
+const ACTIVE_RUN_KEY = KEYS.BACKTEST_ACTIVE_RUN;
+const ACTIVE_STATUSES = new Set(["queued", "running"]);
+const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped"]);
+
 let _currentRunId = null;
+let _listenersController = null;
+let _lastTerminalEvent = null;
 
 function setStatus(state, label) {
   if (statusDot) statusDot.className = `status-dot status-dot--${state}`;
   if (statusLbl) statusLbl.textContent = label;
+}
+
+function setCurrentRunId(runId) {
+  _currentRunId = runId || null;
+  _lastTerminalEvent = null;
+}
+
+function persistActiveRun(runId, strategy) {
+  if (!runId) return;
+  persistence.save(ACTIVE_RUN_KEY, { runId, strategy: strategy || "" });
+}
+
+function loadActiveRun() {
+  return persistence.load(ACTIVE_RUN_KEY, null);
+}
+
+function clearActiveRun() {
+  persistence.remove(ACTIVE_RUN_KEY);
 }
 
 function formatBacktestFailure(error) {
@@ -45,8 +70,49 @@ function formatBacktestFailure(error) {
   return message;
 }
 
-function finishRun(status, exitCode, error) {
+function formatProgressLabel(progress, fallback = "Running...") {
+  if (!progress || typeof progress !== "object") {
+    return fallback;
+  }
+
+  const label = String(progress.label || fallback).trim() || fallback;
+  const percent = Number(progress.percent);
+  if (!Number.isFinite(percent)) {
+    return label;
+  }
+
+  const normalized = Math.max(0, Math.min(100, Math.round(percent)));
+  return `${label} (${normalized}%)`;
+}
+
+function syncRunningUi(progress = null, fallback = "Running...") {
+  setButtonLoading(runBtn, true, "Running...");
+  if (stopBtn) stopBtn.disabled = false;
+  setState("backtest.isRunning", true);
+  setStatus("running", formatProgressLabel(progress, fallback));
+}
+
+function resetRunUi() {
+  if (stopBtn) stopBtn.disabled = true;
+  setButtonLoading(runBtn, false);
+  setState("backtest.isRunning", false);
+}
+
+function handleProgress(progress) {
+  if (!getState("backtest.isRunning")) return;
+  setStatus("running", formatProgressLabel(progress));
+}
+
+function finishRun(status, exitCode, error, progress) {
   const s = String(status || "");
+  const terminalKey = _currentRunId ? `${_currentRunId}:${s}` : s;
+  if (_lastTerminalEvent === terminalKey) {
+    return;
+  }
+  if (TERMINAL_STATUSES.has(s)) {
+    _lastTerminalEvent = terminalKey;
+  }
+
   const failureMessage = formatBacktestFailure(error);
   if (s === "completed") {
     setStatus("done", `Completed (exit ${exitCode ?? 0})`);
@@ -56,39 +122,106 @@ function finishRun(status, exitCode, error) {
     setStatus("error", exitCode != null ? `Failed (exit ${exitCode})` : "Failed");
     showToast(failureMessage ? `Backtest failed: ${failureMessage}` : "Backtest failed.", "error");
     emit(EVENTS.BACKTEST_FAILED, { run_id: _currentRunId, status: s, exit_code: exitCode, error: failureMessage || error });
+  } else if (s === "stopped") {
+    setStatus("idle", "Stopped");
+    showToast("Backtest stopped.", "warning");
+    emit(EVENTS.BACKTEST_STOPPED, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
   } else {
-    setStatus("idle", s || "Done");
+    setStatus("idle", formatProgressLabel(progress, s || "Done"));
     emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
   }
 
-  if (stopBtn) stopBtn.disabled = true;
-  setButtonLoading(runBtn, false);
-  setState("backtest.isRunning", false);
+  clearActiveRun();
+  resetRunUi();
+}
+
+function attachRunLogStream(runId, options = {}) {
+  startStream(`/api/backtest/runs/${encodeURIComponent(runId)}/logs/stream`, {
+    resetViewer: options.resetViewer !== false,
+    onProgress: (progress) => handleProgress(progress),
+    onDone: (status, exitCode, error, progress) => finishRun(status, exitCode, error, progress),
+    onDisconnect: async () => {
+      if (!getState("backtest.isRunning") || !_currentRunId || runId !== _currentRunId) {
+        return;
+      }
+
+      setStatus("running", "Reconnecting...");
+      try {
+        const { run } = await api.backtest.getRun(runId);
+        if (!run) {
+          throw new Error("Run not found");
+        }
+        if (ACTIVE_STATUSES.has(run.status)) {
+          handleProgress(run.progress);
+          attachRunLogStream(runId, { resetViewer: true });
+          return;
+        }
+        finishRun(run.status, run.exit_code, run.error, run.progress);
+      } catch (error) {
+        console.warn("[backtesting] Failed to reconnect log stream:", error);
+        showToast("Log stream disconnected. Refresh to reattach if the run is still active.", "warning");
+      }
+    },
+  });
+}
+
+async function restoreActiveRun() {
+  const stored = loadActiveRun();
+  if (!stored?.runId) {
+    return null;
+  }
+
+  const currentStrategy = getState("backtest.strategy") || "";
+  if (stored.strategy && currentStrategy && stored.strategy !== currentStrategy) {
+    clearActiveRun();
+    return null;
+  }
+
+  try {
+    const { run } = await api.backtest.getRun(stored.runId);
+    if (!run || !ACTIVE_STATUSES.has(run.status)) {
+      clearActiveRun();
+      return run || null;
+    }
+
+    setCurrentRunId(run.run_id || stored.runId);
+    persistActiveRun(_currentRunId, run.strategy || stored.strategy || currentStrategy);
+    syncRunningUi(run.progress, run.status === "queued" ? "Queued" : "Running...");
+    attachRunLogStream(_currentRunId, { resetViewer: true });
+    showToast(`Reattached to backtest: ${_currentRunId}`, "info");
+    return run;
+  } catch (error) {
+    console.warn("[backtesting] Failed to restore active run:", error);
+    clearActiveRun();
+    return null;
+  }
 }
 
 export async function startBacktestRun(payload, options = {}) {
-  const previewContext = options.previewContext || null;
+  if (getState("backtest.isRunning")) {
+    const error = new Error("A backtest is already running.");
+    showToast(error.message, "warning");
+    throw error;
+  }
 
+  const previewContext = options.previewContext || null;
   if (previewContext) {
     await refreshBacktestPreview(previewContext);
   }
 
-  setButtonLoading(runBtn, true, "Running...");
-  if (stopBtn) stopBtn.disabled = false;
-  setStatus("running", "Running...");
-  setState("backtest.isRunning", true);
+  syncRunningUi(null, "Running...");
   emit(EVENTS.BACKTEST_STARTED, payload);
 
   try {
     const res = await api.backtest.run(payload);
-    _currentRunId = res.run_id;
+    setCurrentRunId(res.run_id);
+    persistActiveRun(_currentRunId, payload.strategy);
 
     if (res.status === "failed" || res.error) {
       const message = formatBacktestFailure(res.error);
       stopStream();
-      if (stopBtn) stopBtn.disabled = true;
-      setButtonLoading(runBtn, false);
-      setState("backtest.isRunning", false);
+      clearActiveRun();
+      resetRunUi();
       setStatus("error", res.exit_code != null ? `Failed (exit ${res.exit_code})` : "Failed");
       emit(EVENTS.BACKTEST_FAILED, {
         run_id: _currentRunId,
@@ -100,14 +233,13 @@ export async function startBacktestRun(payload, options = {}) {
     }
 
     showToast(`Backtest started: ${_currentRunId}`, "info");
-
-    startStream(`/api/backtest/runs/${_currentRunId}/logs/stream`, {
-      onDone: (status, exitCode, error) => finishRun(status, exitCode, error),
-    });
+    handleProgress(res.progress);
+    attachRunLogStream(_currentRunId, { resetViewer: true });
     return res;
   } catch (error) {
     const message = formatBacktestFailure(error?.message || error);
     stopStream();
+    clearActiveRun();
     showToast(message ? `Run failed: ${message}` : "Run failed.", "error");
     setStatus("error", "Failed");
     emit(EVENTS.BACKTEST_FAILED, {
@@ -115,9 +247,7 @@ export async function startBacktestRun(payload, options = {}) {
       status: "failed",
       error: message || error?.message || String(error),
     });
-    if (stopBtn) stopBtn.disabled = true;
-    setButtonLoading(runBtn, false);
-    setState("backtest.isRunning", false);
+    resetRunUi();
     throw error;
   }
 }
@@ -128,7 +258,7 @@ function buildFormPayload() {
   const startDate = getState("backtest.startDate");
   const endDate = getState("backtest.endDate");
   const timerange = startDate && endDate
-    ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
+    ? `${startDate.replaceAll("-", "")}-${endDate.replaceAll("-", "")}`
     : undefined;
 
   return {
@@ -142,48 +272,79 @@ function buildFormPayload() {
   };
 }
 
-export function initRunController() {
-  runBtn?.addEventListener("click", async () => {
-    const strategy = getState("backtest.strategy");
-    const timeframe = getState("backtest.timeframe");
-    if (!strategy) {
-      showToast("Please select a strategy.", "warning");
-      return;
-    }
-    if (!timeframe) {
-      showToast("Please select a timeframe.", "warning");
-      return;
-    }
+async function handleRunClick() {
+  if (getState("backtest.isRunning")) {
+    showToast("A backtest is already running.", "warning");
+    return;
+  }
 
-    const payload = buildFormPayload();
-    const startDate = getState("backtest.startDate");
-    const endDate = getState("backtest.endDate");
+  const strategy = getState("backtest.strategy");
+  const timeframe = getState("backtest.timeframe");
+  if (!strategy) {
+    showToast("Please select a strategy.", "warning");
+    return;
+  }
+  if (!timeframe) {
+    showToast("Please select a timeframe.", "warning");
+    return;
+  }
 
-    try {
-      await startBacktestRun(payload, {
-        previewContext: {
-          strategy: payload.strategy,
-          timeframe: payload.timeframe,
-          pairs: payload.pairs,
-          startDate,
-          endDate,
-          dryRunWallet: payload.dry_run_wallet,
-          maxOpenTrades: payload.max_open_trades,
-        },
-      });
-    } catch (error) {
-      // startBacktestRun already updates UI and toasts.
-    }
-  });
+  const payload = buildFormPayload();
+  if (!payload.pairs.length) {
+    showToast("Please add at least one pair.", "warning");
+    return;
+  }
 
-  stopBtn?.addEventListener("click", () => {
-    // TODO: wire stop signal to backend
-    stopStream();
-    setStatus("idle", "Stopped");
-    setState("backtest.isRunning", false);
-    emit(EVENTS.BACKTEST_STOPPED, { run_id: _currentRunId });
-    if (stopBtn) stopBtn.disabled = true;
-    setButtonLoading(runBtn, false);
+  const startDate = getState("backtest.startDate");
+  const endDate = getState("backtest.endDate");
+
+  try {
+    await startBacktestRun(payload, {
+      previewContext: {
+        strategy: payload.strategy,
+        timeframe: payload.timeframe,
+        pairs: payload.pairs,
+        startDate,
+        endDate,
+        dryRunWallet: payload.dry_run_wallet,
+        maxOpenTrades: payload.max_open_trades,
+      },
+    });
+  } catch {
+    // startBacktestRun already updates UI and toasts.
+  }
+}
+
+async function handleStopClick() {
+  if (!getState("backtest.isRunning") || !_currentRunId) {
+    return;
+  }
+
+  if (stopBtn) stopBtn.disabled = true;
+  setStatus("running", "Stopping...");
+
+  try {
+    const response = await api.backtest.stopRun(_currentRunId);
     showToast("Stop signal sent.", "warning");
-  });
+    const run = response?.run;
+    if (run && TERMINAL_STATUSES.has(run.status)) {
+      finishRun(run.status, run.exit_code, run.error, run.progress);
+    }
+  } catch (error) {
+    if (stopBtn) stopBtn.disabled = false;
+    handleProgress(null);
+    showToast(`Failed to stop backtest: ${error?.message || error}`, "error");
+  }
+}
+
+export function initRunController() {
+  _listenersController?.abort();
+  _listenersController = new AbortController();
+  const signal = _listenersController.signal;
+
+  runBtn?.addEventListener("click", handleRunClick, { signal });
+  stopBtn?.addEventListener("click", handleStopClick, { signal });
+
+  void restoreActiveRun();
+  return () => _listenersController?.abort();
 }

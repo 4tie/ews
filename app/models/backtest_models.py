@@ -14,6 +14,7 @@ class BacktestTriggerSource(str, Enum):
 class BacktestRunStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
+    STOPPED = "stopped"
     FAILED = "failed"
     COMPLETED = "completed"
 
@@ -74,6 +75,7 @@ class BacktestRunRecord(BaseModel):
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
+    stop_requested_at: Optional[str] = None
     status: BacktestRunStatus
     command: str
     artifact_path: Optional[str] = None

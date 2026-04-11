@@ -70,6 +70,12 @@ async def get_backtest_run(run_id: str):
     return await runtime.get_backtest_run(run_id)
 
 
+@router.post("/runs/{run_id}/stop")
+async def stop_backtest_run(run_id: str):
+    _sync_runtime_overrides()
+    return await runtime.stop_backtest_run(run_id)
+
+
 @router.get("/runs/{run_id}/diagnosis")
 async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
     _sync_runtime_overrides()

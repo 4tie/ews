@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI Chat Router - Endpoints for AI-powered chat with unified run-scoped candidate creation.
 """
 from typing import Any
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app.ai.output_format import parse_ai_response
 from app.models.backtest_models import BacktestRunRecord
 from app.services.ai_chat.loop_service import LoopConfig, analyze_with_two_mode, run_ai_loop
+from app.services.ai_chat.persistent_chat_service import persistent_ai_chat_service
 from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results.diagnosis_service import diagnosis_service
@@ -49,6 +50,19 @@ class ApplyParamsRequest(BaseModel):
     strategy_name: str
     parameters: dict[str, Any]
     summary: str | None = None
+
+
+class PersistentThreadContext(BaseModel):
+    run_id: str | None = None
+    version_id: str | None = None
+    diagnosis_status: str | None = None
+    summary_available: bool = False
+    version_source: str | None = None
+
+
+class PersistentThreadMessageRequest(BaseModel):
+    message: str
+    context: PersistentThreadContext | None = None
 
 
 @router.post("/chat")
@@ -96,6 +110,33 @@ async def analyze(request: AnalyzeRequest):
         "code": parsed.code[:500] if parsed.code else None,
         "validation_errors": parsed.validation_errors,
     }
+
+
+@router.get("/threads/{strategy_name}")
+async def get_strategy_thread(strategy_name: str):
+    return persistent_ai_chat_service.get_thread(strategy_name)
+
+
+@router.post("/threads/{strategy_name}/messages")
+async def create_strategy_thread_message(strategy_name: str, request: PersistentThreadMessageRequest):
+    try:
+        return await persistent_ai_chat_service.enqueue_message(
+            strategy_name=strategy_name,
+            message_text=request.message,
+            context=request.context.model_dump(mode="json") if request.context else None,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/jobs/{job_id}")
+async def get_ai_job(job_id: str):
+    payload = persistent_ai_chat_service.get_job(job_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail=f"AI job {job_id} not found")
+    return payload
 
 
 @router.post("/apply-code")

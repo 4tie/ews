@@ -1,7 +1,16 @@
-import os
+﻿import os
 
-from app.utils.json_io import read_json, write_json
-from app.utils.paths import backtest_runs_dir, download_runs_dir, optimizer_runs_dir, resolve_safe
+from app.utils.json_io import list_json_files, read_json, write_json
+from app.utils.paths import (
+    ai_chat_job_file,
+    ai_chat_jobs_dir,
+    ai_chat_thread_file,
+    ai_chat_threads_dir,
+    backtest_runs_dir,
+    download_runs_dir,
+    optimizer_runs_dir,
+    resolve_safe,
+)
 
 
 class PersistenceService:
@@ -68,3 +77,51 @@ class PersistenceService:
         checkpoint = self.load_checkpoint(run_id, checkpoint_id)
         # TODO: apply rollback logic - re-activate this checkpoint's params
         return {"run_id": run_id, "checkpoint_id": checkpoint_id, "data": checkpoint}
+
+    def save_ai_chat_thread(self, strategy_name: str, data: dict) -> None:
+        write_json(ai_chat_thread_file(strategy_name), data)
+
+    def load_ai_chat_thread(self, strategy_name: str) -> dict:
+        return read_json(ai_chat_thread_file(strategy_name), fallback={})
+
+    def list_ai_chat_threads(self) -> list[dict]:
+        base = ai_chat_threads_dir()
+        if not os.path.isdir(base):
+            return []
+
+        threads = []
+        for strategy_name in os.listdir(base):
+            path = ai_chat_thread_file(strategy_name)
+            data = read_json(path, fallback=None)
+            if isinstance(data, dict) and data.get("strategy_name"):
+                threads.append(data)
+
+        def _sort_key(item: dict) -> str:
+            return str(item.get("updated_at") or item.get("created_at") or item.get("strategy_name") or "")
+
+        return sorted(threads, key=_sort_key, reverse=True)
+
+    def save_ai_chat_job(self, job_id: str, data: dict) -> None:
+        write_json(ai_chat_job_file(job_id), data)
+
+    def load_ai_chat_job(self, job_id: str) -> dict:
+        return read_json(ai_chat_job_file(job_id), fallback={})
+
+    def list_ai_chat_jobs(self, strategy_name: str | None = None) -> list[dict]:
+        base = ai_chat_jobs_dir()
+        if not os.path.isdir(base):
+            return []
+
+        jobs = []
+        for name in list_json_files(base):
+            data = read_json(resolve_safe(base, name), fallback=None)
+            if not isinstance(data, dict) or not data.get("job_id"):
+                continue
+            if strategy_name and data.get("strategy_name") != strategy_name:
+                continue
+            jobs.append(data)
+
+        def _sort_key(item: dict) -> str:
+            return str(item.get("updated_at") or item.get("created_at") or item.get("job_id") or "")
+
+        return sorted(jobs, key=_sort_key, reverse=True)

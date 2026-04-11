@@ -1,4 +1,5 @@
 import os
+import signal
 import threading
 import uuid
 import asyncio
@@ -47,6 +48,21 @@ _KNOWN_FAILURE_PREFIXES = (
     "artifact_resolution_failed:",
     "ingestion_failed:",
     "summary_load_failed:",
+)
+_BACKTEST_PROGRESS_MILESTONES = (
+    ("dumping json to", {"phase": "finalizing", "percent": 90, "label": "Writing results"}),
+    ("running backtesting for strategy", {"phase": "backtesting", "percent": 70, "label": "Running backtest"}),
+    ("backtesting with data from", {"phase": "backtesting", "percent": 70, "label": "Running backtest"}),
+    ("dataload complete. calculating indicators", {"phase": "indicators", "percent": 45, "label": "Calculating indicators"}),
+    ("loading data from", {"phase": "loading_data", "percent": 25, "label": "Loading data"}),
+)
+_BACKTEST_BOOTSTRAP_MARKERS = (
+    "using config:",
+    "using user-data directory:",
+    "checking exchange...",
+    "validating configuration",
+    "starting freqtrade in backtesting mode",
+    "using resolved strategy",
 )
 
 
@@ -237,18 +253,61 @@ def _resolve_engine():
 _TERMINAL_BACKTEST_STATUSES = {
     BacktestRunStatus.COMPLETED.value,
     BacktestRunStatus.FAILED.value,
+    BacktestRunStatus.STOPPED.value,
 }
 _watcher_registry_lock = threading.Lock()
 _active_backtest_watchers: set[str] = set()
 
 
+def _status_value(status: BacktestRunStatus | str | None) -> str:
+    if isinstance(status, BacktestRunStatus):
+        return status.value
+    return str(status or "")
+
+
 def _is_terminal_status(status: BacktestRunStatus | str) -> bool:
-    value = status.value if isinstance(status, BacktestRunStatus) else str(status)
-    return value in _TERMINAL_BACKTEST_STATUSES
+    return _status_value(status) in _TERMINAL_BACKTEST_STATUSES
 
 
 def _save_run_record(run_record: BacktestRunRecord) -> None:
     persistence.save_backtest_run(run_record.run_id, run_record.model_dump(mode="json"))
+
+
+def _is_stop_requested(run_record: BacktestRunRecord | None) -> bool:
+    return bool(getattr(run_record, "stop_requested_at", None))
+
+
+def _terminal_backtest_progress(status: str) -> dict[str, Any] | None:
+    if status == BacktestRunStatus.COMPLETED.value:
+        return {"phase": "completed", "percent": 100, "label": "Completed"}
+    if status == BacktestRunStatus.FAILED.value:
+        return {"phase": "failed", "percent": 100, "label": "Failed"}
+    if status == BacktestRunStatus.STOPPED.value:
+        return {"phase": "stopped", "percent": 100, "label": "Stopped"}
+    return None
+
+
+def _derive_backtest_progress(run_record: BacktestRunRecord) -> dict[str, Any] | None:
+    status_value = _status_value(getattr(run_record, "status", None))
+    terminal = _terminal_backtest_progress(status_value)
+    if terminal is not None:
+        return terminal
+    if status_value == BacktestRunStatus.QUEUED.value:
+        return {"phase": "queued", "percent": 0, "label": "Queued"}
+
+    for line in reversed(_tail_log_lines(getattr(run_record, "artifact_path", None), max_lines=200)):
+        lowered = line.lower()
+        for marker, payload in _BACKTEST_PROGRESS_MILESTONES:
+            if marker in lowered:
+                return dict(payload)
+        if any(marker in lowered for marker in _BACKTEST_BOOTSTRAP_MARKERS):
+            return {"phase": "bootstrap", "percent": 10, "label": "Initializing"}
+
+    return {"phase": "bootstrap", "percent": 10, "label": "Initializing"}
+
+
+def _summarize_run_record(run_record: BacktestRunRecord) -> dict[str, Any]:
+    return results_svc.summarize_backtest_run(run_record, progress=_derive_backtest_progress(run_record))
 
 
 def _process_started_for_run(process, run_record: BacktestRunRecord) -> bool:
@@ -306,6 +365,61 @@ def _resolve_process_exit_code(run_record: BacktestRunRecord) -> int | None:
         return process.wait(timeout=0)
     except (psutil.TimeoutExpired, psutil.Error):
         return None
+
+
+def _terminate_process_tree(run_record: BacktestRunRecord) -> int | None:
+    pid = getattr(run_record, "pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        return _resolve_process_exit_code(run_record)
+
+    if psutil is not None:
+        try:
+            process = psutil.Process(pid)
+            if not _process_started_for_run(process, run_record):
+                return None
+        except psutil.Error:
+            return _resolve_process_exit_code(run_record)
+
+        try:
+            children = process.children(recursive=True)
+        except psutil.Error:
+            children = []
+
+        for child in children:
+            try:
+                child.terminate()
+            except psutil.Error:
+                pass
+
+        try:
+            process.terminate()
+        except psutil.Error:
+            pass
+
+        try:
+            return process.wait(timeout=5)
+        except psutil.TimeoutExpired:
+            for child in children:
+                try:
+                    child.kill()
+                except psutil.Error:
+                    pass
+            try:
+                process.kill()
+            except psutil.Error:
+                pass
+            try:
+                return process.wait(timeout=5)
+            except (psutil.TimeoutExpired, psutil.Error):
+                return None
+        except psutil.Error:
+            return None
+
+    try:
+        os.kill(pid, getattr(signal, "SIGTERM", signal.SIGINT))
+    except OSError:
+        return _resolve_process_exit_code(run_record)
+    return None
 
 
 def _tail_log_lines(log_path: str | None, *, max_lines: int = 200) -> list[str]:
@@ -371,7 +485,7 @@ def _build_process_failure_error(
 def _is_correctable_terminal_failure(run_record: BacktestRunRecord | None) -> bool:
     if run_record is None:
         return False
-    status_value = run_record.status.value if isinstance(run_record.status, BacktestRunStatus) else str(run_record.status)
+    status_value = _status_value(run_record.status)
     if status_value != BacktestRunStatus.FAILED.value:
         return False
     if run_record.exit_code is not None:
@@ -429,7 +543,7 @@ def _finalize_successful_backtest_run(run_record: BacktestRunRecord, *, exit_cod
 
 
 def _reconcile_stale_backtest_run(run_record: BacktestRunRecord) -> BacktestRunRecord:
-    status_value = run_record.status.value if isinstance(run_record.status, BacktestRunStatus) else str(run_record.status)
+    status_value = _status_value(run_record.status)
     if status_value != BacktestRunStatus.RUNNING.value:
         return run_record
     if _process_matches_run_record(run_record):
@@ -448,6 +562,13 @@ def _reconcile_stale_backtest_run(run_record: BacktestRunRecord) -> BacktestRunR
         return _finalize_successful_backtest_run(run_record, exit_code=run_record.exit_code)
 
     exit_code = _resolve_process_exit_code(run_record)
+    if _is_stop_requested(run_record):
+        return _mark_stopped_run(
+            run_record,
+            exit_code=exit_code,
+            reason=str(run_record.error or "stopped_by_user: stop requested from UI"),
+        )
+
     _mark_failed_run(
         run_record,
         _build_process_failure_error(
@@ -492,6 +613,24 @@ def _mark_failed_run(run_record: BacktestRunRecord, error: str, exit_code: int |
     _save_run_record(run_record)
 
 
+def _mark_stopped_run(
+    run_record: BacktestRunRecord,
+    *,
+    exit_code: int | None = None,
+    reason: str = "stopped_by_user: stop requested from UI",
+) -> BacktestRunRecord:
+    stopped_at = now_iso()
+    run_record.status = BacktestRunStatus.STOPPED
+    run_record.updated_at = stopped_at
+    run_record.completed_at = stopped_at
+    if run_record.stop_requested_at is None:
+        run_record.stop_requested_at = stopped_at
+    run_record.exit_code = exit_code
+    run_record.error = reason
+    _save_run_record(run_record)
+    return run_record
+
+
 def _watch_backtest_process(run_id: str, process) -> None:
     try:
         current = _load_run_record(run_id)
@@ -504,16 +643,23 @@ def _watch_backtest_process(run_id: str, process) -> None:
             exit_code = process.wait()
         except Exception as exc:
             current = _load_run_record(run_id)
-            if current is not None and (
-                not _is_terminal_status(current.status) or _is_correctable_terminal_failure(current)
-            ):
-                _mark_failed_run(
+            if current is None:
+                return
+            if _is_terminal_status(current.status) and not _is_correctable_terminal_failure(current):
+                return
+            if _is_stop_requested(current):
+                _mark_stopped_run(
                     current,
-                    _build_process_failure_error(
-                        current,
-                        fallback=str(exc),
-                    ),
+                    reason=str(current.error or "stopped_by_user: stop requested from UI"),
                 )
+                return
+            _mark_failed_run(
+                current,
+                _build_process_failure_error(
+                    current,
+                    fallback=str(exc),
+                ),
+            )
             return
 
         current = _load_run_record(run_id)
@@ -522,15 +668,23 @@ def _watch_backtest_process(run_id: str, process) -> None:
         if _is_terminal_status(current.status) and not _is_correctable_terminal_failure(current):
             return
 
-        if exit_code != 0:
-            _mark_failed_run(
+        if exit_code == 0:
+            _finalize_successful_backtest_run(current, exit_code=exit_code)
+            return
+
+        if _is_stop_requested(current):
+            _mark_stopped_run(
                 current,
-                _build_process_failure_error(current, exit_code=exit_code),
                 exit_code=exit_code,
+                reason=str(current.error or "stopped_by_user: stop requested from UI"),
             )
             return
 
-        _finalize_successful_backtest_run(current, exit_code=exit_code)
+        _mark_failed_run(
+            current,
+            _build_process_failure_error(current, exit_code=exit_code),
+            exit_code=exit_code,
+        )
     finally:
         with _watcher_registry_lock:
             _active_backtest_watchers.discard(run_id)
@@ -643,6 +797,12 @@ def _assert_within_base(path: str, base: str) -> str:
 
 
 def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[str]):
+    def _with_progress(meta: dict, payload: dict) -> dict:
+        progress = meta.get("progress") if isinstance(meta, dict) else None
+        if progress is not None:
+            payload["progress"] = progress
+        return payload
+
     def _terminal_payload(meta: dict) -> dict:
         status = meta.get("status")
         exit_code = meta.get("exit_code")
@@ -650,15 +810,16 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
         line = f"[done] status={status} exit_code={exit_code}"
         if error:
             line = f"{line} error={error}"
-        return {
+        return _with_progress(meta, {
             "line": line,
             "status": status,
             "exit_code": exit_code,
             "error": error,
-        }
+        })
 
     async def log_generator():
-        yield _sse({"line": "[stream] streaming started"})
+        initial_meta = meta_loader() or {}
+        yield _sse(_with_progress(initial_meta, {"line": "[stream] streaming started"}))
 
         log_path = None
 
@@ -685,7 +846,7 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
                 if str(status) in terminal_statuses:
                     yield _sse(_terminal_payload(meta))
                     return
-                yield _sse({"line": "[stream] waiting for log file..."})
+                yield _sse(_with_progress(meta, {"line": "[stream] waiting for log file..."}))
                 await asyncio.sleep(0.25)
 
             last_pos = 0
@@ -698,8 +859,9 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
                         handle.seek(last_pos)
                         new_lines = handle.readlines()
                         if new_lines:
+                            meta = meta_loader() or {}
                             for line in new_lines:
-                                yield _sse({"line": line.rstrip("\n")})
+                                yield _sse(_with_progress(meta, {"line": line.rstrip("\n")}))
                             last_pos = handle.tell()
                 except IOError:
                     pass
@@ -712,7 +874,7 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
                         remaining = handle.read()
                         if remaining:
                             for line in remaining.splitlines():
-                                yield _sse({"line": line})
+                                yield _sse(_with_progress(meta, {"line": line}))
                     yield _sse(_terminal_payload(meta))
                     return
 
@@ -777,6 +939,7 @@ async def run_backtest(payload: BacktestRunRequest):
         created_at=created_at,
         updated_at=created_at,
         completed_at=None,
+        stop_requested_at=None,
         status=BacktestRunStatus.QUEUED,
         command=prepared["command"],
         artifact_path=None,
@@ -808,6 +971,7 @@ async def run_backtest(payload: BacktestRunRequest):
             "trigger_source": run_record.trigger_source.value,
             "artifact_path": run_record.artifact_path,
             "error": run_record.error,
+            "progress": _derive_backtest_progress(run_record),
         }
 
     run_record.status = BacktestRunStatus.RUNNING
@@ -830,7 +994,34 @@ async def run_backtest(payload: BacktestRunRequest):
         "version_id": run_record.version_id,
         "trigger_source": run_record.trigger_source.value,
         "artifact_path": run_record.artifact_path,
+        "progress": _derive_backtest_progress(run_record),
     }
+
+
+async def stop_backtest_run(run_id: str):
+    run = _load_run_record(run_id)
+    if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    if _is_terminal_status(run.status):
+        return {"status": "already_terminal", "run": _summarize_run_record(run)}
+
+    requested_at = now_iso()
+    run.stop_requested_at = requested_at
+    run.updated_at = requested_at
+    run.error = run.error or "stopped_by_user: stop requested from UI"
+    _save_run_record(run)
+
+    exit_code = _terminate_process_tree(run)
+    current = _load_run_record(run_id) or run
+    if not _is_terminal_status(current.status):
+        current = _mark_stopped_run(
+            current,
+            exit_code=exit_code,
+            reason=str(current.error or "stopped_by_user: stop requested from UI"),
+        )
+
+    return {"status": _status_value(current.status) or "stopped", "run": _summarize_run_record(current)}
 
 
 async def download_data(payload: dict):
@@ -907,7 +1098,7 @@ async def stream_backtest_logs(run_id: str):
 
     def _meta_loader() -> dict:
         current = _load_run_record(run_id)
-        return current.model_dump(mode="json") if current is not None else {}
+        return _summarize_run_record(current) if current is not None else {}
 
     return stream_log_response(
         _meta_loader,
@@ -928,7 +1119,7 @@ async def stream_download_logs(download_id: str):
 
 
 async def list_backtest_runs(strategy: str | None = None):
-    runs = [results_svc.summarize_backtest_run(run) for run in _list_freqtrade_runs(strategy=strategy)]
+    runs = [_summarize_run_record(run) for run in _list_freqtrade_runs(strategy=strategy)]
     return {"runs": runs}
 
 
@@ -936,7 +1127,7 @@ async def get_backtest_run(run_id: str):
     run = _load_run_record(run_id)
     if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    return {"run": results_svc.summarize_backtest_run(run)}
+    return {"run": _summarize_run_record(run)}
 
 
 async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):

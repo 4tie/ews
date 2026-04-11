@@ -1,4 +1,4 @@
-/**
+﻿/**
  * persistence.js — Local browser state persistence via localStorage.
  *
  * API:
@@ -10,10 +10,13 @@
 const PREFIX = "4tie::";
 
 export const KEYS = {
-  BACKTEST_CONFIG:   "backtest-config",
-  OPTIMIZER_CONFIG:  "optimizer_config_v1",
+  BACKTEST_CONFIG: "backtest-config",
+  OPTIMIZER_CONFIG: "optimizer_config_v1",
   SETTINGS_UI_STATE: "settings-ui-state",
-  THEME:             "theme",
+  THEME: "theme",
+  AI_CHAT_UI_STATE: "ai-chat-ui-state",
+  AI_CHAT_CONTEXT: "ai-chat-context",
+  AI_CHAT_MESSAGE_OVERLAYS: "ai-chat-message-overlays",
 };
 
 function prefixed(key) { return PREFIX + key; }

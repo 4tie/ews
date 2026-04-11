@@ -1,4 +1,4 @@
-"""Filesystem path helpers for the Optimizer app.
+﻿"""Filesystem path helpers for the Optimizer app.
 
 Canonical layout:
 - App-owned state (settings, saved configs, run metadata, versions, cache): `./data/`
@@ -24,6 +24,8 @@ SETTINGS_DIR = os.path.join(STORAGE_DIR, "settings")
 OPTIMIZER_RUNS_DIR = os.path.join(STORAGE_DIR, "optimizer_runs")
 BACKTEST_RUNS_DIR = os.path.join(STORAGE_DIR, "backtest_runs")
 DOWNLOAD_RUNS_DIR = os.path.join(STORAGE_DIR, "download_runs")
+AI_CHAT_THREADS_DIR = os.path.join(STORAGE_DIR, "ai_chat_threads")
+AI_CHAT_JOBS_DIR = os.path.join(STORAGE_DIR, "ai_chat_jobs")
 STRATEGY_VERSIONS_ROOT_DIR = os.path.join(STORAGE_DIR, "versions")
 CACHE_DIR = os.path.join(STORAGE_DIR, "cache")
 
@@ -90,6 +92,26 @@ def backtest_runs_dir() -> str:
 
 def download_runs_dir() -> str:
     return DOWNLOAD_RUNS_DIR
+
+
+def ai_chat_threads_dir() -> str:
+    return AI_CHAT_THREADS_DIR
+
+
+def ai_chat_thread_dir(strategy_name: str) -> str:
+    return resolve_safe(AI_CHAT_THREADS_DIR, strategy_name)
+
+
+def ai_chat_thread_file(strategy_name: str) -> str:
+    return resolve_safe(ai_chat_thread_dir(strategy_name), "thread.json")
+
+
+def ai_chat_jobs_dir() -> str:
+    return AI_CHAT_JOBS_DIR
+
+
+def ai_chat_job_file(job_id: str) -> str:
+    return resolve_safe(AI_CHAT_JOBS_DIR, f"{job_id}.json")
 
 
 def strategy_versions_dir(strategy_name: str) -> str:

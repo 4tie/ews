@@ -24,6 +24,7 @@ export function initPersistedRunsStore() {
   onState("backtest.strategy", refreshPersistedRuns);
   onEvent(EVENTS.BACKTEST_COMPLETE, refreshPersistedRuns);
   onEvent(EVENTS.BACKTEST_FAILED, refreshPersistedRuns);
+  onEvent(EVENTS.BACKTEST_STOPPED, refreshPersistedRuns);
 
   refreshPersistedRuns();
 }

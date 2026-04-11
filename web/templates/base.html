@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
   <script>
@@ -34,6 +34,7 @@
   <link rel="stylesheet" href="/static/css/components/panels.css" />
   <link rel="stylesheet" href="/static/css/components/modals.css" />
   <link rel="stylesheet" href="/static/css/components/toasts.css" />
+  <link rel="stylesheet" href="/static/css/components/ai-chat-panel.css" />
 
   <!-- Page styles -->
   {% block page_css %}{% endblock %}
@@ -53,6 +54,7 @@
 
   {% include "partials/toast_container.html" %}
   {% include "partials/modal_container.html" %}
+  {% include "partials/ai_chat_panel.html" %}
 
   <!-- Core JS -->
   <script type="module" src="/static/js/core/navigation.js"></script>
@@ -66,6 +68,7 @@
   <script type="module" src="/static/js/components/toast.js"></script>
   <script type="module" src="/static/js/components/modal.js"></script>
   <script type="module" src="/static/js/components/loading-state.js"></script>
+  <script type="module" src="/static/js/components/ai-chat-panel.js"></script>
 
   {% block page_js %}{% endblock %}
 </body>

@@ -248,7 +248,7 @@ class ResultsService:
             "trade_end": trade_end,
         }
 
-    def summarize_backtest_run(self, run_record: BacktestRunRecord) -> dict:
+    def summarize_backtest_run(self, run_record: BacktestRunRecord, progress: dict[str, Any] | None = None) -> dict:
         payload = run_record.model_dump(mode="json")
         summary_metrics = None
         summary_state = {"state": "missing", "summary": None, "error": None}
@@ -258,6 +258,7 @@ class ResultsService:
                 summary_metrics = self._normalize_summary_metrics(summary_state.get("summary"), run_record.strategy)
         payload["summary_available"] = summary_state.get("state") == "ready"
         payload["summary_metrics"] = summary_metrics
+        payload["progress"] = progress
         return payload
 
     def compare_backtest_runs(self, left_run: BacktestRunRecord, right_run: BacktestRunRecord) -> dict:
