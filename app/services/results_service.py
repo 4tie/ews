@@ -5,8 +5,8 @@ from typing import Any, Optional
 
 from app.engines.resolver import result_parser_from_id
 from app.models.backtest_models import BacktestRunRecord
+from app.freqtrade.paths import strategy_results_dir, user_data_results_dir
 from app.utils.json_io import read_json, write_json
-from app.utils.paths import strategy_results_dir, user_data_results_dir
 
 
 class ResultsService:
@@ -398,4 +398,5 @@ class ResultsService:
         if not os.path.isdir(base):
             return []
         return [d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))]
+
 

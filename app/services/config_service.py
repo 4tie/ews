@@ -1,30 +1,15 @@
 import os
 
+from app.freqtrade.settings import get_freqtrade_runtime_settings
 from app.utils.json_io import list_json_files, read_json, write_json
 from app.utils.paths import (
     legacy_storage_dirs,
     resolve_safe,
     saved_configs_dir,
     settings_dir,
-    user_data_dir,
-    user_data_results_dir,
 )
 
 SETTINGS_FILE = "app_settings.json"
-
-_DEFAULT_SETTINGS: dict = {
-    "engine": "freqtrade",
-    "freqtrade_path": "",
-    "user_data_path": user_data_dir(),
-    "default_exchange": "binance",
-    "default_timeframe": "5m",
-    "default_max_open_trades": 3,
-    "default_timerange": "",
-    "default_dry_run_wallet": 1000.0,
-    "theme": "dark",
-    "results_base_path": user_data_results_dir(),
-    "config_path": os.path.join(user_data_dir(), "config.json"),
-}
 
 
 class ConfigService:
@@ -40,7 +25,6 @@ class ConfigService:
     def get_settings(self) -> dict:
         loaded = read_json(self._settings_path(), fallback=None)
 
-        # Soft migration: if the new path is empty, try legacy locations.
         if not isinstance(loaded, dict):
             candidates = [p for p in self._legacy_settings_candidates() if os.path.isfile(p)]
             if candidates:
@@ -51,9 +35,8 @@ class ConfigService:
                     write_json(self._settings_path(), legacy)
 
         if isinstance(loaded, dict):
-            # Merge defaults with persisted values to keep old settings files working.
-            return {**_DEFAULT_SETTINGS, **loaded}
-        return dict(_DEFAULT_SETTINGS)
+            return get_freqtrade_runtime_settings(loaded)
+        return get_freqtrade_runtime_settings()
 
     def save_settings(self, data: dict) -> None:
         write_json(self._settings_path(), data)

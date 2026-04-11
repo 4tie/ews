@@ -1,8 +1,8 @@
-﻿import os
+import os
 import re
 from datetime import datetime
 
-from app.utils.freqtrade_resolver import resolve_freqtrade_executable
+from app.freqtrade.executable import resolve_freqtrade_executable
 
 
 PAIR_PATTERN = re.compile(r"^[A-Z0-9]+/[A-Z0-9]+$")
@@ -58,3 +58,4 @@ class ValidationService:
             "start": parts[0] or None,
             "end": parts[1] or None,
         }
+

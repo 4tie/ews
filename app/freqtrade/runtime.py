@@ -1,0 +1,1199 @@
+import os
+import threading
+import uuid
+import asyncio
+import json
+from datetime import datetime
+from typing import Any
+
+try:
+    import psutil
+except ImportError:  # pragma: no cover - optional runtime dependency
+    psutil = None
+
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from app.engines.base import EngineFeatureNotSupported
+from app.engines.resolver import engine_from_id, resolve_engine
+from app.freqtrade.paths import live_strategy_file, strategy_config_file, user_data_results_dir
+from app.freqtrade.settings import SUPPORTED_EXCHANGES, SUPPORTED_TIMEFRAMES
+from app.models.backtest_models import (
+    BacktestRunRecord,
+    BacktestRunRequest,
+    BacktestRunStatus,
+    ConfigSaveRequest,
+    ProposalCandidateRequest,
+)
+from app.models.optimizer_models import ChangeType, MutationRequest
+from app.services.config_service import ConfigService
+from app.services.mutation_service import mutation_service
+from app.services.persistence_service import PersistenceService
+from app.services.results.diagnosis_service import diagnosis_service
+from app.services.results.strategy_intelligence_service import analyze_run_diagnosis_overlay
+from app.services.results_service import ResultsService
+from app.services.validation_service import ValidationService
+from app.utils.datetime_utils import now_iso
+from app.utils.paths import download_runs_dir
+
+results_svc = ResultsService()
+config_svc = ConfigService()
+persistence = PersistenceService()
+validation_svc = ValidationService()
+create_proposal_candidate_from_diagnosis = None
+_KNOWN_FAILURE_PREFIXES = (
+    "launch_failed:",
+    "process_failed:",
+    "artifact_resolution_failed:",
+    "ingestion_failed:",
+    "summary_load_failed:",
+)
+
+
+def _load_json_object(path: str, label: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"{label} could not be loaded: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail=f"{label} must be a JSON object: {path}")
+    return payload
+
+
+def _bootstrap_initial_version(strategy_name: str):
+    settings = config_svc.get_settings()
+    user_data_path = settings.get("user_data_path")
+
+    try:
+        strategy_path = live_strategy_file(strategy_name, user_data_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
+
+    if not os.path.isfile(strategy_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Initial bootstrap failed: live strategy file not found for {strategy_name}",
+        )
+
+    try:
+        with open(strategy_path, "r", encoding="utf-8") as handle:
+            code_snapshot = handle.read()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
+
+    parameters_snapshot = None
+    try:
+        config_path = strategy_config_file(strategy_name, user_data_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
+
+    if os.path.isfile(config_path):
+        parameters_snapshot = _load_json_object(config_path, f"Strategy config snapshot for {strategy_name}")
+
+    mutation_result = mutation_service.create_mutation(
+        MutationRequest(
+            strategy_name=strategy_name,
+            change_type=ChangeType.INITIAL,
+            summary="Initial live strategy bootstrap",
+            created_by="system",
+            code=code_snapshot,
+            parameters=parameters_snapshot,
+            source_ref=strategy_path,
+        )
+    )
+    accept_result = mutation_service.accept_version(
+        mutation_result.version_id,
+        notes="Accepted initial live strategy bootstrap",
+    )
+    if accept_result.status == "error":
+        raise HTTPException(status_code=500, detail=accept_result.message)
+
+    version = mutation_service.get_version_by_id(mutation_result.version_id)
+    if version is None:
+        raise HTTPException(status_code=500, detail="Initial bootstrap version could not be loaded after creation")
+    return version
+
+
+def _resolve_version_for_launch(payload: BacktestRunRequest):
+    if payload.version_id:
+        version = mutation_service.get_version_by_id(payload.version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail=f"Version {payload.version_id} not found")
+        if version.strategy_name != payload.strategy:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Version {payload.version_id} belongs to {version.strategy_name}, not {payload.strategy}",
+            )
+        return version
+
+    active_version = mutation_service.get_active_version(payload.strategy)
+    if active_version is not None:
+        return active_version
+
+    return _bootstrap_initial_version(payload.strategy)
+
+
+def _build_request_snapshot(launch_payload: dict, engine_id: str) -> dict:
+    return {
+        "strategy": launch_payload.get("strategy"),
+        "timeframe": launch_payload.get("timeframe"),
+        "timerange": launch_payload.get("timerange"),
+        "pairs": list(launch_payload.get("pairs") or []),
+        "exchange": launch_payload.get("exchange"),
+        "max_open_trades": launch_payload.get("max_open_trades"),
+        "dry_run_wallet": launch_payload.get("dry_run_wallet"),
+        "extra_flags": list(launch_payload.get("extra_flags") or []),
+        "trigger_source": launch_payload.get("trigger_source"),
+        "config_path": launch_payload.get("config_path"),
+        "engine": engine_id,
+    }
+
+
+def _derive_diagnosis_status(run_record: BacktestRunRecord, summary_state: dict) -> str:
+    if summary_state.get("state") == "ready":
+        return "ready"
+
+    error = str(run_record.error or "")
+    if summary_state.get("state") == "load_failed":
+        return "ingestion_failed"
+    if error:
+        return "ingestion_failed"
+    if run_record.status == BacktestRunStatus.FAILED:
+        return "ingestion_failed"
+    if run_record.completed_at and not run_record.summary_path:
+        return "ingestion_failed"
+    if run_record.completed_at and not run_record.raw_result_path:
+        return "ingestion_failed"
+    if any(error.startswith(prefix) for prefix in _KNOWN_FAILURE_PREFIXES):
+        return "ingestion_failed"
+    return "pending_summary"
+
+
+def _default_ai_payload(status: str) -> dict:
+    return {
+        "summary": None,
+        "priorities": [],
+        "rationale": [],
+        "parameter_suggestions": [],
+        "ai_status": status,
+    }
+
+
+def _resolve_linked_version_for_run(run_record: BacktestRunRecord):
+    if run_record.version_id:
+        linked_version = mutation_service.get_version_by_id(run_record.version_id)
+        if linked_version is not None:
+            return linked_version, "run"
+
+    active_version = mutation_service.get_active_version(run_record.strategy)
+    if active_version is not None:
+        return active_version, "active_fallback"
+
+    return None, "unavailable"
+
+
+def _resolve_engine():
+    settings = config_svc.get_settings()
+    try:
+        return resolve_engine(settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+_TERMINAL_BACKTEST_STATUSES = {
+    BacktestRunStatus.COMPLETED.value,
+    BacktestRunStatus.FAILED.value,
+}
+_watcher_registry_lock = threading.Lock()
+_active_backtest_watchers: set[str] = set()
+
+
+def _is_terminal_status(status: BacktestRunStatus | str) -> bool:
+    value = status.value if isinstance(status, BacktestRunStatus) else str(status)
+    return value in _TERMINAL_BACKTEST_STATUSES
+
+
+def _save_run_record(run_record: BacktestRunRecord) -> None:
+    persistence.save_backtest_run(run_record.run_id, run_record.model_dump(mode="json"))
+
+
+def _process_started_for_run(process, run_record: BacktestRunRecord) -> bool:
+    created_at = getattr(run_record, "created_at", None)
+    if not created_at:
+        return True
+
+    try:
+        run_started_ts = datetime.fromisoformat(str(created_at)).timestamp()
+    except ValueError:
+        return True
+
+    process_started_ts = process.create_time()
+    if process_started_ts + 30 < run_started_ts:
+        return False
+    if process_started_ts - run_started_ts > 300:
+        return False
+    return True
+
+
+def _process_matches_run_record(run_record: BacktestRunRecord) -> bool:
+    if psutil is None:
+        return False
+
+    pid = getattr(run_record, "pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    try:
+        process = psutil.Process(pid)
+        if not process.is_running():
+            return False
+        if process.status() == getattr(psutil, "STATUS_ZOMBIE", "zombie"):
+            return False
+
+        return _process_started_for_run(process, run_record)
+    except psutil.Error:
+        return False
+
+
+def _resolve_process_exit_code(run_record: BacktestRunRecord) -> int | None:
+    if run_record.exit_code is not None:
+        return run_record.exit_code
+    if psutil is None:
+        return None
+
+    pid = getattr(run_record, "pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+
+    try:
+        process = psutil.Process(pid)
+        if not _process_started_for_run(process, run_record):
+            return None
+        return process.wait(timeout=0)
+    except (psutil.TimeoutExpired, psutil.Error):
+        return None
+
+
+def _tail_log_lines(log_path: str | None, *, max_lines: int = 200) -> list[str]:
+    if not log_path or not os.path.isfile(log_path):
+        return []
+
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+            return [line.rstrip("\r\n") for line in handle.readlines()[-max_lines:]]
+    except OSError:
+        return []
+
+
+def _extract_level_message(line: str, level: str) -> str | None:
+    marker = f" - {level} - "
+    if marker not in line:
+        return None
+    message = line.split(marker, 1)[1].strip()
+    return message or None
+
+
+def _extract_process_failure_detail(run_record: BacktestRunRecord) -> str | None:
+    last_error = None
+    last_warning = None
+
+    for line in reversed(_tail_log_lines(run_record.artifact_path)):
+        if last_error is None:
+            last_error = _extract_level_message(line, "ERROR")
+
+        if last_warning is None:
+            warning = _extract_level_message(line, "WARNING")
+            if warning and ("download-data" in warning.lower() or "no history" in warning.lower()):
+                last_warning = warning
+
+        if last_error and last_warning:
+            break
+
+    if last_error and last_warning and last_error.lower().startswith("no data found"):
+        return f"{last_error} {last_warning}"
+    return last_error or last_warning
+
+
+def _build_process_failure_error(
+    run_record: BacktestRunRecord,
+    *,
+    exit_code: int | None = None,
+    fallback: str | None = None,
+) -> str:
+    detail = _extract_process_failure_detail(run_record)
+    if detail and exit_code is not None:
+        return f"process_failed: exit_code={exit_code} | {detail}"
+    if detail:
+        return f"process_failed: {detail}"
+    if exit_code is not None and fallback:
+        return f"process_failed: exit_code={exit_code} | {fallback}"
+    if exit_code is not None:
+        return f"process_failed: exit_code={exit_code}"
+    if fallback:
+        return f"process_failed: {fallback}"
+    return "process_failed"
+
+
+def _is_correctable_terminal_failure(run_record: BacktestRunRecord | None) -> bool:
+    if run_record is None:
+        return False
+    status_value = run_record.status.value if isinstance(run_record.status, BacktestRunStatus) else str(run_record.status)
+    if status_value != BacktestRunStatus.FAILED.value:
+        return False
+    if run_record.exit_code is not None:
+        return False
+    return str(run_record.error or "").startswith("process_failed: process exited before run finalization")
+
+
+def _finalize_successful_backtest_run(run_record: BacktestRunRecord, *, exit_code: int | None) -> BacktestRunRecord:
+    completed_at = now_iso()
+    run_record.updated_at = completed_at
+    run_record.completed_at = completed_at
+    if exit_code is not None:
+        run_record.exit_code = exit_code
+    elif run_record.exit_code is None:
+        run_record.exit_code = 0
+
+    try:
+        if not run_record.raw_result_path:
+            run_record.raw_result_path = engine_from_id(run_record.engine).resolve_backtest_raw_result_path(run_record)
+    except Exception as exc:
+        run_record.status = BacktestRunStatus.FAILED
+        run_record.error = f"artifact_resolution_failed: {exc}"
+        _save_run_record(run_record)
+        return run_record
+
+    if not run_record.raw_result_path:
+        run_record.status = BacktestRunStatus.FAILED
+        run_record.error = "artifact_resolution_failed: raw result artifact not found"
+        _save_run_record(run_record)
+        return run_record
+
+    try:
+        ingest_result = results_svc.ingest_backtest_run(run_record)
+    except Exception as exc:
+        run_record.status = BacktestRunStatus.FAILED
+        run_record.error = f"ingestion_failed: {exc}"
+        _save_run_record(run_record)
+        return run_record
+
+    run_record.status = BacktestRunStatus.COMPLETED
+    run_record.exit_code = 0 if run_record.exit_code is None else run_record.exit_code
+    run_record.raw_result_path = ingest_result.get("raw_result_path", run_record.raw_result_path)
+    run_record.result_path = ingest_result.get("result_path")
+    run_record.summary_path = ingest_result.get("summary_path")
+    run_record.error = None
+    _save_run_record(run_record)
+
+    if run_record.version_id:
+        mutation_service.link_backtest(
+            run_record.version_id,
+            run_record.run_id,
+            ingest_result.get("profit_pct"),
+        )
+    return run_record
+
+
+def _reconcile_stale_backtest_run(run_record: BacktestRunRecord) -> BacktestRunRecord:
+    status_value = run_record.status.value if isinstance(run_record.status, BacktestRunStatus) else str(run_record.status)
+    if status_value != BacktestRunStatus.RUNNING.value:
+        return run_record
+    if _process_matches_run_record(run_record):
+        return run_record
+
+    if run_record.raw_result_path:
+        return _finalize_successful_backtest_run(run_record, exit_code=run_record.exit_code)
+
+    try:
+        resolved_raw_result = engine_from_id(run_record.engine).resolve_backtest_raw_result_path(run_record)
+    except Exception:
+        resolved_raw_result = None
+
+    if resolved_raw_result:
+        run_record.raw_result_path = resolved_raw_result
+        return _finalize_successful_backtest_run(run_record, exit_code=run_record.exit_code)
+
+    exit_code = _resolve_process_exit_code(run_record)
+    _mark_failed_run(
+        run_record,
+        _build_process_failure_error(
+            run_record,
+            exit_code=exit_code,
+            fallback="process exited before run finalization",
+        ),
+        exit_code=exit_code,
+    )
+    return run_record
+
+
+def _load_run_record(run_id: str) -> BacktestRunRecord | None:
+    data = persistence.load_backtest_run(run_id)
+    if not data:
+        return None
+    return _reconcile_stale_backtest_run(BacktestRunRecord(**data))
+
+
+def _list_freqtrade_runs(strategy: str | None = None) -> list[BacktestRunRecord]:
+    runs = []
+    for data in persistence.list_backtest_runs():
+        if not isinstance(data, dict):
+            continue
+        if str(data.get("engine") or "freqtrade") != "freqtrade":
+            continue
+        if strategy and data.get("strategy") != strategy:
+            continue
+        try:
+            runs.append(_reconcile_stale_backtest_run(BacktestRunRecord(**data)))
+        except Exception:
+            continue
+    return runs
+
+def _mark_failed_run(run_record: BacktestRunRecord, error: str, exit_code: int | None = None) -> None:
+    failed_at = now_iso()
+    run_record.status = BacktestRunStatus.FAILED
+    run_record.updated_at = failed_at
+    run_record.completed_at = failed_at
+    run_record.exit_code = exit_code
+    run_record.error = error
+    _save_run_record(run_record)
+
+
+def _watch_backtest_process(run_id: str, process) -> None:
+    try:
+        current = _load_run_record(run_id)
+        if current is None:
+            return
+        if _is_terminal_status(current.status) and not _is_correctable_terminal_failure(current):
+            return
+
+        try:
+            exit_code = process.wait()
+        except Exception as exc:
+            current = _load_run_record(run_id)
+            if current is not None and (
+                not _is_terminal_status(current.status) or _is_correctable_terminal_failure(current)
+            ):
+                _mark_failed_run(
+                    current,
+                    _build_process_failure_error(
+                        current,
+                        fallback=str(exc),
+                    ),
+                )
+            return
+
+        current = _load_run_record(run_id)
+        if current is None:
+            return
+        if _is_terminal_status(current.status) and not _is_correctable_terminal_failure(current):
+            return
+
+        if exit_code != 0:
+            _mark_failed_run(
+                current,
+                _build_process_failure_error(current, exit_code=exit_code),
+                exit_code=exit_code,
+            )
+            return
+
+        _finalize_successful_backtest_run(current, exit_code=exit_code)
+    finally:
+        with _watcher_registry_lock:
+            _active_backtest_watchers.discard(run_id)
+
+
+def _start_backtest_watcher(run_id: str, process) -> None:
+    with _watcher_registry_lock:
+        if run_id in _active_backtest_watchers:
+            return
+        _active_backtest_watchers.add(run_id)
+
+    watcher = threading.Thread(
+        target=_watch_backtest_process,
+        args=(run_id, process),
+        daemon=True,
+        name=f"backtest-watcher-{run_id}",
+    )
+    watcher.start()
+
+_TERMINAL_DOWNLOAD_STATUSES = {
+    "completed",
+    "failed",
+}
+_download_watcher_lock = threading.Lock()
+_active_download_watchers: set[str] = set()
+
+
+def _is_terminal_download_status(status: str | None) -> bool:
+    return str(status) in _TERMINAL_DOWNLOAD_STATUSES
+
+
+def _load_download_record(download_id: str) -> dict:
+    return persistence.load_download_run(download_id)
+
+
+def _save_download_record(download_id: str, data: dict) -> None:
+    persistence.save_download_run(download_id, data)
+
+
+def _watch_download_process(download_id: str, process) -> None:
+    try:
+        current = _load_download_record(download_id)
+        if not current or _is_terminal_download_status(current.get("status")):
+            return
+
+        try:
+            exit_code = process.wait()
+        except Exception as exc:
+            current = _load_download_record(download_id)
+            if current and not _is_terminal_download_status(current.get("status")):
+                failed_at = now_iso()
+                current["status"] = "failed"
+                current["updated_at"] = failed_at
+                current["completed_at"] = failed_at
+                current["exit_code"] = None
+                current["error"] = f"process_failed: {exc}"
+                _save_download_record(download_id, current)
+            return
+
+        current = _load_download_record(download_id)
+        if not current or _is_terminal_download_status(current.get("status")):
+            return
+
+        completed_at = now_iso()
+        current["updated_at"] = completed_at
+        current["completed_at"] = completed_at
+        current["exit_code"] = exit_code
+
+        if exit_code != 0:
+            current["status"] = "failed"
+            current["error"] = f"process_failed: exit_code={exit_code}"
+        else:
+            current["status"] = "completed"
+            current["error"] = None
+
+        _save_download_record(download_id, current)
+    finally:
+        with _download_watcher_lock:
+            _active_download_watchers.discard(download_id)
+
+
+def _start_download_watcher(download_id: str, process) -> None:
+    with _download_watcher_lock:
+        if download_id in _active_download_watchers:
+            return
+        _active_download_watchers.add(download_id)
+
+    watcher = threading.Thread(
+        target=_watch_download_process,
+        args=(download_id, process),
+        daemon=True,
+        name=f"download-watcher-{download_id}",
+    )
+    watcher.start()
+
+
+def _sse(data: dict) -> str:
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"data: {payload}\n\n"
+
+
+def _assert_within_base(path: str, base: str) -> str:
+    real_path = os.path.normcase(os.path.realpath(path))
+    real_base = os.path.normcase(os.path.realpath(base))
+    if real_path == real_base:
+        return real_path
+    if not real_path.startswith(real_base + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid log path")
+    return real_path
+
+
+def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[str]):
+    def _terminal_payload(meta: dict) -> dict:
+        status = meta.get("status")
+        exit_code = meta.get("exit_code")
+        error = meta.get("error")
+        line = f"[done] status={status} exit_code={exit_code}"
+        if error:
+            line = f"{line} error={error}"
+        return {
+            "line": line,
+            "status": status,
+            "exit_code": exit_code,
+            "error": error,
+        }
+
+    async def log_generator():
+        yield _sse({"line": "[stream] streaming started"})
+
+        log_path = None
+
+        while True:
+            meta = meta_loader() or {}
+            log_path = meta.get("artifact_path")
+            status = meta.get("status")
+
+            if log_path:
+                break
+
+            if str(status) in terminal_statuses:
+                yield _sse(_terminal_payload(meta))
+                return
+            await asyncio.sleep(0.25)
+
+        try:
+            log_path = _assert_within_base(log_path, allowed_base)
+
+            while not os.path.isfile(log_path):
+                meta = meta_loader() or {}
+                status = meta.get("status")
+
+                if str(status) in terminal_statuses:
+                    yield _sse(_terminal_payload(meta))
+                    return
+                yield _sse({"line": "[stream] waiting for log file..."})
+                await asyncio.sleep(0.25)
+
+            last_pos = 0
+            while True:
+                if not os.path.isfile(log_path):
+                    break
+
+                try:
+                    with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                        handle.seek(last_pos)
+                        new_lines = handle.readlines()
+                        if new_lines:
+                            for line in new_lines:
+                                yield _sse({"line": line.rstrip("\n")})
+                            last_pos = handle.tell()
+                except IOError:
+                    pass
+
+                meta = meta_loader() or {}
+                status = meta.get("status")
+
+                if str(status) in terminal_statuses:
+                    with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                        remaining = handle.read()
+                        if remaining:
+                            for line in remaining.splitlines():
+                                yield _sse({"line": line})
+                    yield _sse(_terminal_payload(meta))
+                    return
+
+                await asyncio.sleep(0.5)
+
+        except asyncio.CancelledError:
+            yield _sse({"line": "[stream] cancelled"})
+        except Exception as exc:
+            yield _sse({"line": f"[stream] error: {exc}"})
+
+    return StreamingResponse(
+        log_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def get_options():
+    """Return available strategies, timeframes, and exchanges."""
+    engine = _resolve_engine()
+    try:
+        strategies = engine.list_strategies()
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    return {
+        "strategies": strategies,
+        "timeframes": SUPPORTED_TIMEFRAMES,
+        "exchanges": SUPPORTED_EXCHANGES,
+    }
+
+
+async def run_backtest(payload: BacktestRunRequest):
+    """Trigger a backtest subprocess using the selected engine."""
+    version = _resolve_version_for_launch(payload)
+    engine = _resolve_engine()
+
+    run_id = f"bt-{uuid.uuid4().hex[:8]}"
+    payload_data = payload.model_dump(mode="json")
+    payload_data["version_id"] = version.version_id
+    launch_payload = {**payload_data, "run_id": run_id}
+
+    try:
+        prepared = engine.prepare_backtest_run(launch_payload)
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    launch_payload["config_path"] = prepared.get("request_config_path") or prepared.get("config_path") or launch_payload.get("config_path")
+    request_snapshot = _build_request_snapshot(launch_payload, engine.engine_id)
+
+    created_at = now_iso()
+    run_record = BacktestRunRecord(
+        run_id=run_id,
+        engine=engine.engine_id,
+        strategy=payload.strategy,
+        version_id=version.version_id,
+        request_snapshot=request_snapshot,
+        request_snapshot_schema_version=1,
+        trigger_source=payload.trigger_source,
+        created_at=created_at,
+        updated_at=created_at,
+        completed_at=None,
+        status=BacktestRunStatus.QUEUED,
+        command=prepared["command"],
+        artifact_path=None,
+        raw_result_path=prepared["raw_result_path"],
+        result_path=None,
+        summary_path=None,
+        exit_code=None,
+        pid=None,
+        error=None,
+    )
+    _save_run_record(run_record)
+    mutation_service.link_backtest(version.version_id, run_id, None)
+
+    try:
+        result = engine.run_backtest(launch_payload, prepared=prepared)
+    except Exception as exc:
+        run_record.artifact_path = None
+        run_record.pid = None
+        run_record.error = f"launch_failed: {exc}"
+        run_record.completed_at = now_iso()
+        run_record.updated_at = run_record.completed_at
+        run_record.status = BacktestRunStatus.FAILED
+        _save_run_record(run_record)
+        return {
+            "status": run_record.status.value,
+            "run_id": run_id,
+            "command": run_record.command,
+            "version_id": run_record.version_id,
+            "trigger_source": run_record.trigger_source.value,
+            "artifact_path": run_record.artifact_path,
+            "error": run_record.error,
+        }
+
+    run_record.status = BacktestRunStatus.RUNNING
+    run_record.updated_at = now_iso()
+    run_record.command = result.get("command", run_record.command)
+    run_record.artifact_path = result.get("run_record_log_path") or result.get("log_file")
+    run_record.raw_result_path = result.get("raw_result_path", run_record.raw_result_path)
+    run_record.pid = result.get("pid")
+    run_record.error = None
+    _save_run_record(run_record)
+
+    process = result.get("process")
+    if process is not None:
+        _start_backtest_watcher(run_id, process)
+
+    return {
+        "status": run_record.status.value,
+        "run_id": run_id,
+        "command": run_record.command,
+        "version_id": run_record.version_id,
+        "trigger_source": run_record.trigger_source.value,
+        "artifact_path": run_record.artifact_path,
+    }
+
+
+async def download_data(payload: dict):
+    """Trigger engine download-data (if supported)."""
+    download_id = f"dl-{uuid.uuid4().hex[:8]}"
+    created_at = now_iso()
+
+    engine = _resolve_engine()
+
+    try:
+        prepared = engine.prepare_download_data(payload)
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    log_path = os.path.join(download_runs_dir(), download_id, "download.log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    meta = {
+        "download_id": download_id,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "completed_at": None,
+        "status": "queued",
+        "command": prepared.get("command"),
+        "artifact_path": log_path,
+        "pid": None,
+        "exit_code": None,
+        "error": None,
+    }
+    persistence.save_download_run(download_id, meta)
+
+    try:
+        result = engine.run_download_data(prepared, log_path=log_path)
+    except Exception as exc:
+        failed_at = now_iso()
+        meta["status"] = "failed"
+        meta["updated_at"] = failed_at
+        meta["completed_at"] = failed_at
+        meta["error"] = f"launch_failed: {exc}"
+        persistence.save_download_run(download_id, meta)
+        return {
+            "status": meta["status"],
+            "download_id": download_id,
+            "command": meta["command"],
+            "artifact_path": meta["artifact_path"],
+            "error": meta["error"],
+        }
+
+    meta["status"] = "running"
+    meta["updated_at"] = now_iso()
+    meta["pid"] = result.get("pid")
+    meta["error"] = None
+    persistence.save_download_run(download_id, meta)
+
+    process = result.get("process")
+    if process is not None:
+        _start_download_watcher(download_id, process)
+
+    return {
+        "status": meta["status"],
+        "download_id": download_id,
+        "command": meta["command"],
+        "artifact_path": meta["artifact_path"],
+    }
+
+
+async def stream_backtest_logs(run_id: str):
+    """Server-sent event stream for backtest live logs."""
+    run = _load_run_record(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    def _meta_loader() -> dict:
+        current = _load_run_record(run_id)
+        return current.model_dump(mode="json") if current is not None else {}
+
+    return stream_log_response(
+        _meta_loader,
+        user_data_results_dir(),
+        _TERMINAL_BACKTEST_STATUSES,
+    )
+
+
+async def stream_download_logs(download_id: str):
+    """Server-sent event stream for download-data live logs."""
+    if not persistence.load_download_run(download_id):
+        raise HTTPException(status_code=404, detail=f"Download {download_id} not found")
+    return stream_log_response(
+        lambda: persistence.load_download_run(download_id),
+        download_runs_dir(),
+        _TERMINAL_DOWNLOAD_STATUSES,
+    )
+
+
+async def list_backtest_runs(strategy: str | None = None):
+    runs = [results_svc.summarize_backtest_run(run) for run in _list_freqtrade_runs(strategy=strategy)]
+    return {"runs": runs}
+
+
+async def get_backtest_run(run_id: str):
+    run = _load_run_record(run_id)
+    if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    return {"run": results_svc.summarize_backtest_run(run)}
+
+
+async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
+    run = _load_run_record(run_id)
+    if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    summary_state = results_svc.load_run_summary_state(run)
+    summary_available = summary_state.get("state") == "ready"
+    summary = summary_state.get("summary") if summary_available else None
+    summary_block = results_svc.extract_run_summary_block(summary, run.strategy) if summary else None
+    summary_metrics = results_svc._normalize_summary_metrics(summary, run.strategy) if summary else None
+    trades = summary_block.get("trades") if isinstance(summary_block, dict) and isinstance(summary_block.get("trades"), list) else []
+    results_per_pair = (
+        summary_block.get("results_per_pair")
+        if isinstance(summary_block, dict) and isinstance(summary_block.get("results_per_pair"), list)
+        else []
+    )
+    linked_version = mutation_service.get_version_by_id(run.version_id) if run.version_id else None
+
+    diagnosis = diagnosis_service.empty_diagnosis()
+    if summary_available:
+        diagnosis = diagnosis_service.diagnose_run(
+            run_record=run,
+            summary_metrics=summary_metrics,
+            summary_block=summary_block,
+            trades=trades,
+            results_per_pair=results_per_pair,
+            request_snapshot=run.request_snapshot or {},
+            request_snapshot_schema_version=run.request_snapshot_schema_version,
+            linked_version=linked_version,
+        )
+
+    if include_ai:
+        if summary_available:
+            try:
+                ai_payload = await analyze_run_diagnosis_overlay(
+                    strategy_name=run.strategy,
+                    diagnosis=diagnosis,
+                    summary_metrics=summary_metrics,
+                    linked_version=linked_version,
+                )
+            except Exception:
+                ai_payload = _default_ai_payload("unavailable")
+        else:
+            ai_payload = _default_ai_payload("unavailable")
+    else:
+        ai_payload = _default_ai_payload("disabled")
+
+    return {
+        "run_id": run.run_id,
+        "strategy": run.strategy,
+        "version_id": run.version_id,
+        "run_status": run.status.value,
+        "summary_available": summary_available,
+        "diagnosis_status": _derive_diagnosis_status(run, summary_state),
+        "summary_metrics": summary_metrics,
+        "summary": summary,
+        "diagnosis": diagnosis,
+        "ai": ai_payload,
+        "error": summary_state.get("error") or run.error or None,
+    }
+
+
+async def create_backtest_run_proposal_candidate(run_id: str, payload: ProposalCandidateRequest):
+    run = _load_run_record(run_id)
+    if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    summary_state = results_svc.load_run_summary_state(run)
+    if summary_state.get("state") != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail=summary_state.get("error") or "Summary is not ready for proposal generation yet.",
+        )
+
+    summary = summary_state.get("summary")
+    summary_block = results_svc.extract_run_summary_block(summary, run.strategy) if summary else None
+    summary_metrics = results_svc._normalize_summary_metrics(summary, run.strategy) if summary else None
+    trades = summary_block.get("trades") if isinstance(summary_block, dict) and isinstance(summary_block.get("trades"), list) else []
+    results_per_pair = (
+        summary_block.get("results_per_pair")
+        if isinstance(summary_block, dict) and isinstance(summary_block.get("results_per_pair"), list)
+        else []
+    )
+
+    linked_version, linked_source = _resolve_linked_version_for_run(run)
+    if linked_version is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Run {run_id} is not linked to a version and no active version fallback is available.",
+        )
+
+    diagnosis = diagnosis_service.diagnose_run(
+        run_record=run,
+        summary_metrics=summary_metrics,
+        summary_block=summary_block,
+        trades=trades,
+        results_per_pair=results_per_pair,
+        request_snapshot=run.request_snapshot or {},
+        request_snapshot_schema_version=run.request_snapshot_schema_version,
+        linked_version=linked_version,
+    )
+
+    ai_payload = _default_ai_payload("disabled")
+    if payload.source_kind.value == "ai_parameter_suggestion":
+        try:
+            ai_payload = await analyze_run_diagnosis_overlay(
+                strategy_name=run.strategy,
+                diagnosis=diagnosis,
+                summary_metrics=summary_metrics,
+                linked_version=linked_version,
+            )
+        except Exception:
+            ai_payload = _default_ai_payload("unavailable")
+
+        if ai_payload.get("ai_status") != "ready":
+            raise HTTPException(
+                status_code=503,
+                detail="AI parameter suggestions are unavailable for this run.",
+            )
+
+    create_candidate_fn = create_proposal_candidate_from_diagnosis
+    if not callable(create_candidate_fn):
+        from app.services.results.strategy_intelligence_apply_service import create_proposal_candidate_from_diagnosis as create_candidate_fn
+
+    result = await create_candidate_fn(
+        strategy_name=run.strategy,
+        run_id=run.run_id,
+        linked_version=linked_version,
+        request_snapshot=run.request_snapshot or {},
+        summary_metrics=summary_metrics,
+        diagnosis=diagnosis,
+        ai_payload=ai_payload,
+        source_kind=payload.source_kind.value,
+        source_index=payload.source_index,
+        candidate_mode=payload.candidate_mode.value,
+        action_type=payload.action_type.value if payload.action_type else None,
+        candidate_parameters=payload.parameters,
+        candidate_code=payload.code,
+        candidate_summary=payload.summary,
+    )
+    if not result.success:
+        raise HTTPException(status_code=400, detail=result.error or result.message)
+
+    return {
+        "baseline_run_id": run.run_id,
+        "baseline_version_id": getattr(linked_version, "version_id", None),
+        "baseline_run_version_id": run.version_id,
+        "baseline_version_source": linked_source,
+        "candidate_version_id": result.version_id,
+        "candidate_change_type": result.candidate_change_type,
+        "candidate_status": result.candidate_status,
+        "source_kind": payload.source_kind.value,
+        "source_index": payload.source_index,
+        "source_title": result.source_title,
+        "candidate_ai_mode": result.ai_mode,
+        "message": result.message,
+    }
+
+
+async def compare_backtest_runs(left_run_id: str, right_run_id: str):
+    left_run = _load_run_record(left_run_id)
+    if left_run is None or str(getattr(left_run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {left_run_id} not found")
+
+    right_run = _load_run_record(right_run_id)
+    if right_run is None or str(getattr(right_run, "engine", "freqtrade")) != "freqtrade":
+        raise HTTPException(status_code=404, detail=f"Run {right_run_id} not found")
+
+    try:
+        return results_svc.compare_backtest_runs(left_run, right_run)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+async def get_summary(strategy: str | None = None):
+    """Load latest backtest summary for a strategy."""
+    if not strategy:
+        return {"summary": None}
+    summary = results_svc.load_latest_summary(strategy)
+    return {"summary": summary}
+
+
+async def get_trades(strategy: str | None = None):
+    """Load trades from latest backtest summary."""
+    if not strategy:
+        return {"trades": []}
+    trades = results_svc.load_trades(strategy)
+    return {"trades": trades}
+
+
+async def list_configs():
+    return {"configs": config_svc.list_saved_configs()}
+
+
+async def save_config(payload: ConfigSaveRequest):
+    config_svc.save_config(payload.name, payload.data)
+    return {"status": "saved", "name": payload.name}
+
+
+async def load_config(name: str):
+    return {"name": name, "data": config_svc.load_config(name)}
+
+
+async def delete_config(name: str):
+    config_svc.delete_config(name)
+    return {"status": "deleted", "name": name}
+
+
+async def validate_data(payload: dict):
+    """Validate candle availability and timerange coverage for the selected pairs."""
+    pairs = list(payload.get("pairs", []))
+    timeframe = str(payload.get("timeframe") or "")
+    exchange = str(payload.get("exchange") or config_svc.get_settings().get("default_exchange") or "binance")
+    timerange = payload.get("timerange")
+
+    if not pairs:
+        return JSONResponse(
+            status_code=400,
+            content={"valid": False, "message": "No pairs provided", "results": []}
+        )
+
+    if not timeframe:
+        return JSONResponse(
+            status_code=400,
+            content={"valid": False, "message": "No timeframe provided", "results": []}
+        )
+
+    if not validation_svc.validate_timeframe(timeframe):
+        return JSONResponse(
+            status_code=400,
+            content={"valid": False, "message": f"Invalid timeframe: {timeframe}", "results": []}
+        )
+
+    if timerange:
+        timerange_result = validation_svc.validate_timerange(str(timerange))
+        if not timerange_result.get("valid"):
+            return JSONResponse(
+                status_code=400,
+                content={"valid": False, "message": timerange_result.get("error") or "Invalid timerange", "results": []}
+            )
+
+    engine = _resolve_engine()
+    try:
+        results = engine.validate_data(
+            pairs=pairs,
+            timeframe=timeframe,
+            exchange=exchange,
+            timerange=str(timerange) if timerange else None,
+        )
+    except EngineFeatureNotSupported as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+    status_counts: dict[str, int] = {}
+    for row in results:
+        status = str(row.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    ready_count = status_counts.get("valid", 0)
+    issue_count = len(results) - ready_count
+    all_valid = bool(results) and issue_count == 0
+
+    if all_valid:
+        message = f"All {len(results)} pairs cover the requested data range."
+    elif ready_count:
+        message = f"{ready_count} pair(s) ready, {issue_count} with issues or incomplete coverage."
+    else:
+        message = "No pairs are ready for the selected validation request."
+
+    return {
+        "valid": all_valid,
+        "message": message,
+        "summary": {
+            "exchange": exchange,
+            "timeframe": timeframe,
+            "timerange": str(timerange) if timerange else None,
+            "pair_count": len(results),
+            "ready_count": ready_count,
+            "issue_count": issue_count,
+            "status_counts": status_counts,
+        },
+        "results": results,
+    }
+
+
+
+
+
+
+
+
+
+
+

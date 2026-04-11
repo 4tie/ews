@@ -2,7 +2,6 @@
 
 Canonical layout:
 - App-owned state (settings, saved configs, run metadata, versions, cache): `./data/`
-- Freqtrade state (config, strategies, data, results): `./user_data/`
 
 Use `resolve_safe` for joining untrusted input.
 """
@@ -15,14 +14,10 @@ APP_DIR = os.path.join(BASE_DIR, "app")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 STORAGE_DIR = DATA_DIR
 
-# Pre-data/ storage roots kept for reference and manual migrations.
 LEGACY_STORAGE_DIRS = (
     os.path.join(APP_DIR, "storage"),
     os.path.join(APP_DIR, "app", "storage"),
 )
-
-USER_DATA_DIR = os.path.join(BASE_DIR, "user_data")
-USER_DATA_RESULTS_DIR = os.path.join(USER_DATA_DIR, "backtest_results")
 
 SAVED_CONFIGS_DIR = os.path.join(STORAGE_DIR, "saved_configs")
 SETTINGS_DIR = os.path.join(STORAGE_DIR, "settings")
@@ -111,32 +106,3 @@ def strategy_active_version_file(strategy_name: str) -> str:
 
 def cache_dir() -> str:
     return CACHE_DIR
-
-
-def user_data_dir() -> str:
-    """Returns the path to the freqtrade user_data directory (BASE_DIR/user_data)."""
-    return USER_DATA_DIR
-
-
-def user_data_results_dir() -> str:
-    return USER_DATA_RESULTS_DIR
-
-
-def strategy_results_dir(strategy: str) -> str:
-    return resolve_safe(USER_DATA_RESULTS_DIR, strategy)
-
-
-def _resolved_user_data_dir(user_data_path: str | None = None) -> str:
-    return os.path.realpath(user_data_path or USER_DATA_DIR)
-
-
-def default_freqtrade_config_path(user_data_path: str | None = None) -> str:
-    return os.path.join(_resolved_user_data_dir(user_data_path), "config.json")
-
-
-def live_strategy_file(strategy_name: str, user_data_path: str | None = None) -> str:
-    return resolve_safe(_resolved_user_data_dir(user_data_path), "strategies", f"{strategy_name}.py")
-
-
-def strategy_config_file(strategy_name: str, user_data_path: str | None = None) -> str:
-    return resolve_safe(_resolved_user_data_dir(user_data_path), "config", f"config_{strategy_name}.json")

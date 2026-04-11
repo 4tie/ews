@@ -4,16 +4,13 @@ Strategy Intelligence Apply Service - Applies deterministic and AI-backed propos
 from __future__ import annotations
 
 import copy
-import json
-import os
 from dataclasses import dataclass
 from typing import Any
 
 from app.models.optimizer_models import ChangeType, MutationRequest
+from app.freqtrade.runtime import load_live_strategy_code, load_live_strategy_parameters
 from app.services.ai_chat.loop_service import LoopConfig, run_ai_loop
-from app.services.config_service import ConfigService
 from app.services.mutation_service import mutation_service
-from app.utils.paths import live_strategy_file, strategy_config_file
 
 
 @dataclass
@@ -35,8 +32,6 @@ class ProposalCandidateResult:
     ai_mode: str | None = None
     error: str | None = None
 
-
-_CONFIG_SVC = ConfigService()
 _VALID_SOURCE_KINDS = {
     "ranked_issue",
     "parameter_hint",
@@ -789,3 +784,4 @@ __all__ = [
     "apply_strategy_recommendations",
     "create_proposal_candidate_from_diagnosis",
 ]
+

@@ -1,11 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
 
 from app.engines.base import BacktestEngine, ResultParser
-from app.engines.freqtrade.engine import FreqtradeEngine
-from app.engines.freqtrade.result_parser import FreqtradeResultParser
+from app.freqtrade.engine import FreqtradeEngine
+from app.freqtrade.result_parser import FreqtradeResultParser
 from app.services.config_service import ConfigService
 
 _DEFAULT_ENGINE_ID = "freqtrade"
@@ -48,3 +48,4 @@ def resolve_engine(settings: dict[str, Any] | None = None) -> BacktestEngine:
 def result_parser_from_id(engine_id: str | None) -> ResultParser:
     normalized = normalize_engine_id(engine_id)
     return _PARSER_REGISTRY[normalized]()
+
