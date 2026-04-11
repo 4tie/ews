@@ -61,6 +61,58 @@ def _load_json_object(path: str, label: str) -> dict:
     return payload
 
 
+def load_live_strategy_code(
+    strategy_name: str,
+    user_data_path: str | None = None,
+    *,
+    strict: bool = False,
+) -> str | None:
+    try:
+        strategy_path = live_strategy_file(strategy_name, user_data_path)
+    except ValueError as exc:
+        if strict:
+            raise HTTPException(status_code=400, detail=f"Live strategy path could not be resolved: {exc}") from exc
+        return None
+
+    if not os.path.isfile(strategy_path):
+        if strict:
+            raise HTTPException(status_code=400, detail=f"Live strategy file not found for {strategy_name}")
+        return None
+
+    try:
+        with open(strategy_path, "r", encoding="utf-8") as handle:
+            return handle.read()
+    except OSError as exc:
+        if strict:
+            raise HTTPException(status_code=400, detail=f"Live strategy file could not be loaded: {exc}") from exc
+        return None
+
+
+def load_live_strategy_parameters(
+    strategy_name: str,
+    user_data_path: str | None = None,
+    *,
+    strict: bool = False,
+) -> dict[str, Any] | None:
+    try:
+        config_path = strategy_config_file(strategy_name, user_data_path)
+    except ValueError as exc:
+        if strict:
+            raise HTTPException(status_code=400, detail=f"Strategy config path could not be resolved: {exc}") from exc
+        return None
+
+    if not os.path.isfile(config_path):
+        return None
+
+    try:
+        payload = _load_json_object(config_path, f"Strategy config snapshot for {strategy_name}")
+    except HTTPException:
+        if strict:
+            raise
+        return None
+
+    return payload
+
 def _bootstrap_initial_version(strategy_name: str):
     settings = config_svc.get_settings()
     user_data_path = settings.get("user_data_path")
@@ -70,26 +122,8 @@ def _bootstrap_initial_version(strategy_name: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
 
-    if not os.path.isfile(strategy_path):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Initial bootstrap failed: live strategy file not found for {strategy_name}",
-        )
-
-    try:
-        with open(strategy_path, "r", encoding="utf-8") as handle:
-            code_snapshot = handle.read()
-    except OSError as exc:
-        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
-
-    parameters_snapshot = None
-    try:
-        config_path = strategy_config_file(strategy_name, user_data_path)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Initial bootstrap failed: {exc}") from exc
-
-    if os.path.isfile(config_path):
-        parameters_snapshot = _load_json_object(config_path, f"Strategy config snapshot for {strategy_name}")
+    code_snapshot = load_live_strategy_code(strategy_name, user_data_path, strict=True)
+    parameters_snapshot = load_live_strategy_parameters(strategy_name, user_data_path, strict=True)
 
     mutation_result = mutation_service.create_mutation(
         MutationRequest(

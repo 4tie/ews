@@ -4,6 +4,7 @@ Strategy Intelligence Apply Service - Applies deterministic and AI-backed propos
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -191,18 +192,7 @@ def _resolve_strategy_code(strategy_name: str, linked_version: Any | None) -> st
     if isinstance(code_snapshot, str) and code_snapshot.strip():
         return code_snapshot
 
-    settings = _CONFIG_SVC.get_settings()
-    try:
-        strategy_path = live_strategy_file(strategy_name, settings.get("user_data_path"))
-    except Exception:
-        return None
-    if not strategy_path or not os.path.isfile(strategy_path):
-        return None
-    try:
-        with open(strategy_path, "r", encoding="utf-8") as handle:
-            return handle.read()
-    except OSError:
-        return None
+    return load_live_strategy_code(strategy_name)
 
 
 def _resolve_parameters_snapshot(strategy_name: str, linked_version: Any | None) -> dict[str, Any] | None:
@@ -211,19 +201,10 @@ def _resolve_parameters_snapshot(strategy_name: str, linked_version: Any | None)
     if isinstance(snapshot, dict) and snapshot:
         return copy.deepcopy(snapshot)
 
-    settings = _CONFIG_SVC.get_settings()
-    try:
-        config_path = strategy_config_file(strategy_name, settings.get("user_data_path"))
-    except Exception:
-        return None
-    if not config_path or not os.path.isfile(config_path):
-        return None
-    try:
-        with open(config_path, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) and payload else None
+    live_parameters = load_live_strategy_parameters(strategy_name)
+    if isinstance(live_parameters, dict) and live_parameters:
+        return copy.deepcopy(live_parameters)
+    return None
 
 
 async def _apply_tighten_entries_action(
