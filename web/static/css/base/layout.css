@@ -14,7 +14,7 @@
   border-right: 1px solid var(--color-border);
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: var(--color-accent) transparent;
   z-index: 10;
 }
 
@@ -147,7 +147,7 @@
   padding: var(--space-6);
   /* Shared scrollbar */
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: var(--color-accent) transparent;
 }
 
 .app-content::-webkit-scrollbar {
@@ -206,7 +206,7 @@
 .scrollable {
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
+  scrollbar-color: var(--color-accent) transparent;
 }
 
 .scrollable::-webkit-scrollbar {
@@ -218,7 +218,7 @@
 }
 
 .scrollable::-webkit-scrollbar-thumb {
-  background-color: var(--color-border);
+  background-color: var(--color-accent);
   border-radius: 4px;
 }
 
