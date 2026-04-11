@@ -127,10 +127,15 @@ function resolveStrategy() {
   const liveStrategy = String(getState("backtest.strategy") || "").trim();
   if (liveStrategy) return liveStrategy;
 
+  if (state.isBacktestingPage) {
+    const savedStrategy = currentSavedBacktestStrategy();
+    if (savedStrategy) return savedStrategy;
+  }
+
   const contextStrategy = String(state.latestContext?.strategy || "").trim();
   if (contextStrategy) return contextStrategy;
 
-  return state.isBacktestingPage ? currentSavedBacktestStrategy() : "";
+  return "";
 }
 
 function canUseAssistant(strategy = resolveStrategy()) {
@@ -402,10 +407,11 @@ function renderStatusMessage() {
       ? "No latest persisted run summary loaded"
       : "Using the last saved backtesting snapshot";
 
+  const effectiveVersionSource = state.currentVersionSource !== "none" ? state.currentVersionSource : context.version_source;
   let versionSourceLabel = "Version context unavailable";
-  if (state.currentVersionSource === "run") versionSourceLabel = "Run-linked version snapshot";
-  if (state.currentVersionSource === "active") versionSourceLabel = "Active version fallback";
-  if (state.currentVersionSource === "loading") versionSourceLabel = "Loading version context";
+  if (effectiveVersionSource === "run") versionSourceLabel = "Run-linked version snapshot";
+  if (effectiveVersionSource === "active") versionSourceLabel = "Active version fallback";
+  if (effectiveVersionSource === "loading") versionSourceLabel = "Loading version context";
 
   return `
     <article class="ai-chat-message ai-chat-message--system ai-chat-message--status">
@@ -752,3 +758,4 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
