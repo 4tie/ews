@@ -1,4 +1,4 @@
-﻿/**
+/**
  * api.js - Centralized fetch wrapper for all backend API calls.
  */
 
@@ -62,6 +62,7 @@ export const api = {
   settings: {
     get: () => api.get("/api/settings"),
     save: (data) => api.post("/api/settings", data),
+    discoverOllama: (data) => api.post("/api/settings/ai/ollama/discover", data),
   },
 
   aiChat: {
@@ -71,6 +72,7 @@ export const api = {
     getThread: (strategy) => api.get(`/api/ai/chat/threads/${encodeURIComponent(strategy)}`),
     createThreadMessage: (strategy, data) => api.post(`/api/ai/chat/threads/${encodeURIComponent(strategy)}/messages`, data),
     getJob: (jobId) => api.get(`/api/ai/chat/jobs/${encodeURIComponent(jobId)}`),
+    streamJob: (jobId) => new EventSource(`/api/ai/chat/jobs/${encodeURIComponent(jobId)}/stream`),
   },
 
   aiEvolution: {

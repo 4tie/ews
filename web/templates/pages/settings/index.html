@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 {% block page_css %}
 <link rel="stylesheet" href="/static/css/pages/settings.css" />
@@ -6,10 +6,7 @@
 
 {% block content %}
 <div class="settings-workspace" id="settings-workspace">
-
   <div class="settings-grid">
-
-    <!-- ── PATHS ─────────────────────────────────────────────── -->
     <section class="panel" id="settings-paths" data-animate>
       <div class="panel__header">
         <h2 class="panel__title">Paths</h2>
@@ -18,8 +15,7 @@
         <div class="form-group">
           <label class="form-label" for="set-ft-path">Freqtrade Directory</label>
           <div class="input-with-action">
-            <input class="form-input" type="text" id="set-ft-path" name="freqtrade_path"
-              placeholder="/home/user/freqtrade" />
+            <input class="form-input" type="text" id="set-ft-path" name="freqtrade_path" placeholder="/home/user/freqtrade" />
             <button class="btn btn--ghost btn--sm" id="btn-validate-ft-path">Validate</button>
           </div>
           <div class="field-hint" id="ft-path-status"></div>
@@ -27,26 +23,22 @@
         <div class="form-group">
           <label class="form-label" for="set-config-path">Config File Path</label>
           <div class="input-with-action">
-            <input class="form-input" type="text" id="set-config-path" name="config_path"
-              placeholder="/home/user/freqtrade/user_data/config.json" />
+            <input class="form-input" type="text" id="set-config-path" name="config_path" placeholder="/home/user/freqtrade/user_data/config.json" />
             <button class="btn btn--ghost btn--sm" id="btn-validate-config-path">Validate</button>
           </div>
           <div class="field-hint" id="config-path-status"></div>
         </div>
         <div class="form-group">
           <label class="form-label" for="set-results-path">Backtest Results Base Path</label>
-          <input class="form-input" type="text" id="set-results-path" name="results_base_path"
-            placeholder="/home/user/freqtrade/user_data/backtest_results" />
+          <input class="form-input" type="text" id="set-results-path" name="results_base_path" placeholder="/home/user/freqtrade/user_data/backtest_results" />
         </div>
         <div class="form-group">
           <label class="form-label" for="set-userdata-path">User Data Path</label>
-          <input class="form-input" type="text" id="set-userdata-path" name="user_data_path"
-            placeholder="/home/user/freqtrade/user_data" />
+          <input class="form-input" type="text" id="set-userdata-path" name="user_data_path" placeholder="/home/user/freqtrade/user_data" />
         </div>
       </div>
     </section>
 
-    <!-- ── DEFAULTS ───────────────────────────────────────────── -->
     <section class="panel" id="settings-defaults" data-animate data-animate-delay="80">
       <div class="panel__header">
         <h2 class="panel__title">Defaults &amp; Persistence</h2>
@@ -81,13 +73,90 @@
       </div>
     </section>
 
-    <!-- ── THEME ──────────────────────────────────────────────── -->
+    <section class="panel" id="settings-ai" data-animate data-animate-delay="120">
+      <div class="panel__header">
+        <h2 class="panel__title">Local AI via Ollama</h2>
+      </div>
+      <div class="panel__body">
+        <p class="settings-description">
+          Discover local and cloud-backed Ollama models, choose the default local model, and inspect what each model can and cannot do inside this app.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="set-ollama-host">Ollama Host</label>
+          <div class="input-with-action">
+            <input class="form-input" type="text" id="set-ollama-host" name="ollama_host" placeholder="http://127.0.0.1:11434" />
+            <button class="btn btn--ghost btn--sm" id="btn-discover-ollama">Test / Refresh Models</button>
+          </div>
+          <div class="field-hint" id="ollama-connection-status">Not checked yet.</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="set-ollama-default-model">Default Local Model</label>
+          <select class="form-select" id="set-ollama-default-model" name="ollama_default_model">
+            <option value="">Discover models first</option>
+          </select>
+          <div class="field-hint">Used by the hybrid AI router for light analysis and live streaming when Ollama is selected.</div>
+        </div>
+
+        <div class="settings-ai-summary" id="ollama-summary"></div>
+        <div class="settings-ai-models" id="ollama-models-grid">
+          <div class="settings-ai-empty">Run discovery to load the available Ollama models and their app-level capability guidance.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="settings-ai" data-animate data-animate-delay="120">
+      <div class="panel__header">
+        <h2 class="panel__title">AI Routing</h2>
+      </div>
+      <div class="panel__body">
+        <p class="settings-description">
+          Choose the global provider, task-specific models, and secret environment variable references for the AI layer.
+        </p>
+        <div class="form-group">
+          <label class="form-label" for="set-ai-provider">AI Provider</label>
+          <select class="form-input" id="set-ai-provider" name="ai_provider">
+            <option value="ollama">Ollama (Local)</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="huggingface">Hugging Face</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-ai-classifier-model">Classifier Model</label>
+          <input class="form-input" type="text" id="set-ai-classifier-model" name="ai_classifier_model" placeholder="Leave blank to use the provider default" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-ai-analysis-model">Analysis Model</label>
+          <input class="form-input" type="text" id="set-ai-analysis-model" name="ai_analysis_model" placeholder="Leave blank to use the provider default" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-ai-candidate-model">Candidate Model</label>
+          <input class="form-input" type="text" id="set-ai-candidate-model" name="ai_candidate_model" placeholder="Leave blank to use the provider default" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-ai-overlay-model">Overlay Model</label>
+          <input class="form-input" type="text" id="set-ai-overlay-model" name="ai_overlay_model" placeholder="Leave blank to use the provider default" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-ollama-host">Ollama Host</label>
+          <input class="form-input" type="text" id="set-ollama-host" name="ollama_host" placeholder="http://localhost:11434" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-openrouter-api-key-env">OpenRouter API Key Env Var</label>
+          <input class="form-input" type="text" id="set-openrouter-api-key-env" name="openrouter_api_key_env" placeholder="OPENROUTER_API_KEY" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-hf-token-env">Hugging Face Token Env Var</label>
+          <input class="form-input" type="text" id="set-hf-token-env" name="hf_token_env" placeholder="HF_TOKEN" />
+        </div>
+      </div>
+    </section>
     <section class="panel" id="settings-theme" data-animate data-animate-delay="160">
       <div class="panel__header">
         <h2 class="panel__title">Appearance</h2>
       </div>
       <div class="panel__body">
-
         <div class="form-group">
           <label class="form-label">Color Theme</label>
           <div class="theme-selector" id="theme-selector">
@@ -199,24 +268,22 @@
             </button>
           </div>
         </div>
-
       </div>
     </section>
-
   </div>
 
-  <!-- ── SAVE BAR ───────────────────────────────────────────────── -->
   <div class="settings-save-bar" id="settings-save-bar">
     <span class="save-status" id="settings-save-status"></span>
     <button class="btn btn--primary" id="btn-save-settings">Save Settings</button>
   </div>
-
 </div>
 {% endblock %}
 
 {% block page_js %}
 <script type="module" src="/static/js/pages/settings/paths-settings.js"></script>
 <script type="module" src="/static/js/pages/settings/defaults-settings.js"></script>
+<script type="module" src="/static/js/pages/settings/ollama-settings.js"></script>
 <script type="module" src="/static/js/pages/settings/theme-settings.js"></script>
 <script type="module" src="/static/js/pages/settings/index.js"></script>
 {% endblock %}
+

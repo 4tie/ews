@@ -1,4 +1,4 @@
-"""Persistent AI chat orchestration for the shared drawer."""
+﻿"""Persistent AI chat orchestration for the shared drawer."""
 from __future__ import annotations
 
 import asyncio
@@ -448,9 +448,7 @@ class PersistentAiChatService:
             role = "User" if message.get("role") == "user" else "Assistant"
             history_lines.append(f"{role}: {summary}")
 
-        history = "
-
-".join(history_lines[-MAX_HISTORY_ITEMS:])
+        history = "\n\n".join(history_lines[-MAX_HISTORY_ITEMS:])
         context_lines = []
         if context.get("run_id"):
             context_lines.append(f"Latest run id: {context['run_id']}")
@@ -465,23 +463,16 @@ class PersistentAiChatService:
 
         parts = []
         if history:
-            parts.append(f"Conversation so far:
-{history}")
+            parts.append(f"Conversation so far:\n{history}")
         if context_lines:
-            parts.append(f"Current UI context:
-{'
-'.join(context_lines)}")
-        parts.append(f"Latest user request:
-{str(latest_request or '').strip()}")
+            parts.append("Current UI context:\n" + "\n".join(context_lines))
+        parts.append(f"Latest user request:\n{str(latest_request or '').strip()}")
         parts.append(
             "Return a concrete candidate change grounded in the current strategy and latest result. Prefer parameter-only changes when possible."
             if mode == "candidate"
             else "Stay grounded in the current strategy and latest result context. Be specific and actionable."
         )
-        return "
-
-".join(part for part in parts if part)
-
+        return "\n\n".join(part for part in parts if part)
     def _build_ai_backtest_results(self, response: dict[str, Any] | None) -> dict[str, Any]:
         payload = response if isinstance(response, dict) else {}
         summary_metrics = payload.get("summary_metrics") if isinstance(payload.get("summary_metrics"), dict) else {}
@@ -568,6 +559,9 @@ class PersistentAiChatService:
         recommendations: list[str] | None = None,
         parameters: dict[str, Any] | None = None,
         code: str | None = None,
+        analysis_payload: dict[str, Any] | None = None,
+        provider: str | None = None,
+        model: str | None = None,
         job_id: str | None = None,
         resolved_mode: str | None = None,
     ) -> dict[str, Any]:
@@ -582,6 +576,9 @@ class PersistentAiChatService:
             "recommendations": [str(item).strip() for item in (recommendations or []) if str(item).strip()],
             "parameters": parameters if isinstance(parameters, dict) and parameters else None,
             "code": str(code or "").strip() or None,
+            "analysis_payload": analysis_payload if isinstance(analysis_payload, dict) and analysis_payload else None,
+            "provider": str(provider or "").strip() or None,
+            "model": str(model or "").strip() or None,
             "strategy_name": strategy_name,
             "run_id": context.get("run_id"),
             "version_id": context.get("version_id"),
@@ -590,7 +587,6 @@ class PersistentAiChatService:
             "job_id": job_id,
             "created_at": created_at,
         }
-
     def _default_thread(self, strategy_name: str) -> dict[str, Any]:
         now = now_iso()
         return {
@@ -670,3 +666,6 @@ persistent_ai_chat_service = PersistentAiChatService()
 
 
 __all__ = ["PersistentAiChatService", "persistent_ai_chat_service", "ACTIVE_JOB_STATUSES", "TERMINAL_JOB_STATUSES"]
+
+
+

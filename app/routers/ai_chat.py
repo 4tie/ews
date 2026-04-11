@@ -1,15 +1,20 @@
-﻿"""
+"""
 AI Chat Router - Endpoints for AI-powered chat with unified run-scoped candidate creation.
 """
+from __future__ import annotations
+
+import asyncio
+import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.ai.output_format import parse_ai_response
 from app.models.backtest_models import BacktestRunRecord
 from app.services.ai_chat.loop_service import LoopConfig, analyze_with_two_mode, run_ai_loop
-from app.services.ai_chat.persistent_chat_service import persistent_ai_chat_service
+from app.services.ai_chat.persistent_chat_service import TERMINAL_JOB_STATUSES, persistent_ai_chat_service
 from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
 from app.services.results.diagnosis_service import diagnosis_service
@@ -139,6 +144,53 @@ async def get_ai_job(job_id: str):
     return payload
 
 
+@router.get("/jobs/{job_id}/stream")
+async def stream_ai_job(job_id: str, request: Request):
+    payload = persistent_ai_chat_service.get_job(job_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail=f"AI job {job_id} not found")
+
+    try:
+        last_event_id = int(str(request.headers.get("last-event-id") or "0"))
+    except ValueError:
+        last_event_id = 0
+
+    async def event_generator():
+        delivered = last_event_id
+        while True:
+            current = persistent_ai_chat_service.get_job(job_id)
+            job = current.get("job") if isinstance(current, dict) else None
+            if not isinstance(job, dict) or not job:
+                failure_payload = {
+                    "id": f"{job_id}:missing",
+                    "seq": delivered,
+                    "type": "failed",
+                    "message": f"AI job {job_id} not found",
+                }
+                yield _sse(failure_payload)
+                return
+
+            events = job.get("timeline_events") if isinstance(job.get("timeline_events"), list) else []
+            for event in events:
+                seq = int(event.get("seq") or 0)
+                if seq <= delivered:
+                    continue
+                delivered = seq
+                yield _sse(event)
+
+            if str(job.get("status") or "") in TERMINAL_JOB_STATUSES:
+                return
+            if await request.is_disconnected():
+                return
+            await asyncio.sleep(0.25)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/apply-code")
 async def apply_code(request: ApplyCodeRequest):
     """Create a run-scoped code candidate through the unified proposal lifecycle."""
@@ -179,12 +231,24 @@ async def apply_parameters_endpoint(request: ApplyParamsRequest):
 async def validate_output(text: str):
     """Validate AI output follows two-mode format."""
     parsed = parse_ai_response(text)
-
     return {
         "mode": parsed.mode,
         "is_applicable": parsed.is_applicable,
         "validation_errors": parsed.validation_errors,
     }
+
+
+def _sse(data: dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False)
+    event_id = data.get("seq")
+    if event_id is not None:
+        return f"id: {event_id}
+data: {payload}
+
+"
+    return f"data: {payload}
+
+"
 
 
 def _load_run_record(run_id: str) -> BacktestRunRecord:
