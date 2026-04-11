@@ -1,4 +1,4 @@
-﻿"""Persistent AI chat orchestration for the shared drawer."""
+"""Persistent AI chat orchestration for the shared drawer."""
 from __future__ import annotations
 
 import asyncio
@@ -226,6 +226,7 @@ class PersistentAiChatService:
                         strategy_code=strategy_code,
                         backtest_results=backtest_results,
                         user_question=prompt,
+                        timeline_callback=_timeline_callback,
                     )
                     assistant_message = self._build_message(
                         role="assistant",
@@ -251,6 +252,7 @@ class PersistentAiChatService:
                     result = await analyze_metrics(
                         metrics=backtest_results,
                         context=prompt,
+                        timeline_callback=_timeline_callback,
                     )
                     assistant_message = self._build_message(
                         role="assistant",
