@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Mapping
 
 from app.freqtrade.paths import default_freqtrade_config_path, user_data_dir, user_data_results_dir
@@ -29,6 +30,9 @@ SUPPORTED_EXCHANGES = [
     "gate",
 ]
 
+DEFAULT_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+DEFAULT_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
+
 DEFAULT_FREQTRADE_SETTINGS: dict[str, Any] = {
     "engine": "freqtrade",
     "freqtrade_path": "",
@@ -41,6 +45,8 @@ DEFAULT_FREQTRADE_SETTINGS: dict[str, Any] = {
     "theme": "dark",
     "results_base_path": user_data_results_dir(),
     "config_path": default_freqtrade_config_path(),
+    "ollama_host": DEFAULT_OLLAMA_HOST,
+    "ollama_default_model": DEFAULT_OLLAMA_MODEL,
 }
 
 
@@ -57,6 +63,8 @@ def get_freqtrade_runtime_settings(settings: Mapping[str, Any] | None = None) ->
         merged["config_path"] = default_freqtrade_config_path(merged["user_data_path"])
     if not merged.get("results_base_path"):
         merged["results_base_path"] = user_data_results_dir(merged["user_data_path"])
+    if not merged.get("ollama_host"):
+        merged["ollama_host"] = DEFAULT_OLLAMA_HOST
 
     return merged
 

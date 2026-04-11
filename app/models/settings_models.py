@@ -15,6 +15,8 @@ class AppSettings(BaseModel):
     theme: str = "dark"
     results_base_path: str = ""
     config_path: str = ""
+    ollama_host: str = "http://127.0.0.1:11434"
+    ollama_default_model: str = ""
 
     @field_validator("engine")
     @classmethod
