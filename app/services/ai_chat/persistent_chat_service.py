@@ -214,6 +214,8 @@ class PersistentAiChatService:
                     context=resolved_context,
                     job_id=job_id,
                     resolved_mode=resolved_mode,
+                    provider=loop_result.provider,
+                    model=loop_result.model,
                 )
             else:
                 strategy_code = resolved_context.get("strategy_code")
@@ -224,7 +226,6 @@ class PersistentAiChatService:
                         strategy_code=strategy_code,
                         backtest_results=backtest_results,
                         user_question=prompt,
-                        timeline_callback=_timeline_callback,
                     )
                     assistant_message = self._build_message(
                         role="assistant",
@@ -242,12 +243,14 @@ class PersistentAiChatService:
                         context=resolved_context,
                         job_id=job_id,
                         resolved_mode="analysis",
+                        analysis_payload=result.analysis_payload,
+                        provider=result.provider,
+                        model=result.model,
                     )
                 else:
                     result = await analyze_metrics(
                         metrics=backtest_results,
                         context=prompt,
-                        timeline_callback=_timeline_callback,
                     )
                     assistant_message = self._build_message(
                         role="assistant",
@@ -260,6 +263,9 @@ class PersistentAiChatService:
                         context=resolved_context,
                         job_id=job_id,
                         resolved_mode="analysis",
+                        analysis_payload=result.analysis_payload,
+                        provider=result.provider,
+                        model=result.model,
                     )
                 resolved_mode = "analysis"
 
@@ -666,6 +672,7 @@ persistent_ai_chat_service = PersistentAiChatService()
 
 
 __all__ = ["PersistentAiChatService", "persistent_ai_chat_service", "ACTIVE_JOB_STATUSES", "TERMINAL_JOB_STATUSES"]
+
 
 
 
