@@ -1,4 +1,4 @@
-﻿"""Persistent AI chat orchestration for the shared drawer."""
+"""Persistent AI chat orchestration for the shared drawer."""
 from __future__ import annotations
 
 import asyncio
@@ -99,9 +99,14 @@ class PersistentAiChatService:
             "version_id": normalized_context.get("version_id"),
             "version_source": normalized_context.get("version_source"),
             "resolved_mode": "auto",
+            "resolved_provider": None,
+            "resolved_model": None,
             "error": None,
+            "timeline_events": [],
+            "event_seq": 0,
         }
         self._save_job(job)
+        self._append_job_event(job, "queued", message="AI request queued.")
         self._start_job(job_id)
         return {"job_id": job_id}
 
@@ -117,6 +122,11 @@ class PersistentAiChatService:
             "job": job,
             "assistant_message": assistant_message,
         }
+
+    def get_job_timeline(self, job_id: str) -> list[dict[str, Any]]:
+        job = self.get_job(job_id).get("job") or {}
+        events = job.get("timeline_events")
+        return events if isinstance(events, list) else []
 
     def _start_job(self, job_id: str) -> None:
         loop = asyncio.get_running_loop()
@@ -147,9 +157,20 @@ class PersistentAiChatService:
         job["status"] = "running"
         job["updated_at"] = now_iso()
         self._save_job(job)
+        job = self._append_job_event(job, "started", message="AI request started.")
 
         try:
             classification = await classify_with_fallback(user_message.get("text") or "")
+            job = self._append_job_event(
+                job_id,
+                "classified",
+                task_types=list(getattr(classification, "task_types", []) or []),
+                complexity=str(getattr(classification, "complexity", "medium") or "medium"),
+                recommended_pipeline=str(getattr(classification, "recommended_pipeline", "simple") or "simple"),
+                requires_code=bool(getattr(classification, "requires_code", False)),
+                requires_structured_out=bool(getattr(classification, "requires_structured_out", False)),
+            )
+
             requested_mode = self._resolve_requested_mode(user_message.get("text") or "", classification)
             resolved_context = await self._resolve_runtime_context(strategy, thread.get("latest_context") or {})
             prompt = self._build_conversation_prompt(
@@ -160,6 +181,11 @@ class PersistentAiChatService:
                 mode=requested_mode,
             )
 
+            async def _timeline_callback(payload: dict[str, Any]) -> None:
+                event_type = str(payload.get("type") or "route_selected")
+                data = {key: value for key, value in payload.items() if key != "type"}
+                self._append_job_event(job_id, event_type, **data)
+
             if requested_mode == "candidate":
                 loop_result = await run_ai_loop(
                     user_message=prompt,
@@ -167,6 +193,7 @@ class PersistentAiChatService:
                     strategy_code=resolved_context.get("strategy_code"),
                     backtest_results=resolved_context.get("backtest_results"),
                     config=LoopConfig(max_iterations=4, temperature=0.25),
+                    timeline_callback=_timeline_callback,
                 )
                 if not loop_result.success:
                     raise RuntimeError(loop_result.error or "AI could not produce a valid candidate.")
@@ -197,6 +224,7 @@ class PersistentAiChatService:
                         strategy_code=strategy_code,
                         backtest_results=backtest_results,
                         user_question=prompt,
+                        timeline_callback=_timeline_callback,
                     )
                     assistant_message = self._build_message(
                         role="assistant",
@@ -219,6 +247,7 @@ class PersistentAiChatService:
                     result = await analyze_metrics(
                         metrics=backtest_results,
                         context=prompt,
+                        timeline_callback=_timeline_callback,
                     )
                     assistant_message = self._build_message(
                         role="assistant",
@@ -254,6 +283,14 @@ class PersistentAiChatService:
             job["resolved_mode"] = resolved_mode
             job["error"] = None
             self._save_job(job)
+            self._append_job_event(
+                job,
+                "completed",
+                message="AI response ready.",
+                resolved_mode=resolved_mode,
+                provider=job.get("resolved_provider"),
+                model=job.get("resolved_model"),
+            )
         except Exception as exc:
             thread = self._load_thread(strategy)
             job = self._load_job(job_id)
@@ -282,6 +319,48 @@ class PersistentAiChatService:
         job["completed_at"] = job["updated_at"]
         job["assistant_message_id"] = message["id"]
         job["error"] = str(error_text or "AI request failed.")
+        self._save_job(job)
+        self._append_job_event(
+            job,
+            "failed",
+            message=str(error_text or "AI request failed."),
+            interrupted=interrupted,
+            provider=job.get("resolved_provider"),
+            model=job.get("resolved_model"),
+        )
+        return job
+
+    def _append_job_event(self, job_or_id: dict[str, Any] | str, event_type: str, **payload: Any) -> dict[str, Any]:
+        if isinstance(job_or_id, dict):
+            job = job_or_id
+        else:
+            job = self._load_job(job_or_id)
+        if not job:
+            return {}
+
+        job_id = str(job.get("job_id") or "").strip()
+        if not job_id:
+            return job
+
+        sequence = int(job.get("event_seq") or 0) + 1
+        event = {
+            "id": f"{job_id}:{sequence}",
+            "seq": sequence,
+            "type": str(event_type or "status").strip() or "status",
+            "created_at": now_iso(),
+        }
+        for key, value in payload.items():
+            if value is None:
+                continue
+            event[key] = value
+
+        job.setdefault("timeline_events", []).append(event)
+        job["event_seq"] = sequence
+        if event.get("provider"):
+            job["resolved_provider"] = event.get("provider")
+        if event.get("model"):
+            job["resolved_model"] = event.get("model")
+        job["updated_at"] = now_iso()
         self._save_job(job)
         return job
 
@@ -369,7 +448,9 @@ class PersistentAiChatService:
             role = "User" if message.get("role") == "user" else "Assistant"
             history_lines.append(f"{role}: {summary}")
 
-        history = "\n\n".join(history_lines[-MAX_HISTORY_ITEMS:])
+        history = "
+
+".join(history_lines[-MAX_HISTORY_ITEMS:])
         context_lines = []
         if context.get("run_id"):
             context_lines.append(f"Latest run id: {context['run_id']}")
@@ -384,16 +465,22 @@ class PersistentAiChatService:
 
         parts = []
         if history:
-            parts.append(f"Conversation so far:\n{history}")
+            parts.append(f"Conversation so far:
+{history}")
         if context_lines:
-            parts.append(f"Current UI context:\n{'\n'.join(context_lines)}")
-        parts.append(f"Latest user request:\n{str(latest_request or '').strip()}")
+            parts.append(f"Current UI context:
+{'
+'.join(context_lines)}")
+        parts.append(f"Latest user request:
+{str(latest_request or '').strip()}")
         parts.append(
             "Return a concrete candidate change grounded in the current strategy and latest result. Prefer parameter-only changes when possible."
             if mode == "candidate"
             else "Stay grounded in the current strategy and latest result context. Be specific and actionable."
         )
-        return "\n\n".join(part for part in parts if part)
+        return "
+
+".join(part for part in parts if part)
 
     def _build_ai_backtest_results(self, response: dict[str, Any] | None) -> dict[str, Any]:
         payload = response if isinstance(response, dict) else {}
@@ -540,7 +627,13 @@ class PersistentAiChatService:
 
     def _load_job(self, job_id: str) -> dict[str, Any]:
         raw = self.persistence.load_ai_chat_job(job_id)
-        return raw if isinstance(raw, dict) else {}
+        if not isinstance(raw, dict):
+            return {}
+        raw.setdefault("timeline_events", [])
+        raw.setdefault("event_seq", 0)
+        raw.setdefault("resolved_provider", None)
+        raw.setdefault("resolved_model", None)
+        return raw
 
     def _save_job(self, job: dict[str, Any]) -> None:
         job_id = str(job.get("job_id") or "").strip()
@@ -576,4 +669,4 @@ class PersistentAiChatService:
 persistent_ai_chat_service = PersistentAiChatService()
 
 
-__all__ = ["PersistentAiChatService", "persistent_ai_chat_service"]
+__all__ = ["PersistentAiChatService", "persistent_ai_chat_service", "ACTIVE_JOB_STATUSES", "TERMINAL_JOB_STATUSES"]
