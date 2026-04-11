@@ -717,8 +717,7 @@ def test_deterministic_action_creates_parameter_candidate_without_ai() -> None:
         strategy = "DeterministicActionStrategy"
         baseline_version_id = _create_active_version(
             strategy,
-            code="class DeterministicActionStrategy: pass
-",
+            code="class DeterministicActionStrategy: pass\n",
             parameters={
                 "stoploss": -0.10,
                 "trailing_stop": False,
@@ -778,8 +777,7 @@ def test_ai_chat_apply_parameters_uses_unified_run_scoped_candidate_path() -> No
         strategy = "AiChatUnifiedStrategy"
         baseline_version_id = _create_active_version(
             strategy,
-            code="class AiChatUnifiedStrategy: pass
-",
+            code="class AiChatUnifiedStrategy: pass\n",
             parameters={"stoploss": -0.10},
         )
         summary = _make_summary(strategy, profit_pct=-4.0, total_trades=10, winrate=0.45, drawdown_account=0.12)

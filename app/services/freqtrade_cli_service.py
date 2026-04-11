@@ -45,14 +45,17 @@ class FreqtradeCliService:
         return default_freqtrade_config_path(settings.get("user_data_path"))
 
     def _freqtrade_subprocess_env(self) -> dict[str, str]:
+        """Return environment variables for freqtrade subprocess, ensuring FT_FORCE_THREADED_RESOLVER is not set."""
         env = os.environ.copy()
-        # DISABLED: FT_FORCE_THREADED_RESOLVER trigger an aiohttp import during Python init,
-        # causing a fatal cascade on Windows Python 3.12. Removed to allow freqtrade to run.
-        # env["FT_FORCE_THREADED_RESOLVER"] = "1"
-
-        existing = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = BASE_DIR if not existing else BASE_DIR + os.pathsep + existing
+        env.pop("FT_FORCE_THREADED_RESOLVER", None)
         return env
+
+    def _subprocess_creationflags(self, *, isolate_console_signals: bool = False) -> int:
+        """Return Windows-safe subprocess flags; no-op on non-Windows platforms."""
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if isolate_console_signals:
+            creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        return creationflags
 
     def _validate_backtest_extra_flags(self, extra_flags: list[str]) -> None:
         conflicting = []
@@ -267,6 +270,7 @@ class FreqtradeCliService:
         command = prepared["command"]
         log_path = prepared["log_file"]
         env = self._freqtrade_subprocess_env()
+        creationflags = self._subprocess_creationflags(isolate_console_signals=True)
 
         with open(log_path, "w", encoding="utf-8") as log_file:
             log_file.write(f"$ {command}\n\n")
@@ -277,6 +281,7 @@ class FreqtradeCliService:
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 env=env,
+                creationflags=creationflags,
             )
 
         return {

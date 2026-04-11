@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from app.engines.freqtrade import engine as freqtrade_engine_module
 from app.engines.freqtrade.engine import FreqtradeEngine
 from app.models.backtest_models import BacktestRunRecord, BacktestRunStatus, BacktestTriggerSource
+from app.services import freqtrade_cli_service as cli_module
 from app.services.freqtrade_cli_service import FreqtradeCliService
 from app.services.results_service import ResultsService
 from app.utils.command_builder import build_backtest_command
@@ -223,6 +224,64 @@ def test_prepare_backtest_run_uses_strategy_directory_and_notes() -> None:
             shutil.rmtree(result_dir, ignore_errors=True)
 
 
+
+def test_run_backtest_isolates_windows_console_signals() -> None:
+    cli = FreqtradeCliService()
+    strategy = "_TestStrategyLaunch"
+    result_dir = strategy_results_dir(strategy)
+    log_path = os.path.join(result_dir, "bt-test-launch.backtest.log")
+    os.makedirs(result_dir, exist_ok=True)
+
+    captured: dict[str, object] = {}
+    original_popen = cli_module.subprocess.Popen
+    had_no_window = hasattr(cli_module.subprocess, "CREATE_NO_WINDOW")
+    had_new_process_group = hasattr(cli_module.subprocess, "CREATE_NEW_PROCESS_GROUP")
+    original_no_window = getattr(cli_module.subprocess, "CREATE_NO_WINDOW", None)
+    original_new_process_group = getattr(cli_module.subprocess, "CREATE_NEW_PROCESS_GROUP", None)
+
+    class _DummyProcess:
+        pid = 4242
+
+    def _fake_popen(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return _DummyProcess()
+
+    cli_module.subprocess.Popen = _fake_popen
+    cli_module.subprocess.CREATE_NO_WINDOW = 0x08000000
+    cli_module.subprocess.CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+    try:
+        result = cli.run_backtest(
+            {},
+            prepared={
+                "cmd": ["freqtrade", "backtesting"],
+                "command": "freqtrade backtesting",
+                "log_file": log_path,
+                "raw_result_path": None,
+            },
+        )
+
+        expected_flags = 0x08000000 | 0x00000200
+        kwargs = captured.get("kwargs")
+        assert isinstance(kwargs, dict)
+        assert kwargs.get("creationflags") == expected_flags
+        assert result["pid"] == 4242
+        print("[PASS] Backtest launch isolates the subprocess from Windows console signals")
+    finally:
+        cli_module.subprocess.Popen = original_popen
+        if had_no_window:
+            cli_module.subprocess.CREATE_NO_WINDOW = original_no_window
+        else:
+            delattr(cli_module.subprocess, "CREATE_NO_WINDOW")
+        if had_new_process_group:
+            cli_module.subprocess.CREATE_NEW_PROCESS_GROUP = original_new_process_group
+        else:
+            delattr(cli_module.subprocess, "CREATE_NEW_PROCESS_GROUP")
+        if os.path.isdir(result_dir):
+            shutil.rmtree(result_dir, ignore_errors=True)
+
+
 def test_build_backtest_command_includes_backtest_directory_and_notes() -> None:
     cmd = build_backtest_command(
         freqtrade_path="",
@@ -330,6 +389,7 @@ if __name__ == "__main__":
     test_freqtrade_engine_validate_data_reports_timerange_coverage()
     test_freqtrade_engine_validate_data_reports_partial_coverage()
     test_prepare_backtest_run_uses_strategy_directory_and_notes()
+    test_run_backtest_isolates_windows_console_signals()
     test_build_backtest_command_includes_backtest_directory_and_notes()
     test_build_backtest_command_supports_multiple_configs_and_strategy_path()
     test_prepare_backtest_run_preserves_explicit_cache_flag()
