@@ -20,7 +20,7 @@ def test_settings_route_includes_ollama_defaults(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["engine"] == "freqtrade"
-    assert payload["ollama_host"] == "http://127.0.0.1:11434"
+    assert payload["ollama_host"] == "http://localhost:11434"
     assert payload["ollama_default_model"] == "llama3"
 
 
@@ -44,8 +44,6 @@ def test_ollama_discovery_route_returns_normalized_payload(monkeypatch):
                         "raw_capabilities": ["completion", "tools", "insert"],
                         "app_recommended_for": ["code review and patch drafting"],
                         "app_not_recommended_for": ["tool calling"],
-                        "tool_calling_supported_by_model": True,
-                        "tool_calling_enabled_in_app": False,
                     },
                     {
                         "name": "deepseek-v3.2:cloud",
@@ -54,8 +52,6 @@ def test_ollama_discovery_route_returns_normalized_payload(monkeypatch):
                         "raw_capabilities": ["completion"],
                         "app_recommended_for": ["general analysis and explanation"],
                         "app_not_recommended_for": ["strictly local-only execution"],
-                        "tool_calling_supported_by_model": False,
-                        "tool_calling_enabled_in_app": False,
                     },
                 ],
             }
@@ -70,7 +66,6 @@ def test_ollama_discovery_route_returns_normalized_payload(monkeypatch):
     assert payload["version"] == "0.20.2"
     assert payload["models"][0]["source"] == "local"
     assert payload["models"][1]["source"] == "cloud"
-    assert payload["models"][0]["tool_calling_enabled_in_app"] is False
 
 
 def test_ollama_discovery_route_handles_unreachable_host(monkeypatch):

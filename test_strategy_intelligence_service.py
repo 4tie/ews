@@ -2,6 +2,7 @@
 import json
 
 from app.ai.models.registry import ModelResponse
+from app.ai.models.model_routing_policy import RoutingPolicy
 from app.services.results import strategy_intelligence_service as intelligence_service
 
 
@@ -15,6 +16,15 @@ class _FakeDispatch:
     async def complete_for_task(self, task_type, messages, **kwargs):
         self.calls.append((task_type, messages))
         return ModelResponse(content=self.content, model=self.model, provider=self.provider, task_type=task_type)
+
+    def get_task_policy(self, task_type, **kwargs):
+        return RoutingPolicy(
+            task_type=task_type,
+            provider=self.provider,
+            model=self.model,
+            temperature=0.3,
+            max_tokens=2000,
+        )
 
 
 def test_analyze_metrics_returns_structured_envelope(monkeypatch):

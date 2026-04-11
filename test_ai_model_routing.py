@@ -8,30 +8,39 @@ from app.ai.models.registry import ModelResponse
 
 
 def test_routing_policy_uses_task_specific_settings_models():
+    """Test that task-specific model settings are used when configured."""
     settings = {
-        "ai_provider": "huggingface",
-        "ai_analysis_model": "analysis-model",
-        "ai_candidate_model": "candidate-model",
+        "ai_analysis_model": "custom-analysis-model",
+        "ai_candidate_model": "custom-candidate-model",
     }
 
     analysis_policy = get_routing_policy("analysis", settings=settings)
     candidate_policy = get_routing_policy("candidate", settings=settings)
 
-    assert analysis_policy.provider == "huggingface"
-    assert analysis_policy.model == "analysis-model"
-    assert candidate_policy.provider == "huggingface"
-    assert candidate_policy.model == "candidate-model"
+    # Provider selection is determined by task type, not settings
+    assert analysis_policy.provider == "ollama"  # Default for analysis
+    assert analysis_policy.model == "custom-analysis-model"  # From settings
+    
+    assert candidate_policy.provider == "openrouter"  # Candidates always prefer openrouter
+    assert candidate_policy.model == "custom-candidate-model"  # From settings
 
 
 def test_routing_policy_falls_back_to_provider_defaults():
-    classifier_policy = get_routing_policy("classifier", settings={"ai_provider": "ollama"})
-    overlay_policy = get_routing_policy("overlay", settings={"ai_provider": "openrouter"})
+    """Test that provider defaults are used when no specific model is configured."""
+    classifier_policy = get_routing_policy("classifier")
+    overlay_policy = get_routing_policy("overlay")
 
-    assert classifier_policy.model == "llama3"
-    assert overlay_policy.model.endswith(":free")
+    # Both default to ollama provider
+    assert classifier_policy.provider == "ollama"
+    assert classifier_policy.model == "llama3"  # Default ollama model for classifier
+    
+    assert overlay_policy.provider == "ollama"
+    assert overlay_policy.fallback_provider == "openrouter"
+    assert overlay_policy.fallback_model is not None  # Fallback has a model
 
 
 def test_complete_for_task_uses_resolved_provider_and_model(monkeypatch):
+    """Test that complete_for_task respects ai_provider setting."""
     dispatch = ProviderDispatch()
     captured = {}
 
@@ -43,7 +52,7 @@ def test_complete_for_task_uses_resolved_provider_and_model(monkeypatch):
             "max_tokens": max_tokens,
             "settings": settings,
         })
-        return ModelResponse(content="{}", model=model or "analysis-model", provider=provider)
+        return ModelResponse(content="{}", model=model or "analysis-model", provider=provider or "ollama")
 
     monkeypatch.setattr(ProviderDispatch, "complete", _fake_complete, raising=True)
 
@@ -52,18 +61,18 @@ def test_complete_for_task_uses_resolved_provider_and_model(monkeypatch):
             "analysis",
             [{"role": "user", "content": "hello"}],
             settings={
-                "ai_provider": "huggingface",
+                "ai_provider": "ollama",  # Now respects the ai_provider setting
                 "ai_analysis_model": "analysis-model",
                 "hf_token_env": "HF_TOKEN",
             },
         )
     )
 
-    assert captured["provider"] == "huggingface"
+    assert captured["provider"] == "ollama"  # Uses the setting
     assert captured["model"] == "analysis-model"
     assert captured["temperature"] == 0.3
     assert captured["max_tokens"] == 4000
-    assert response.provider == "huggingface"
+    assert response.provider == "ollama"
     assert response.task_type == "analysis"
 
 

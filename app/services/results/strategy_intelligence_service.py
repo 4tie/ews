@@ -235,9 +235,7 @@ async def _run_structured_analysis(
 
 
 def _build_analysis_system_prompt(base_prompt: str) -> str:
-    return f"{base_prompt}
-
-{_ANALYSIS_JSON_INSTRUCTIONS}"
+    return f"{base_prompt}\n\n{_ANALYSIS_JSON_INSTRUCTIONS}"
 
 
 def _response_to_intelligence_result(response: ModelResponse) -> IntelligenceResult:
@@ -385,3 +383,4 @@ def _extract_recommendations(payload: dict[str, Any]) -> list[str]:
 
 
 __all__ = ["IntelligenceResult", "analyze_strategy", "analyze_metrics", "analyze_run_diagnosis_overlay"]
+

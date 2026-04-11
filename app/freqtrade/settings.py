@@ -46,7 +46,7 @@ DEFAULT_FREQTRADE_SETTINGS: dict[str, Any] = {
     "ai_analysis_model": "",
     "ai_candidate_model": "",
     "ai_overlay_model": "",
-    "ollama_host": "http://127.0.0.1:11434",
+    "ollama_host": "http://localhost:11434",
     "ollama_default_model": "llama3",
     "openrouter_api_key_env": "OPENROUTER_API_KEY",
     "hf_token_env": "HF_TOKEN",

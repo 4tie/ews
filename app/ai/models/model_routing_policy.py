@@ -92,9 +92,16 @@ def _get_model_for_task(task_type: str, provider: str, settings: Mapping[str, An
     return provider_defaults.get(task_type, provider_defaults["analysis"])
 
 
-def _select_primary_provider(task_type: str, provider_override: str | None) -> str:
+def _select_primary_provider(task_type: str, provider_override: str | None, settings: Mapping[str, Any] | None = None) -> str:
     if provider_override:
         return normalize_provider(provider_override)
+    
+    # Check if ai_provider is configured in settings
+    configured_provider = settings.get("ai_provider") if settings else None
+    if configured_provider:
+        return normalize_provider(configured_provider)
+    
+    # Default behavior by task type
     if task_type == "candidate":
         return "openrouter"
     return "ollama"
@@ -118,7 +125,7 @@ def get_routing_policy(
     del complexity
     normalized_task = task_type if task_type in AI_TASK_TYPES else "analysis"
     payload = dict(settings or {})
-    provider = _select_primary_provider(normalized_task, provider_override)
+    provider = _select_primary_provider(normalized_task, provider_override, payload)
     model = str(model_override or "").strip() or _get_model_for_task(normalized_task, provider, payload)
     defaults = _TASK_DEFAULTS.get(normalized_task, _TASK_DEFAULTS["analysis"])
 
