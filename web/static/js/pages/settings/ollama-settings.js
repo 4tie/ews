@@ -99,7 +99,13 @@ function renderModels(result) {
           </div>
           <div class="settings-ai-card__badges">
             <span class="settings-ai-badge">Tool calling: ${model.tool_calling_supported_by_model ? "Supported by model" : "No"}</span>
-            <span class="settings-ai-badge settings-ai-badge--muted">App tools: Disabled</span>
+            <span class="settings-ai-badge ${model.tool_calling_can_be_enabled ? "settings-ai-badge--interactive" : "settings-ai-badge--muted"}">
+              App tools: 
+              ${model.tool_calling_can_be_enabled 
+                ? `<label class="toggle-inline" style="margin-left: 4px;"><input type="checkbox" class="toggle-tools" data-model="${escapeHtml(model.name)}" ${model.tool_calling_enabled_in_app ? "checked" : ""}> <span>${model.tool_calling_enabled_in_app ? "Enabled" : "Disabled"}</span></label>`
+                : "Disabled"
+              }
+            </span>
           </div>
         </header>
         <div class="settings-ai-card__caps">
