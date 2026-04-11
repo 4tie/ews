@@ -1,13 +1,27 @@
 /**
- * strategy-panel.js — Handle strategy selection.
+ * strategy-panel.js — Manages strategy select state and persistence.
  */
 
-import { setState } from "../../../core/state.js";
+import { setState, getState } from "../../../core/state.js";
+import { emit, EVENTS } from "../../../core/events.js";
+import persistence, { KEYS } from "../../../core/persistence.js";
+import { usePersistentState } from "../../../core/usePersistentState.js";
+
+const select = document.getElementById("select-strategy");
 
 export function initStrategyPanel() {
-  const strategySelect = document.getElementById("select-strategy");
+  if (!select) return;
+
+  const [savedConfig, setSavedConfig] = usePersistentState(KEYS.BACKTEST_CONFIG, {});
   
-  strategySelect?.addEventListener("change", () => {
-    setState("backtest.strategy", strategySelect.value);
+  if (savedConfig.strategy) {
+    select.value = savedConfig.strategy;
+    setState("backtest.strategy", savedConfig.strategy);
+  }
+
+  select.addEventListener("change", () => {
+    const val = select.value;
+    setState("backtest.strategy", val);
+    setSavedConfig(prev => ({ ...prev, strategy: val }));
   });
 }

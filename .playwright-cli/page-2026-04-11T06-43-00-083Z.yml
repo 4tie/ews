@@ -1,0 +1,252 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: 4tie
+      - generic [ref=e6]: Control Panel
+    - navigation [ref=e7]:
+      - link "Backtesting" [ref=e8] [cursor=pointer]:
+        - /url: /backtesting
+        - img [ref=e9]
+        - generic [ref=e11]: Backtesting
+      - link "Optimizer" [ref=e12] [cursor=pointer]:
+        - /url: /optimizer
+        - img [ref=e13]
+        - generic [ref=e16]: Optimizer
+      - link "Settings" [ref=e17] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e18]
+        - generic [ref=e21]: Settings
+    - generic [ref=e22]: v0.1.0
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - heading "Backtesting" [level=1] [ref=e26]
+      - generic [ref=e30]: Idle
+    - main [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - heading "Run Configuration" [level=2] [ref=e35]
+            - generic [ref=e36]:
+              - button "Load Config" [ref=e37] [cursor=pointer]
+              - button "Save Config" [ref=e38] [cursor=pointer]
+          - generic [ref=e39]:
+            - generic [ref=e40]:
+              - generic [ref=e41]: Strategy
+              - combobox "Strategy" [ref=e42] [cursor=pointer]:
+                - option "Select strategy…"
+                - option "AIStrategy"
+                - option "Diamond"
+                - option "mabStra"
+                - option "MohsBaseline"
+                - option "MultiMa" [selected]
+                - option "PatternRecognition"
+                - option "SwingHighToSky"
+                - option "TestLatestResults"
+                - option "UniversalMACD"
+            - generic [ref=e43]:
+              - generic [ref=e44]: Timeframe
+              - combobox "Timeframe" [ref=e45] [cursor=pointer]:
+                - option "Select timeframe…" [selected]
+                - option "1m"
+                - option "3m"
+                - option "5m"
+                - option "15m"
+                - option "30m"
+                - option "1h"
+                - option "2h"
+                - option "4h"
+                - option "6h"
+                - option "8h"
+                - option "12h"
+                - option "1d"
+                - option "3d"
+                - option "1w"
+            - generic [ref=e46]:
+              - generic [ref=e47]: Exchange
+              - combobox "Exchange" [ref=e48] [cursor=pointer]:
+                - option "Binance" [selected]
+                - option "KuCoin"
+                - option "Bybit"
+                - option "OKX"
+                - option "Gate.io"
+            - generic [ref=e49]:
+              - generic [ref=e50]: Max Open Trades
+              - spinbutton "Max Open Trades" [ref=e51]: "1"
+            - generic [ref=e52]:
+              - generic [ref=e53]: Dry Run Wallet
+              - spinbutton "Dry Run Wallet" [ref=e54]: "100"
+            - generic [ref=e55]:
+              - generic [ref=e56]: Time Range
+              - generic [ref=e57]:
+                - button "Last 7 days" [ref=e58] [cursor=pointer]
+                - button "Last 30 days" [ref=e59] [cursor=pointer]
+                - button "Last 90 days" [ref=e60] [cursor=pointer]
+                - button "YTD" [ref=e61] [cursor=pointer]
+              - generic [ref=e62]:
+                - generic [ref=e63]:
+                  - generic [ref=e64]: Start Date
+                  - textbox "Start Date" [ref=e65]
+                - generic [ref=e66]:
+                  - generic [ref=e67]: End Date
+                  - textbox "End Date" [ref=e68]
+            - generic [ref=e69]:
+              - generic [ref=e70]: Pairs
+              - generic [ref=e71]:
+                - textbox "Pairs" [ref=e72]:
+                  - /placeholder: BTC/USDT, ETH/USDT (one per line) or paste JSON config
+                - button "Add" [ref=e73] [cursor=pointer]
+              - generic [ref=e74]: "Supported: BTC/USDT, ETH/USDT (comma or newline separated), or JSON {\"pair_whitelist\": [...]}"
+              - generic [ref=e75]:
+                - button "BTC/USDT" [ref=e76] [cursor=pointer]
+                - button "ETH/USDT" [ref=e77] [cursor=pointer]
+                - button "SOL/USDT" [ref=e78] [cursor=pointer]
+                - button "XRP/USDT" [ref=e79] [cursor=pointer]
+                - button "DOGE/USDT" [ref=e80] [cursor=pointer]
+                - button "ADA/USDT" [ref=e81] [cursor=pointer]
+                - button "BNB/USDT" [ref=e82] [cursor=pointer]
+                - button "AVAX/USDT" [ref=e83] [cursor=pointer]
+                - button "LINK/USDT" [ref=e84] [cursor=pointer]
+                - button "DOT/USDT" [ref=e85] [cursor=pointer]
+                - button "MATIC/USDT" [ref=e86] [cursor=pointer]
+                - button "UNI/USDT" [ref=e87] [cursor=pointer]
+                - button "AAVE/USDT" [ref=e88] [cursor=pointer]
+                - button "SAND/USDT" [ref=e89] [cursor=pointer]
+                - button "FIL/USDT" [ref=e90] [cursor=pointer]
+                - button "MANA/USDT" [ref=e91] [cursor=pointer]
+                - button "AXS/USDT" [ref=e92] [cursor=pointer]
+                - button "GRT/USDT" [ref=e93] [cursor=pointer]
+                - button "NEAR/USDT" [ref=e94] [cursor=pointer]
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - heading "Command Preview" [level=2] [ref=e97]
+            - button "Copy" [ref=e98] [cursor=pointer]
+          - generic [ref=e100]: freqtrade backtesting --strategy MultiMa --config T:\Optimizer\user_data\config.json --dry-run-wallet 100 --max-open-trades 1 --export trades --backtest-directory user_data/backtest_results\MultiMa --notes <run_id> --cache none
+        - generic [ref=e101]:
+          - heading "Data" [level=2] [ref=e103]
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - heading "Validation" [level=3] [ref=e106]
+              - generic [ref=e107]: Run validation to check available OHLCV data.
+              - button "Validate Data" [ref=e108] [cursor=pointer]
+            - generic [ref=e109]:
+              - heading "Download" [level=3] [ref=e110]
+              - generic [ref=e111]: No download in progress.
+              - button "Download Data" [ref=e112] [cursor=pointer]
+        - generic [ref=e114]:
+          - button "Run Backtest" [ref=e115] [cursor=pointer]
+          - button "Stop" [disabled]
+          - generic [ref=e118]: Ready
+        - generic [ref=e120]:
+          - heading "Live Log" [level=2] [ref=e121]
+          - button "Clear" [ref=e122] [cursor=pointer]
+        - generic [ref=e125]:
+          - heading "Results" [level=2] [ref=e127]
+          - generic [ref=e128]:
+            - generic [ref=e129]:
+              - button "Summary" [ref=e130] [cursor=pointer]
+              - button "Trades" [ref=e131] [cursor=pointer]
+              - button "Pairs" [ref=e132] [cursor=pointer]
+              - button "Charts" [ref=e133] [cursor=pointer]
+              - button "Compare" [ref=e134] [cursor=pointer]
+              - button "History" [ref=e135] [cursor=pointer]
+              - button "Configs" [ref=e136] [cursor=pointer]
+              - button "Export" [ref=e137] [cursor=pointer]
+            - generic [ref=e138]:
+              - generic [ref=e139]:
+                - generic [ref=e205]: No summary data available.
+                - generic [ref=e142]:
+                  - generic [ref=e206]:
+                    - generic [ref=e207]: Run Diagnosis
+                    - generic [ref=e208]:
+                      - generic [ref=e209]:
+                        - strong [ref=e210]: "Strategy:"
+                        - text: MultiMa
+                      - generic [ref=e211]:
+                        - strong [ref=e212]: "Run:"
+                        - text: "?"
+                      - generic [ref=e213]:
+                        - strong [ref=e214]: "Version:"
+                        - text: "?"
+                      - generic [ref=e215]:
+                        - strong [ref=e216]: "Status:"
+                        - text: pending_summary
+                    - generic [ref=e217]: Summary is not ready for diagnosis yet.
+                  - generic [ref=e218]:
+                    - generic [ref=e219]: Primary Issues
+                    - generic [ref=e220]: No deterministic issues are currently flagged for this run.
+                  - generic [ref=e221]:
+                    - generic [ref=e222]: Evidence Gaps
+                    - generic [ref=e223]: All deterministic rules had the evidence they needed.
+                  - generic [ref=e224]:
+                    - generic [ref=e225]: AI Overlay
+                    - generic [ref=e226]: AI overlay disabled for this view.
+                - generic [ref=e165]:
+                  - generic [ref=e166]: AI Chat
+                  - generic [ref=e227]:
+                    - generic [ref=e228]:
+                      - strong [ref=e229]: Strategy
+                      - text: MultiMa
+                    - generic [ref=e230]:
+                      - strong [ref=e231]: Run Context
+                      - text: No latest run loaded
+                    - generic [ref=e232]:
+                      - strong [ref=e233]: Version
+                      - text: Unavailable
+                    - generic [ref=e234]:
+                      - strong [ref=e235]: Version Source
+                      - text: Loading version context
+                    - generic [ref=e236]:
+                      - strong [ref=e237]: Code Context
+                      - text: Loading code snapshot
+                    - generic [ref=e238]:
+                      - strong [ref=e239]: Result Context
+                      - text: No latest persisted run summary loaded
+                  - generic [ref=e169]:
+                    - button "Explain Weaknesses" [ref=e170] [cursor=pointer]
+                    - button "Lower Drawdown" [ref=e171] [cursor=pointer]
+                    - button "Improve Exits" [ref=e172] [cursor=pointer]
+                  - article [ref=e240]:
+                    - generic [ref=e242]: AI Panel
+                    - generic [ref=e243]: Ask for analysis of the selected strategy or generate a candidate change from the latest loaded backtest. Candidate creation stages a new version only. Nothing is promoted automatically.
+                  - generic [ref=e175]: Ask AI
+                  - textbox "Ask AI" [ref=e176]:
+                    - /placeholder: Ask for analysis, risk reduction ideas, or a candidate change grounded in the current strategy and latest backtest context.
+                  - generic [ref=e177]:
+                    - generic [ref=e178]: Load a run or ensure the strategy has a saved version snapshot for stronger AI context.
+                    - generic [ref=e179]:
+                      - button "Generate Candidate" [ref=e180] [cursor=pointer]
+                      - button "Ask AI" [ref=e181] [cursor=pointer]
+              - option "bt-e54efd47 | MultiMa | Completed | +12.13% | 4/11/2026, 9:41:49 AM" [selected]
+              - option "bt-aac87cac | MultiMa | Completed | +12.13% | 4/11/2026, 9:24:28 AM"
+              - option "bt-01a6edfa | MultiMa | Completed | +1.13% | 4/11/2026, 9:24:07 AM"
+              - option "bt-1115979f | MultiMa | Completed | +1.13% | 4/11/2026, 8:49:14 AM"
+              - option "bt-21fd45b8 | MultiMa | Completed | +1.13% | 4/11/2026, 8:57:14 AM"
+              - option "bt-8f3e2379 | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-de9efeba | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-684e2b6d | MultiMa | Completed | +13.46% | 4/10/2026, 6:45:16 PM"
+              - option "bt-86d39e4c | MultiMa | Completed | +13.46% | 4/10/2026, 6:27:20 PM"
+              - option "bt-278b6bfd | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:36 PM"
+              - option "bt-b2cdaa4c | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:19 PM"
+              - option "bt-5302f014 | MultiMa | Completed | +12.13% | 4/10/2026, 5:45:16 PM"
+              - option "bt-636f0dbf | MultiMa | Completed | +12.13% | 4/10/2026, 5:44:40 PM"
+              - option "bt-8f392464 | MultiMa | Completed | +12.13% | 4/10/2026, 4:26:48 PM"
+              - option "bt-b09471d3 | MultiMa | Completed | +12.13% | 4/10/2026, 3:43:35 PM"
+              - option "bt-7a798361 | MultiMa | Completed | +12.13% | 4/10/2026, 3:42:52 PM"
+              - option "bt-f68fbd99 | MultiMa | Completed | +12.13% | 4/10/2026, 2:50:38 PM"
+              - option "bt-e54efd47 | MultiMa | Completed | +12.13% | 4/11/2026, 9:41:49 AM"
+              - option "bt-aac87cac | MultiMa | Completed | +12.13% | 4/11/2026, 9:24:28 AM" [selected]
+              - option "bt-01a6edfa | MultiMa | Completed | +1.13% | 4/11/2026, 9:24:07 AM"
+              - option "bt-1115979f | MultiMa | Completed | +1.13% | 4/11/2026, 8:49:14 AM"
+              - option "bt-21fd45b8 | MultiMa | Completed | +1.13% | 4/11/2026, 8:57:14 AM"
+              - option "bt-8f3e2379 | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-de9efeba | MultiMa | Completed | +1.13% | 4/11/2026, 8:45:06 AM"
+              - option "bt-684e2b6d | MultiMa | Completed | +13.46% | 4/10/2026, 6:45:16 PM"
+              - option "bt-86d39e4c | MultiMa | Completed | +13.46% | 4/10/2026, 6:27:20 PM"
+              - option "bt-278b6bfd | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:36 PM"
+              - option "bt-b2cdaa4c | MultiMa | Completed | +12.13% | 4/10/2026, 5:56:19 PM"
+              - option "bt-5302f014 | MultiMa | Completed | +12.13% | 4/10/2026, 5:45:16 PM"
+              - option "bt-636f0dbf | MultiMa | Completed | +12.13% | 4/10/2026, 5:44:40 PM"
+              - option "bt-8f392464 | MultiMa | Completed | +12.13% | 4/10/2026, 4:26:48 PM"
+              - option "bt-b09471d3 | MultiMa | Completed | +12.13% | 4/10/2026, 3:43:35 PM"
+              - option "bt-7a798361 | MultiMa | Completed | +12.13% | 4/10/2026, 3:42:52 PM"
+              - option "bt-f68fbd99 | MultiMa | Completed | +12.13% | 4/10/2026, 2:50:38 PM"

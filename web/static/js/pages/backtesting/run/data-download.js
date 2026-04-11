@@ -1,83 +1,77 @@
 /**
- * data-download.js — Handle data download requests.
+ * data-download.js - Handles the data download button and status display.
  */
 
 import api from "../../../core/api.js";
-import showToast from "../../../components/toast.js";
 import { getState } from "../../../core/state.js";
+import showToast from "../../../components/toast.js";
+import { setButtonLoading } from "../../../components/loading-state.js";
+import { refreshDownloadPreview } from "../../../components/command-preview.js";
+import { startStream } from "./log-panel.js";
+
+const downloadBtn = document.getElementById("btn-download-data");
+const downloadOutput = document.getElementById("data-download-output");
 
 export function initDataDownload() {
-  const downloadBtn = document.getElementById("btn-download-data");
-  const downloadOutput = document.getElementById("data-download-output");
-  
   downloadBtn?.addEventListener("click", async () => {
+    const strategy = getState("backtest.strategy");
+    const timeframe = getState("backtest.timeframe");
     const pairs = getState("backtest.pairs") || [];
-    const timeframe = document.getElementById("select-timeframe")?.value;
-    const exchange = document.getElementById("select-exchange")?.value || "binance";
-    
+    const startDate = getState("backtest.startDate");
+    const endDate = getState("backtest.endDate");
+    const timerange = startDate && endDate
+      ? `${startDate.replace(/-/g, "")}-${endDate.replace(/-/g, "")}`
+      : undefined;
+
     if (!pairs.length) {
-      showToast("Please add pairs first", "warning");
+      showToast("Add at least one pair before downloading data.", "warning");
       return;
     }
-    
-    if (!timeframe) {
-      showToast("Please select a timeframe", "warning");
-      return;
-    }
-    
-    downloadBtn.disabled = true;
-    if (downloadOutput) {
-      downloadOutput.innerHTML = '<span class="muted">Downloading...</span>';
-    }
-    
+
+    const prepend = true;
+
+    await refreshDownloadPreview({
+      strategy,
+      timeframe,
+      pairs,
+      startDate,
+      endDate,
+      prepend,
+    });
+
+    setButtonLoading(downloadBtn, true, "Downloading...");
+    if (downloadOutput) downloadOutput.textContent = "Starting download...";
+
     try {
-      const response = await api.backtest.downloadData({
-        pairs,
-        timeframe,
-        exchange,
+      const res = await api.backtest.downloadData({ strategy, timeframe, pairs, timerange, prepend });
+      if (res.error) throw new Error(res.error);
+
+      const downloadId = res.download_id;
+      if (downloadOutput) downloadOutput.textContent = `Download ${downloadId} - ${res.status}`;
+      showToast(`Data download started: ${downloadId}`, "info");
+
+      startStream(`/api/backtest/download-data/${downloadId}/logs/stream`, {
+        onDone: (status, exitCode) => {
+          const s = String(status || "");
+          if (downloadOutput) {
+            downloadOutput.textContent = `Download ${downloadId} - ${s} (exit ${exitCode ?? "?"})`;
+          }
+
+          if (s === "completed") {
+            showToast("Data download completed.", "success");
+          } else if (s === "failed") {
+            showToast("Data download failed.", "error");
+          } else {
+            showToast(`Data download stream ended: ${s || "unknown"}`, "warning");
+          }
+
+          setButtonLoading(downloadBtn, false);
+        },
       });
-      
-      showToast("Download started", "success");
-      if (downloadOutput) {
-        downloadOutput.innerHTML = `<span>Download ID: ${response.download_id}</span>`;
-      }
-      
-      // Stream logs
-      streamDownloadLogs(response.download_id, downloadOutput);
-      
-    } catch (error) {
-      showToast("Download failed: " + error.message, "error");
-      if (downloadOutput) {
-        downloadOutput.innerHTML = `<span class="error">${error.message}</span>`;
-      }
-    } finally {
-      downloadBtn.disabled = false;
+    } catch (e) {
+      showToast("Download failed: " + e.message, "error");
+      if (downloadOutput) downloadOutput.textContent = "Error: " + e.message;
+      setButtonLoading(downloadBtn, false);
     }
   });
-}
-
-async function streamDownloadLogs(downloadId, outputEl) {
-  try {
-    const eventSource = new EventSource(`/api/backtest/download-data/${downloadId}/logs/stream`);
-    
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const line = data.line || "";
-      
-      if (outputEl) {
-        outputEl.innerHTML = `<span>${line}</span>`;
-      }
-      
-      if (line.includes("[done]")) {
-        eventSource.close();
-      }
-    };
-    
-    eventSource.onerror = () => {
-      eventSource.close();
-    };
-    
-  } catch (error) {
-    console.error("Download stream error:", error);
-  }
 }

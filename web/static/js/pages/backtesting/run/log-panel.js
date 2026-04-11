@@ -1,50 +1,69 @@
 /**
- * log-panel.js — Consume and display SSE log stream.
+ * log-panel.js � Manages the backtesting live log viewer.
  */
 
-import { on, EVENTS } from "../../../core/events.js";
+import { appendLogLine, clearLog } from "../../shared/backtest/log_renderer.js";
 
-const logViewer = document.getElementById("log-viewer");
+const viewer   = document.getElementById("log-viewer");
 const clearBtn = document.getElementById("btn-clear-log");
 
+let _source = null;
+const MAX_LINES = 2000;
+
+function trimViewer() {
+  if (!viewer) return;
+  const extra = viewer.childElementCount - MAX_LINES;
+  if (extra <= 0) return;
+  for (let i = 0; i < extra; i++) {
+    if (!viewer.firstElementChild) break;
+    viewer.removeChild(viewer.firstElementChild);
+  }
+}
+
+export function startStream(url, { onDone } = {}) {
+  stopStream();
+  if (!viewer) return;
+
+  clearLog(viewer);
+
+  _source = new EventSource(url);
+  _source.onmessage = (e) => {
+    let payload = null;
+    try {
+      payload = JSON.parse(e.data);
+    } catch {
+      payload = null;
+    }
+
+    const line = payload?.line ?? e.data;
+    appendLogLine(viewer, line);
+    trimViewer();
+
+    if (payload?.status) {
+      onDone?.(payload.status, payload.exit_code, payload.error);
+      stopStream();
+    }
+  };
+
+  _source.onerror = () => {
+    appendLogLine(viewer, "[stream] Connection closed.");
+    onDone?.("disconnected", null);
+    stopStream();
+  };
+}
+
+export function stopStream() {
+  if (_source) {
+    _source.close();
+    _source = null;
+  }
+}
+
 export function initLogPanel() {
-  clearBtn?.addEventListener("click", clearLogs);
-  
-  // Listen for log events
-  on("backtest:log", onLogLine);
+  clearBtn?.addEventListener("click", () => clearLog(viewer));
 }
 
-function onLogLine(data) {
-  if (!data || !data.line) return;
-  
-  const line = data.line;
-  
-  // Create log entry
-  const entry = document.createElement("div");
-  entry.className = "log-entry";
-  
-  // Color code based on content
-  if (line.includes("[error]") || line.includes("Error") || line.includes("FAILED")) {
-    entry.className += " log-entry--error";
-  } else if (line.includes("[warn]") || line.includes("Warning")) {
-    entry.className += " log-entry--warning";
-  } else if (line.includes("[done]") || line.includes("Completed")) {
-    entry.className += " log-entry--success";
-  } else if (line.includes("[stream]")) {
-    entry.className += " log-entry--info";
-  }
-  
-  entry.textContent = line;
-  
-  if (logViewer) {
-    logViewer.appendChild(entry);
-    // Auto-scroll to bottom
-    logViewer.scrollTop = logViewer.scrollHeight;
-  }
-}
-
-function clearLogs() {
-  if (logViewer) {
-    logViewer.innerHTML = "";
-  }
+export function appendLine(line) {
+  appendLogLine(viewer, line);
+  trimViewer();
 }

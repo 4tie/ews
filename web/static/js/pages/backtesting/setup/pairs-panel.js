@@ -1,64 +1,21 @@
 /**
- * pairs-panel.js — Handle pair input and tag list.
+ * pairs-panel.js — Restores saved pairs on load and persists changes.
  */
 
-import { setState, getState } from "../../../core/state.js";
-import { emit, EVENTS } from "../../../core/events.js";
+import { getState } from "../../../core/state.js";
+import { on, EVENTS } from "../../../core/events.js";
+import persistence, { KEYS } from "../../../core/persistence.js";
+import { setPairsFromArray } from "../../../components/pair-input.js";
+import { usePersistentState } from "../../../core/usePersistentState.js";
 
 export function initPairsPanel() {
-  const pairInput = document.getElementById("input-pair-add");
-  const addBtn = document.getElementById("btn-add-pair");
-  const tagList = document.getElementById("pairs-tag-list");
+  const [savedConfig, setSavedConfig] = usePersistentState(KEYS.BACKTEST_CONFIG, {});
   
-  addBtn?.addEventListener("click", () => {
-    const value = pairInput?.value?.trim();
-    if (!value) return;
-    
-    // Parse comma or newline separated pairs
-    const pairs = value.split(/[,\n]/).map(p => p.trim()).filter(Boolean);
-    
-    const currentPairs = getState("backtest.pairs") || [];
-    const newPairs = [...new Set([...currentPairs, ...pairs])];
-    
-    setState("backtest.pairs", newPairs);
-    if (pairInput) pairInput.value = "";
-    
-    renderPairTags(newPairs, tagList);
-    emit(EVENTS.PAIRS_UPDATED, newPairs);
-  });
-  
-  // Allow Enter key to add
-  pairInput?.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-      addBtn?.click();
-    }
-  });
-  
-  // Render initial pairs
-  const initialPairs = getState("backtest.pairs") || [];
-  renderPairTags(initialPairs, tagList);
-}
+  if (savedConfig.pairs?.length) {
+    setPairsFromArray(savedConfig.pairs);
+  }
 
-function renderPairTags(pairs, container) {
-  if (!container) return;
-  
-  container.innerHTML = "";
-  
-  pairs.forEach(pair => {
-    const tag = document.createElement("div");
-    tag.className = "tag";
-    tag.innerHTML = `
-      <span>${pair}</span>
-      <button class="tag-remove" data-pair="${pair}">×</button>
-    `;
-    
-    tag.querySelector(".tag-remove")?.addEventListener("click", () => {
-      const updated = pairs.filter(p => p !== pair);
-      setState("backtest.pairs", updated);
-      renderPairTags(updated, container);
-      emit(EVENTS.PAIRS_UPDATED, updated);
-    });
-    
-    container.appendChild(tag);
+  on(EVENTS.PAIRS_UPDATED, (pairs) => {
+    setSavedConfig(prev => ({ ...prev, pairs }));
   });
 }

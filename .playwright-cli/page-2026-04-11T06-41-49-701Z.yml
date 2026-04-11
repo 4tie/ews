@@ -1,0 +1,197 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: 4tie
+      - generic [ref=e6]: Control Panel
+    - navigation [ref=e7]:
+      - link "Backtesting" [ref=e8] [cursor=pointer]:
+        - /url: /backtesting
+        - img [ref=e9]
+        - generic [ref=e11]: Backtesting
+      - link "Optimizer" [ref=e12] [cursor=pointer]:
+        - /url: /optimizer
+        - img [ref=e13]
+        - generic [ref=e16]: Optimizer
+      - link "Settings" [ref=e17] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e18]
+        - generic [ref=e21]: Settings
+    - generic [ref=e22]: v0.1.0
+  - generic [ref=e23]:
+    - banner [ref=e24]:
+      - heading "Backtesting" [level=1] [ref=e26]
+      - generic [ref=e30]: Idle
+    - main [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - heading "Run Configuration" [level=2] [ref=e35]
+            - generic [ref=e36]:
+              - button "Load Config" [ref=e37] [cursor=pointer]
+              - button "Save Config" [ref=e38] [cursor=pointer]
+          - generic [ref=e39]:
+            - generic [ref=e40]:
+              - generic [ref=e41]: Strategy
+              - combobox "Strategy" [ref=e42] [cursor=pointer]:
+                - option "Select strategy…" [selected]
+                - option "AIStrategy"
+                - option "Diamond"
+                - option "mabStra"
+                - option "MohsBaseline"
+                - option "MultiMa"
+                - option "PatternRecognition"
+                - option "SwingHighToSky"
+                - option "TestLatestResults"
+                - option "UniversalMACD"
+            - generic [ref=e43]:
+              - generic [ref=e44]: Timeframe
+              - combobox "Timeframe" [ref=e45] [cursor=pointer]:
+                - option "Select timeframe…" [selected]
+                - option "1m"
+                - option "3m"
+                - option "5m"
+                - option "15m"
+                - option "30m"
+                - option "1h"
+                - option "2h"
+                - option "4h"
+                - option "6h"
+                - option "8h"
+                - option "12h"
+                - option "1d"
+                - option "3d"
+                - option "1w"
+            - generic [ref=e46]:
+              - generic [ref=e47]: Exchange
+              - combobox "Exchange" [ref=e48] [cursor=pointer]:
+                - option "Binance" [selected]
+                - option "KuCoin"
+                - option "Bybit"
+                - option "OKX"
+                - option "Gate.io"
+            - generic [ref=e49]:
+              - generic [ref=e50]: Max Open Trades
+              - spinbutton "Max Open Trades" [ref=e51]: "1"
+            - generic [ref=e52]:
+              - generic [ref=e53]: Dry Run Wallet
+              - spinbutton "Dry Run Wallet" [ref=e54]: "100"
+            - generic [ref=e55]:
+              - generic [ref=e56]: Time Range
+              - generic [ref=e57]:
+                - button "Last 7 days" [ref=e58] [cursor=pointer]
+                - button "Last 30 days" [ref=e59] [cursor=pointer]
+                - button "Last 90 days" [ref=e60] [cursor=pointer]
+                - button "YTD" [ref=e61] [cursor=pointer]
+              - generic [ref=e62]:
+                - generic [ref=e63]:
+                  - generic [ref=e64]: Start Date
+                  - textbox "Start Date" [ref=e65]
+                - generic [ref=e66]:
+                  - generic [ref=e67]: End Date
+                  - textbox "End Date" [ref=e68]
+            - generic [ref=e69]:
+              - generic [ref=e70]: Pairs
+              - generic [ref=e71]:
+                - textbox "Pairs" [ref=e72]:
+                  - /placeholder: BTC/USDT, ETH/USDT (one per line) or paste JSON config
+                - button "Add" [ref=e73] [cursor=pointer]
+              - generic [ref=e74]: "Supported: BTC/USDT, ETH/USDT (comma or newline separated), or JSON {\"pair_whitelist\": [...]}"
+              - generic [ref=e75]:
+                - button "BTC/USDT" [ref=e76] [cursor=pointer]
+                - button "ETH/USDT" [ref=e77] [cursor=pointer]
+                - button "SOL/USDT" [ref=e78] [cursor=pointer]
+                - button "XRP/USDT" [ref=e79] [cursor=pointer]
+                - button "DOGE/USDT" [ref=e80] [cursor=pointer]
+                - button "ADA/USDT" [ref=e81] [cursor=pointer]
+                - button "BNB/USDT" [ref=e82] [cursor=pointer]
+                - button "AVAX/USDT" [ref=e83] [cursor=pointer]
+                - button "LINK/USDT" [ref=e84] [cursor=pointer]
+                - button "DOT/USDT" [ref=e85] [cursor=pointer]
+                - button "MATIC/USDT" [ref=e86] [cursor=pointer]
+                - button "UNI/USDT" [ref=e87] [cursor=pointer]
+                - button "AAVE/USDT" [ref=e88] [cursor=pointer]
+                - button "SAND/USDT" [ref=e89] [cursor=pointer]
+                - button "FIL/USDT" [ref=e90] [cursor=pointer]
+                - button "MANA/USDT" [ref=e91] [cursor=pointer]
+                - button "AXS/USDT" [ref=e92] [cursor=pointer]
+                - button "GRT/USDT" [ref=e93] [cursor=pointer]
+                - button "NEAR/USDT" [ref=e94] [cursor=pointer]
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - heading "Command Preview" [level=2] [ref=e97]
+            - button "Copy" [ref=e98] [cursor=pointer]
+          - generic [ref=e100]: "# Select a strategy to preview the command"
+        - generic [ref=e101]:
+          - heading "Data" [level=2] [ref=e103]
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - heading "Validation" [level=3] [ref=e106]
+              - generic [ref=e107]: Run validation to check available OHLCV data.
+              - button "Validate Data" [ref=e108] [cursor=pointer]
+            - generic [ref=e109]:
+              - heading "Download" [level=3] [ref=e110]
+              - generic [ref=e111]: No download in progress.
+              - button "Download Data" [ref=e112] [cursor=pointer]
+        - generic [ref=e114]:
+          - button "Run Backtest" [ref=e115] [cursor=pointer]
+          - button "Stop" [disabled]
+          - generic [ref=e118]: Ready
+        - generic [ref=e120]:
+          - heading "Live Log" [level=2] [ref=e121]
+          - button "Clear" [ref=e122] [cursor=pointer]
+        - generic [ref=e125]:
+          - heading "Results" [level=2] [ref=e127]
+          - generic [ref=e128]:
+            - generic [ref=e129]:
+              - button "Summary" [ref=e130] [cursor=pointer]
+              - button "Trades" [ref=e131] [cursor=pointer]
+              - button "Pairs" [ref=e132] [cursor=pointer]
+              - button "Charts" [ref=e133] [cursor=pointer]
+              - button "Compare" [ref=e134] [cursor=pointer]
+              - button "History" [ref=e135] [cursor=pointer]
+              - button "Configs" [ref=e136] [cursor=pointer]
+              - button "Export" [ref=e137] [cursor=pointer]
+            - generic [ref=e139]:
+              - generic [ref=e141]: No summary data available.
+              - generic [ref=e142]:
+                - generic [ref=e143]:
+                  - generic [ref=e144]: Run Diagnosis
+                  - generic [ref=e145]:
+                    - generic [ref=e146]:
+                      - strong [ref=e147]: "Strategy:"
+                      - text: "?"
+                    - generic [ref=e148]:
+                      - strong [ref=e149]: "Run:"
+                      - text: "?"
+                    - generic [ref=e150]:
+                      - strong [ref=e151]: "Version:"
+                      - text: "?"
+                    - generic [ref=e152]:
+                      - strong [ref=e153]: "Status:"
+                      - text: pending_summary
+                  - generic [ref=e154]: Summary is not ready for diagnosis yet.
+                - generic [ref=e155]:
+                  - generic [ref=e156]: Primary Issues
+                  - generic [ref=e157]: No deterministic issues are currently flagged for this run.
+                - generic [ref=e158]:
+                  - generic [ref=e159]: Evidence Gaps
+                  - generic [ref=e160]: All deterministic rules had the evidence they needed.
+                - generic [ref=e161]:
+                  - generic [ref=e162]: AI Overlay
+                  - generic [ref=e163]: AI overlay disabled for this view.
+              - generic [ref=e165]:
+                - generic [ref=e166]: AI Chat
+                - generic [ref=e168]: Select a strategy to enable AI analysis and candidate generation.
+                - generic [ref=e169]:
+                  - button "Explain Weaknesses" [ref=e170] [cursor=pointer]
+                  - button "Lower Drawdown" [ref=e171] [cursor=pointer]
+                  - button "Improve Exits" [ref=e172] [cursor=pointer]
+                - generic [ref=e174]: Ask AI about the selected strategy and latest loaded result.
+                - generic [ref=e175]: Ask AI
+                - textbox "Ask AI" [ref=e176]:
+                  - /placeholder: Ask for analysis, risk reduction ideas, or a candidate change grounded in the current strategy and latest backtest context.
+                - generic [ref=e177]:
+                  - generic [ref=e178]: Choose a strategy first. Candidate creation always stays versioned and unpromoted until you explicitly accept it.
+                  - generic [ref=e179]:
+                    - button "Generate Candidate" [ref=e180] [cursor=pointer]
+                    - button "Ask AI" [ref=e181] [cursor=pointer]
