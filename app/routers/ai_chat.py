@@ -242,15 +242,8 @@ def _sse(data: dict[str, Any]) -> str:
     payload = json.dumps(data, ensure_ascii=False)
     event_id = data.get("seq")
     if event_id is not None:
-        return f"id: {event_id}
-data: {payload}
-
-"
-    return f"data: {payload}
-
-"
-
-
+        return f"id: {event_id}\ndata: {payload}\n\n"
+    return f"data: {payload}\n\n"
 def _load_run_record(run_id: str) -> BacktestRunRecord:
     data = persistence.load_backtest_run(run_id)
     if not data:
@@ -355,4 +348,6 @@ async def _create_run_scoped_ai_candidate(
         "candidate_status": result.candidate_status,
         "message": result.message,
     }
+
+
 
