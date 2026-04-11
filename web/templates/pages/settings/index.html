@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 
 {% block page_css %}
 <link rel="stylesheet" href="/static/css/pages/settings.css" />
@@ -73,7 +73,7 @@
       </div>
     </section>
 
-    <section class="panel" id="settings-ai" data-animate data-animate-delay="120">
+    <section class="panel" id="settings-ollama" data-animate data-animate-delay="120">
       <div class="panel__header">
         <h2 class="panel__title">Local AI via Ollama</h2>
       </div>
@@ -106,42 +106,14 @@
       </div>
     </section>
 
-    <section class="panel" id="settings-ai" data-animate data-animate-delay="120">
+    <section class="panel" id="settings-ai-routing" data-animate data-animate-delay="120">
       <div class="panel__header">
         <h2 class="panel__title">AI Routing</h2>
       </div>
       <div class="panel__body">
         <p class="settings-description">
-          Choose the global provider, task-specific models, and secret environment variable references for the AI layer.
+          Override task-specific models and secret environment variable references used by the hybrid AI router.
         </p>
-        <div class="form-group">
-          <label class="form-label" for="set-ai-provider">AI Provider</label>
-          <select class="form-input" id="set-ai-provider" name="ai_provider">
-            <option value="ollama">Ollama (Local)</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="huggingface">Hugging Face</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="set-ai-classifier-model">Classifier Model</label>
-          <input class="form-input" type="text" id="set-ai-classifier-model" name="ai_classifier_model" placeholder="Leave blank to use the provider default" />
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="set-ai-analysis-model">Analysis Model</label>
-          <input class="form-input" type="text" id="set-ai-analysis-model" name="ai_analysis_model" placeholder="Leave blank to use the provider default" />
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="set-ai-candidate-model">Candidate Model</label>
-          <input class="form-input" type="text" id="set-ai-candidate-model" name="ai_candidate_model" placeholder="Leave blank to use the provider default" />
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="set-ai-overlay-model">Overlay Model</label>
-          <input class="form-input" type="text" id="set-ai-overlay-model" name="ai_overlay_model" placeholder="Leave blank to use the provider default" />
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="set-ollama-host">Ollama Host</label>
-          <input class="form-input" type="text" id="set-ollama-host" name="ollama_host" placeholder="http://localhost:11434" />
-        </div>
         <div class="form-group">
           <label class="form-label" for="set-openrouter-api-key-env">OpenRouter API Key Env Var</label>
           <input class="form-input" type="text" id="set-openrouter-api-key-env" name="openrouter_api_key_env" placeholder="OPENROUTER_API_KEY" />
