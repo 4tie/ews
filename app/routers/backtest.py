@@ -216,6 +216,24 @@ def _save_run_record(run_record: BacktestRunRecord) -> None:
     persistence.save_backtest_run(run_record.run_id, run_record.model_dump(mode="json"))
 
 
+def _process_started_for_run(process, run_record: BacktestRunRecord) -> bool:
+    created_at = getattr(run_record, "created_at", None)
+    if not created_at:
+        return True
+
+    try:
+        run_started_ts = datetime.fromisoformat(str(created_at)).timestamp()
+    except ValueError:
+        return True
+
+    process_started_ts = process.create_time()
+    if process_started_ts + 30 < run_started_ts:
+        return False
+    if process_started_ts - run_started_ts > 300:
+        return False
+    return True
+
+
 def _process_matches_run_record(run_record: BacktestRunRecord) -> bool:
     if psutil is None:
         return False
@@ -231,21 +249,99 @@ def _process_matches_run_record(run_record: BacktestRunRecord) -> bool:
         if process.status() == getattr(psutil, "STATUS_ZOMBIE", "zombie"):
             return False
 
-        created_at = getattr(run_record, "created_at", None)
-        if created_at:
-            try:
-                run_started_ts = datetime.fromisoformat(str(created_at)).timestamp()
-            except ValueError:
-                run_started_ts = None
-            if run_started_ts is not None:
-                process_started_ts = process.create_time()
-                if process_started_ts + 30 < run_started_ts:
-                    return False
-                if process_started_ts - run_started_ts > 300:
-                    return False
-        return True
+        return _process_started_for_run(process, run_record)
     except psutil.Error:
         return False
+
+
+def _resolve_process_exit_code(run_record: BacktestRunRecord) -> int | None:
+    if run_record.exit_code is not None:
+        return run_record.exit_code
+    if psutil is None:
+        return None
+
+    pid = getattr(run_record, "pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+
+    try:
+        process = psutil.Process(pid)
+        if not _process_started_for_run(process, run_record):
+            return None
+        return process.wait(timeout=0)
+    except (psutil.TimeoutExpired, psutil.Error):
+        return None
+
+
+def _tail_log_lines(log_path: str | None, *, max_lines: int = 200) -> list[str]:
+    if not log_path or not os.path.isfile(log_path):
+        return []
+
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+            return [line.rstrip("\r\n") for line in handle.readlines()[-max_lines:]]
+    except OSError:
+        return []
+
+
+def _extract_level_message(line: str, level: str) -> str | None:
+    marker = f" - {level} - "
+    if marker not in line:
+        return None
+    message = line.split(marker, 1)[1].strip()
+    return message or None
+
+
+def _extract_process_failure_detail(run_record: BacktestRunRecord) -> str | None:
+    last_error = None
+    last_warning = None
+
+    for line in reversed(_tail_log_lines(run_record.artifact_path)):
+        if last_error is None:
+            last_error = _extract_level_message(line, "ERROR")
+
+        if last_warning is None:
+            warning = _extract_level_message(line, "WARNING")
+            if warning and ("download-data" in warning.lower() or "no history" in warning.lower()):
+                last_warning = warning
+
+        if last_error and last_warning:
+            break
+
+    if last_error and last_warning and last_error.lower().startswith("no data found"):
+        return f"{last_error} {last_warning}"
+    return last_error or last_warning
+
+
+def _build_process_failure_error(
+    run_record: BacktestRunRecord,
+    *,
+    exit_code: int | None = None,
+    fallback: str | None = None,
+) -> str:
+    detail = _extract_process_failure_detail(run_record)
+    if detail and exit_code is not None:
+        return f"process_failed: exit_code={exit_code} | {detail}"
+    if detail:
+        return f"process_failed: {detail}"
+    if exit_code is not None and fallback:
+        return f"process_failed: exit_code={exit_code} | {fallback}"
+    if exit_code is not None:
+        return f"process_failed: exit_code={exit_code}"
+    if fallback:
+        return f"process_failed: {fallback}"
+    return "process_failed"
+
+
+def _is_correctable_terminal_failure(run_record: BacktestRunRecord | None) -> bool:
+    if run_record is None:
+        return False
+    status_value = run_record.status.value if isinstance(run_record.status, BacktestRunStatus) else str(run_record.status)
+    if status_value != BacktestRunStatus.FAILED.value:
+        return False
+    if run_record.exit_code is not None:
+        return False
+    return str(run_record.error or "").startswith("process_failed: process exited before run finalization")
 
 
 def _finalize_successful_backtest_run(run_record: BacktestRunRecord, *, exit_code: int | None) -> BacktestRunRecord:
@@ -316,7 +412,16 @@ def _reconcile_stale_backtest_run(run_record: BacktestRunRecord) -> BacktestRunR
         run_record.raw_result_path = resolved_raw_result
         return _finalize_successful_backtest_run(run_record, exit_code=run_record.exit_code)
 
-    _mark_failed_run(run_record, "process_failed: process exited before run finalization", exit_code=run_record.exit_code)
+    exit_code = _resolve_process_exit_code(run_record)
+    _mark_failed_run(
+        run_record,
+        _build_process_failure_error(
+            run_record,
+            exit_code=exit_code,
+            fallback="process exited before run finalization",
+        ),
+        exit_code=exit_code,
+    )
     return run_record
 
 
@@ -355,28 +460,39 @@ def _mark_failed_run(run_record: BacktestRunRecord, error: str, exit_code: int |
 def _watch_backtest_process(run_id: str, process) -> None:
     try:
         current = _load_run_record(run_id)
-        if current is None or _is_terminal_status(current.status):
+        if current is None:
+            return
+        if _is_terminal_status(current.status) and not _is_correctable_terminal_failure(current):
             return
 
         try:
             exit_code = process.wait()
         except Exception as exc:
             current = _load_run_record(run_id)
-            if current is not None and not _is_terminal_status(current.status):
-                _mark_failed_run(current, f"process_failed: {exc}")
+            if current is not None and (
+                not _is_terminal_status(current.status) or _is_correctable_terminal_failure(current)
+            ):
+                _mark_failed_run(
+                    current,
+                    _build_process_failure_error(
+                        current,
+                        fallback=str(exc),
+                    ),
+                )
             return
 
         current = _load_run_record(run_id)
-        if current is None or _is_terminal_status(current.status):
+        if current is None:
+            return
+        if _is_terminal_status(current.status) and not _is_correctable_terminal_failure(current):
             return
 
         if exit_code != 0:
-            current.status = BacktestRunStatus.FAILED
-            current.error = f"process_failed: exit_code={exit_code}"
-            current.updated_at = now_iso()
-            current.completed_at = current.updated_at
-            current.exit_code = exit_code
-            _save_run_record(current)
+            _mark_failed_run(
+                current,
+                _build_process_failure_error(current, exit_code=exit_code),
+                exit_code=exit_code,
+            )
             return
 
         _finalize_successful_backtest_run(current, exit_code=exit_code)

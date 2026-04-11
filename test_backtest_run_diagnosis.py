@@ -1031,6 +1031,120 @@ def test_run_without_explicit_version_uses_active_candidate_workspace() -> None:
         print("[PASS] Active accepted version is used for runs without an explicit version id")
 
 
+class _ExitedProcess:
+    def __init__(self, exit_code: int):
+        self._exit_code = exit_code
+
+    def wait(self):
+        return self._exit_code
+
+
+
+def test_reconcile_stale_running_run_preserves_log_failure_detail() -> None:
+    with _PatchedEnv() as env:
+        strategy = "MissingDataReconcileStrategy"
+        version_id = _create_active_version(strategy, code="class MissingDataReconcileStrategy: pass\n")
+        run_id = "bt-missing-data-reconcile"
+        log_path = os.path.join(env.results_dir, strategy, f"{run_id}.backtest.log")
+        _write_text(
+            log_path,
+            "\n".join([
+                "$ freqtrade backtesting",
+                "2026-04-11 09:43:39,860 - freqtrade.data.history.datahandlers.idatahandler - WARNING - No history for BTC/USDT, spot, 5m found. Use `freqtrade download-data` to download the data",
+                "2026-04-11 09:43:39,863 - freqtrade - ERROR - No data found. Terminating.",
+            ]),
+        )
+        run = BacktestRunRecord(
+            run_id=run_id,
+            engine="freqtrade",
+            strategy=strategy,
+            version_id=version_id,
+            request_snapshot={
+                "strategy": strategy,
+                "timeframe": "5m",
+                "pairs": ["BTC/USDT"],
+            },
+            request_snapshot_schema_version=1,
+            trigger_source=BacktestTriggerSource.MANUAL,
+            created_at=now_iso(),
+            updated_at=now_iso(),
+            completed_at=None,
+            status=BacktestRunStatus.RUNNING,
+            command="freqtrade backtesting",
+            artifact_path=log_path,
+            raw_result_path=None,
+            result_path=None,
+            summary_path=None,
+            exit_code=None,
+            pid=999999,
+            error=None,
+        )
+
+        reconciled = backtest_router._reconcile_stale_backtest_run(run)
+
+        assert reconciled.status == BacktestRunStatus.FAILED
+        assert reconciled.exit_code is None
+        assert "No data found. Terminating." in str(reconciled.error)
+        assert "download-data" in str(reconciled.error)
+        print("[PASS] Stale running reconciliation preserves the actionable log failure detail")
+
+
+
+def test_watcher_repairs_generic_stale_failure_with_log_detail() -> None:
+    with _PatchedEnv() as env:
+        strategy = "MissingDataWatcherStrategy"
+        version_id = _create_active_version(strategy, code="class MissingDataWatcherStrategy: pass\n")
+        run_id = "bt-missing-data-watcher"
+        created_at = now_iso()
+        log_path = os.path.join(env.results_dir, strategy, f"{run_id}.backtest.log")
+        _write_text(
+            log_path,
+            "\n".join([
+                "$ freqtrade backtesting",
+                "2026-04-11 09:43:39,860 - freqtrade.data.history.datahandlers.idatahandler - WARNING - No history for BTC/USDT, spot, 5m found. Use `freqtrade download-data` to download the data",
+                "2026-04-11 09:43:39,863 - freqtrade - ERROR - No data found. Terminating.",
+            ]),
+        )
+
+        persistence_module.PersistenceService().save_backtest_run(
+            run_id,
+            {
+                "run_id": run_id,
+                "engine": "freqtrade",
+                "strategy": strategy,
+                "version_id": version_id,
+                "request_snapshot": {
+                    "strategy": strategy,
+                    "timeframe": "5m",
+                    "pairs": ["BTC/USDT"],
+                },
+                "request_snapshot_schema_version": 1,
+                "trigger_source": "manual",
+                "created_at": created_at,
+                "updated_at": created_at,
+                "completed_at": created_at,
+                "status": "failed",
+                "command": "freqtrade backtesting",
+                "artifact_path": log_path,
+                "raw_result_path": None,
+                "result_path": None,
+                "summary_path": None,
+                "exit_code": None,
+                "pid": 999999,
+                "error": "process_failed: process exited before run finalization",
+            },
+        )
+
+        backtest_router._watch_backtest_process(run_id, _ExitedProcess(2))
+        stored = persistence_module.PersistenceService().load_backtest_run(run_id)
+
+        assert stored["status"] == "failed"
+        assert stored["exit_code"] == 2
+        assert "No data found. Terminating." in str(stored["error"])
+        assert "download-data" in str(stored["error"])
+        print("[PASS] Backtest watcher repairs generic stale failures with exit code and log detail")
+
+
 def test_stream_reconciles_stale_running_run_to_completed() -> None:
     with _PatchedEnv() as env:
         strategy = "RecoveredStrategy"

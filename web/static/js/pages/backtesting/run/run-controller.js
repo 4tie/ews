@@ -22,16 +22,40 @@ function setStatus(state, label) {
   if (statusLbl) statusLbl.textContent = label;
 }
 
+function formatBacktestFailure(error) {
+  const raw = String(error || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  let message = raw
+    .replace(/^process_failed:\s*/, "")
+    .replace(/^launch_failed:\s*/, "")
+    .replace(/^exit_code=\d+\s*\|\s*/, "")
+    .trim();
+
+  if (message.includes("Use `freqtrade download-data`")) {
+    return message.replace("Use `freqtrade download-data` to download the data", "Use Download Data first");
+  }
+
+  if (message.includes("No data found")) {
+    return "No historical data matched this request. Use Download Data first.";
+  }
+
+  return message;
+}
+
 function finishRun(status, exitCode, error) {
   const s = String(status || "");
+  const failureMessage = formatBacktestFailure(error);
   if (s === "completed") {
     setStatus("done", `Completed (exit ${exitCode ?? 0})`);
     showToast("Backtest completed.", "success");
     emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
   } else if (s === "failed") {
-    setStatus("error", `Failed (exit ${exitCode ?? "?"})`);
-    showToast(error ? `Backtest failed: ${error}` : "Backtest failed.", "error");
-    emit(EVENTS.BACKTEST_FAILED, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
+    setStatus("error", exitCode != null ? `Failed (exit ${exitCode})` : "Failed");
+    showToast(failureMessage ? `Backtest failed: ${failureMessage}` : "Backtest failed.", "error");
+    emit(EVENTS.BACKTEST_FAILED, { run_id: _currentRunId, status: s, exit_code: exitCode, error: failureMessage || error });
   } else {
     setStatus("idle", s || "Done");
     emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
@@ -58,6 +82,23 @@ export async function startBacktestRun(payload, options = {}) {
   try {
     const res = await api.backtest.run(payload);
     _currentRunId = res.run_id;
+
+    if (res.status === "failed" || res.error) {
+      const message = formatBacktestFailure(res.error);
+      stopStream();
+      if (stopBtn) stopBtn.disabled = true;
+      setButtonLoading(runBtn, false);
+      setState("backtest.isRunning", false);
+      setStatus("error", res.exit_code != null ? `Failed (exit ${res.exit_code})` : "Failed");
+      emit(EVENTS.BACKTEST_FAILED, {
+        run_id: _currentRunId,
+        status: res.status || "failed",
+        exit_code: res.exit_code,
+        error: message || res.error,
+      });
+      throw new Error(message || res.error || "Backtest failed.");
+    }
+
     showToast(`Backtest started: ${_currentRunId}`, "info");
 
     startStream(`/api/backtest/runs/${_currentRunId}/logs/stream`, {
@@ -65,10 +106,15 @@ export async function startBacktestRun(payload, options = {}) {
     });
     return res;
   } catch (error) {
+    const message = formatBacktestFailure(error?.message || error);
     stopStream();
-    showToast("Run failed: " + error.message, "error");
-    setStatus("error", "Error");
-    emit(EVENTS.BACKTEST_FAILED, error);
+    showToast(message ? `Run failed: ${message}` : "Run failed.", "error");
+    setStatus("error", "Failed");
+    emit(EVENTS.BACKTEST_FAILED, {
+      run_id: _currentRunId,
+      status: "failed",
+      error: message || error?.message || String(error),
+    });
     if (stopBtn) stopBtn.disabled = true;
     setButtonLoading(runBtn, false);
     setState("backtest.isRunning", false);
