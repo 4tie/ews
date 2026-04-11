@@ -37,7 +37,7 @@ DEFAULT_FREQTRADE_SETTINGS: dict[str, Any] = {
     "default_timeframe": "5m",
     "default_max_open_trades": 3,
     "default_timerange": "",
-    "default_dry_run_wallet": 1000.0,
+    "default_dry_run_wallet": 100,
     "theme": "dark",
     "results_base_path": user_data_results_dir(),
     "config_path": default_freqtrade_config_path(),
