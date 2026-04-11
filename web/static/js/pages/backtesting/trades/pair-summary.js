@@ -1,49 +1,101 @@
-﻿/**
- * pair-summary.js â€” Renders the per-pair results table.
+/**
+ * pair-summary.js — Render per-pair summary table.
  */
 
+import api from "../../../core/api.js";
 import { on, EVENTS } from "../../../core/events.js";
-import { formatPct, el } from "../../../core/utils.js";
 
-const wrapper = document.getElementById("pairs-summary-wrapper");
+const pairsSummaryWrapper = document.getElementById("pairs-summary-wrapper");
 
 export function initPairSummary() {
-  on(EVENTS.RESULTS_LOADED, (data) => {
-    const pairs = data?.results_per_pair || [];
-    renderPairSummary(wrapper, pairs);
-  });
+  on(EVENTS.BACKTEST_COMPLETE, onBacktestComplete);
 }
 
-function renderPairSummary(container, pairs) {
-  if (!container) return;
-  if (!pairs.length) {
-    container.innerHTML = '<div class="info-empty">No per-pair data.</div>';
+async function onBacktestComplete(data) {
+  const runId = data.run_id;
+  if (!runId) return;
+  
+  try {
+    const response = await api.get(`/api/backtest/runs/${runId}`);
+    const run = response.run;
+    
+    if (!run.summary_available) {
+      if (pairsSummaryWrapper) {
+        pairsSummaryWrapper.innerHTML = '<div class="info-empty">Summary not yet available.</div>';
+      }
+      return;
+    }
+    
+    // Load summary
+    const summaryResponse = await api.backtest.summary(run.strategy);
+    const summary = summaryResponse.summary;
+    
+    if (summary && summary[run.strategy]) {
+      const resultsPerPair = summary[run.strategy].results_per_pair || [];
+      renderPairSummary(resultsPerPair);
+    }
+    
+  } catch (error) {
+    console.error("Failed to load pair summary:", error);
+  }
+}
+
+function renderPairSummary(results) {
+  if (!pairsSummaryWrapper) return;
+  
+  if (!results || results.length === 0) {
+    pairsSummaryWrapper.innerHTML = '<div class="info-empty">No pair summary available.</div>';
     return;
   }
-  const table = el("table", { class: "data-table" });
-  table.innerHTML = `
-    <thead><tr>
-      <th>Pair</th><th>Profit %</th><th>Trades</th><th>Wins</th><th>Losses</th>
-    </tr></thead>
-  `;
-  const tbody = el("tbody");
-  pairs.forEach(p => {
-    let pct = p?.profit_total_pct;
-    if (pct == null) pct = (p?.profit_total ?? 0) * 100;
-    pct = parseFloat(pct ?? 0);
-    if (!Number.isFinite(pct)) pct = 0;
-
-    const row = el("tr");
-    row.innerHTML = `
-      <td>${p.key ?? p.pair ?? "â€”"}</td>
-      <td class="${pct >= 0 ? "positive" : "negative"}">${formatPct(pct)}</td>
-      <td>${p.trades ?? "â€”"}</td>
-      <td>${p.wins ?? "â€”"}</td>
-      <td>${p.losses ?? "â€”"}</td>
-    `;
+  
+  const table = document.createElement("table");
+  table.className = "pair-summary-table";
+  
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  
+  const headers = ["Pair", "Trades", "Profit %", "Profit Abs", "Win Rate"];
+  headers.forEach(header => {
+    const th = document.createElement("th");
+    th.textContent = header;
+    headerRow.appendChild(th);
+  });
+  
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+  
+  const tbody = document.createElement("tbody");
+  
+  results.forEach(result => {
+    if (result.key === "TOTAL") return; // Skip total row
+    
+    const row = document.createElement("tr");
+    
+    const pair = result.pair || result.key || "";
+    const trades = result.trades || 0;
+    const profitPct = result.profit_total_pct ? (result.profit_total_pct * 100).toFixed(2) : "0.00";
+    const profitAbs = result.profit_total_abs ? result.profit_total_abs.toFixed(8) : "0";
+    const winRate = result.winrate ? (result.winrate * 100).toFixed(2) : "0.00";
+    
+    const cells = [pair, trades, profitPct + "%", profitAbs, winRate + "%"];
+    
+    cells.forEach((cell, idx) => {
+      const td = document.createElement("td");
+      td.textContent = cell;
+      
+      if (idx === 2) {
+        const profit = parseFloat(profitPct);
+        if (profit > 0) td.className = "profit-positive";
+        else if (profit < 0) td.className = "profit-negative";
+      }
+      
+      row.appendChild(td);
+    });
+    
     tbody.appendChild(row);
   });
+  
   table.appendChild(tbody);
-  container.innerHTML = "";
-  container.appendChild(table);
+  pairsSummaryWrapper.innerHTML = "";
+  pairsSummaryWrapper.appendChild(table);
 }

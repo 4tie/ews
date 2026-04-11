@@ -1,98 +1,66 @@
 /**
- * time-panel.js — Manages start/end date inputs and persistence.
+ * time-panel.js — Handle date range picker with presets.
  */
 
-import { setState, getState } from "../../../core/state.js";
-import persistence, { KEYS } from "../../../core/persistence.js";
-import { usePersistentState } from "../../../core/usePersistentState.js";
-
-const startInput = document.getElementById("input-start-date");
-const endInput = document.getElementById("input-end-date");
-
-/** Format Date to YYYY-MM-DD for native date inputs */
-function toDateInputValue(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function setPreset(days, setSavedConfig) {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days);
-
-  const startStr = toDateInputValue(start);
-  const endStr = toDateInputValue(end);
-
-  startInput.value = startStr;
-  endInput.value = endStr;
-
-  setState("backtest.startDate", startStr);
-  setState("backtest.endDate", endStr);
-  setSavedConfig(prev => ({ ...prev, startDate: startStr, endDate: endStr }));
-}
-
-function setYtdPreset(setSavedConfig) {
-  const end = new Date();
-  const start = new Date();
-  start.setMonth(0, 1);
-
-  const startStr = toDateInputValue(start);
-  const endStr = toDateInputValue(end);
-
-  startInput.value = startStr;
-  endInput.value = endStr;
-
-  setState("backtest.startDate", startStr);
-  setState("backtest.endDate", endStr);
-  setSavedConfig(prev => ({ ...prev, startDate: startStr, endDate: endStr }));
-}
-
-function handlePresetClick(event, setSavedConfig) {
-  const preset = event.target.dataset.preset;
-  switch (preset) {
-    case "7":
-      setPreset(7, setSavedConfig);
-      break;
-    case "30":
-      setPreset(30, setSavedConfig);
-      break;
-    case "90":
-      setPreset(90, setSavedConfig);
-      break;
-    case "ytd":
-      setYtdPreset(setSavedConfig);
-      break;
-  }
-}
+import { setState } from "../../../core/state.js";
 
 export function initTimePanel() {
-  if (!startInput || !endInput) return;
-
-  const [savedConfig, setSavedConfig] = usePersistentState(KEYS.BACKTEST_CONFIG, {});
-
-  // Native date inputs use YYYY-MM-DD format directly
-  if (savedConfig.startDate) {
-    startInput.value = savedConfig.startDate;
-    setState("backtest.startDate", savedConfig.startDate);
-  }
-  if (savedConfig.endDate) {
-    endInput.value = savedConfig.endDate;
-    setState("backtest.endDate", savedConfig.endDate);
-  }
-
-  startInput.addEventListener("change", () => {
-    const value = startInput.value;
-    setState("backtest.startDate", value);
-    setSavedConfig(prev => ({ ...prev, startDate: value }));
+  const startDateInput = document.getElementById("input-start-date");
+  const endDateInput = document.getElementById("input-end-date");
+  const presetBtns = document.querySelectorAll(".date-presets button");
+  
+  // Handle preset buttons
+  presetBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const preset = btn.dataset.preset;
+      const [start, end] = getPresetDates(preset);
+      
+      if (startDateInput) startDateInput.value = start;
+      if (endDateInput) endDateInput.value = end;
+      
+      setState("backtest.startDate", start);
+      setState("backtest.endDate", end);
+    });
   });
-  endInput.addEventListener("change", () => {
-    const value = endInput.value;
-    setState("backtest.endDate", value);
-    setSavedConfig(prev => ({ ...prev, endDate: value }));
+  
+  // Handle manual date changes
+  startDateInput?.addEventListener("change", () => {
+    setState("backtest.startDate", startDateInput.value);
   });
+  
+  endDateInput?.addEventListener("change", () => {
+    setState("backtest.endDate", endDateInput.value);
+  });
+}
 
-  const presetButtons = document.querySelectorAll("[data-preset]");
-  presetButtons.forEach(btn => btn.addEventListener("click", (e) => handlePresetClick(e, setSavedConfig)));
+function getPresetDates(preset) {
+  const today = new Date();
+  const end = formatDate(today);
+  let start;
+  
+  switch (preset) {
+    case "7":
+      start = formatDate(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000));
+      break;
+    case "30":
+      start = formatDate(new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000));
+      break;
+    case "90":
+      start = formatDate(new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000));
+      break;
+    case "ytd":
+      start = formatDate(new Date(today.getFullYear(), 0, 1));
+      break;
+    default:
+      return ["", ""];
+  }
+  
+  return [start, end];
+}
+
+function formatDate(date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${month}/${day}/${year}`;
 }

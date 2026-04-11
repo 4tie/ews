@@ -3,6 +3,12 @@ import threading
 import uuid
 import asyncio
 import json
+from datetime import datetime
+
+try:
+    import psutil
+except ImportError:  # pragma: no cover - optional runtime dependency
+    psutil = None
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -206,16 +212,119 @@ def _is_terminal_status(status: BacktestRunStatus | str) -> bool:
     return value in _TERMINAL_BACKTEST_STATUSES
 
 
+def _save_run_record(run_record: BacktestRunRecord) -> None:
+    persistence.save_backtest_run(run_record.run_id, run_record.model_dump(mode="json"))
+
+
+def _process_matches_run_record(run_record: BacktestRunRecord) -> bool:
+    if psutil is None:
+        return False
+
+    pid = getattr(run_record, "pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    try:
+        process = psutil.Process(pid)
+        if not process.is_running():
+            return False
+        if process.status() == getattr(psutil, "STATUS_ZOMBIE", "zombie"):
+            return False
+
+        created_at = getattr(run_record, "created_at", None)
+        if created_at:
+            try:
+                run_started_ts = datetime.fromisoformat(str(created_at)).timestamp()
+            except ValueError:
+                run_started_ts = None
+            if run_started_ts is not None:
+                process_started_ts = process.create_time()
+                if process_started_ts + 30 < run_started_ts:
+                    return False
+                if process_started_ts - run_started_ts > 300:
+                    return False
+        return True
+    except psutil.Error:
+        return False
+
+
+def _finalize_successful_backtest_run(run_record: BacktestRunRecord, *, exit_code: int | None) -> BacktestRunRecord:
+    completed_at = now_iso()
+    run_record.updated_at = completed_at
+    run_record.completed_at = completed_at
+    if exit_code is not None:
+        run_record.exit_code = exit_code
+    elif run_record.exit_code is None:
+        run_record.exit_code = 0
+
+    try:
+        if not run_record.raw_result_path:
+            run_record.raw_result_path = engine_from_id(run_record.engine).resolve_backtest_raw_result_path(run_record)
+    except Exception as exc:
+        run_record.status = BacktestRunStatus.FAILED
+        run_record.error = f"artifact_resolution_failed: {exc}"
+        _save_run_record(run_record)
+        return run_record
+
+    if not run_record.raw_result_path:
+        run_record.status = BacktestRunStatus.FAILED
+        run_record.error = "artifact_resolution_failed: raw result artifact not found"
+        _save_run_record(run_record)
+        return run_record
+
+    try:
+        ingest_result = results_svc.ingest_backtest_run(run_record)
+    except Exception as exc:
+        run_record.status = BacktestRunStatus.FAILED
+        run_record.error = f"ingestion_failed: {exc}"
+        _save_run_record(run_record)
+        return run_record
+
+    run_record.status = BacktestRunStatus.COMPLETED
+    run_record.exit_code = 0 if run_record.exit_code is None else run_record.exit_code
+    run_record.raw_result_path = ingest_result.get("raw_result_path", run_record.raw_result_path)
+    run_record.result_path = ingest_result.get("result_path")
+    run_record.summary_path = ingest_result.get("summary_path")
+    run_record.error = None
+    _save_run_record(run_record)
+
+    if run_record.version_id:
+        mutation_service.link_backtest(
+            run_record.version_id,
+            run_record.run_id,
+            ingest_result.get("profit_pct"),
+        )
+    return run_record
+
+
+def _reconcile_stale_backtest_run(run_record: BacktestRunRecord) -> BacktestRunRecord:
+    status_value = run_record.status.value if isinstance(run_record.status, BacktestRunStatus) else str(run_record.status)
+    if status_value != BacktestRunStatus.RUNNING.value:
+        return run_record
+    if _process_matches_run_record(run_record):
+        return run_record
+
+    if run_record.raw_result_path:
+        return _finalize_successful_backtest_run(run_record, exit_code=run_record.exit_code)
+
+    try:
+        resolved_raw_result = engine_from_id(run_record.engine).resolve_backtest_raw_result_path(run_record)
+    except Exception:
+        resolved_raw_result = None
+
+    if resolved_raw_result:
+        run_record.raw_result_path = resolved_raw_result
+        return _finalize_successful_backtest_run(run_record, exit_code=run_record.exit_code)
+
+    _mark_failed_run(run_record, "process_failed: process exited before run finalization", exit_code=run_record.exit_code)
+    return run_record
+
+
 def _load_run_record(run_id: str) -> BacktestRunRecord | None:
     data = persistence.load_backtest_run(run_id)
     if not data:
         return None
-    return BacktestRunRecord(**data)
-
-
-def _save_run_record(run_record: BacktestRunRecord) -> None:
-    persistence.save_backtest_run(run_record.run_id, run_record.model_dump(mode="json"))
-
+    return _reconcile_stale_backtest_run(BacktestRunRecord(**data))
 
 
 def _list_freqtrade_runs(strategy: str | None = None) -> list[BacktestRunRecord]:
@@ -228,10 +337,11 @@ def _list_freqtrade_runs(strategy: str | None = None) -> list[BacktestRunRecord]
         if strategy and data.get("strategy") != strategy:
             continue
         try:
-            runs.append(BacktestRunRecord(**data))
+            runs.append(_reconcile_stale_backtest_run(BacktestRunRecord(**data)))
         except Exception:
             continue
     return runs
+
 def _mark_failed_run(run_record: BacktestRunRecord, error: str, exit_code: int | None = None) -> None:
     failed_at = now_iso()
     run_record.status = BacktestRunStatus.FAILED
@@ -260,51 +370,16 @@ def _watch_backtest_process(run_id: str, process) -> None:
         if current is None or _is_terminal_status(current.status):
             return
 
-        completed_at = now_iso()
-        current.updated_at = completed_at
-        current.completed_at = completed_at
-        current.exit_code = exit_code
-
         if exit_code != 0:
             current.status = BacktestRunStatus.FAILED
             current.error = f"process_failed: exit_code={exit_code}"
+            current.updated_at = now_iso()
+            current.completed_at = current.updated_at
+            current.exit_code = exit_code
             _save_run_record(current)
             return
 
-        try:
-            current.raw_result_path = engine_from_id(current.engine).resolve_backtest_raw_result_path(current)
-        except Exception as exc:
-            current.status = BacktestRunStatus.FAILED
-            current.error = f"artifact_resolution_failed: {exc}"
-            _save_run_record(current)
-            return
-
-        if not current.raw_result_path:
-            current.status = BacktestRunStatus.FAILED
-            current.error = "artifact_resolution_failed: raw result artifact not found"
-            _save_run_record(current)
-            return
-
-        try:
-            ingest_result = results_svc.ingest_backtest_run(current)
-        except Exception as exc:
-            current.status = BacktestRunStatus.FAILED
-            current.error = f"ingestion_failed: {exc}"
-            _save_run_record(current)
-            return
-        current.status = BacktestRunStatus.COMPLETED
-        current.raw_result_path = ingest_result.get("raw_result_path", current.raw_result_path)
-        current.result_path = ingest_result.get("result_path")
-        current.summary_path = ingest_result.get("summary_path")
-        current.error = None
-        _save_run_record(current)
-
-        if current.version_id:
-            mutation_service.link_backtest(
-                current.version_id,
-                current.run_id,
-                ingest_result.get("profit_pct"),
-            )
+        _finalize_successful_backtest_run(current, exit_code=exit_code)
     finally:
         with _watcher_registry_lock:
             _active_backtest_watchers.discard(run_id)
@@ -435,14 +510,11 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
         yield _sse({"line": "[stream] streaming started"})
 
         log_path = None
-        status = None
-        exit_code = None
 
         while True:
             meta = meta_loader() or {}
             log_path = meta.get("artifact_path")
             status = meta.get("status")
-            exit_code = meta.get("exit_code")
 
             if log_path:
                 break
@@ -452,34 +524,53 @@ def stream_log_response(meta_loader, allowed_base: str, terminal_statuses: set[s
                 return
             await asyncio.sleep(0.25)
 
-        log_path = _assert_within_base(log_path, allowed_base)
+        try:
+            log_path = _assert_within_base(log_path, allowed_base)
 
-        while not os.path.isfile(log_path):
-            meta = meta_loader() or {}
-            status = meta.get("status")
-            exit_code = meta.get("exit_code")
-
-            if str(status) in terminal_statuses:
-                yield _sse(_terminal_payload(meta))
-                return
-            yield _sse({"line": "[stream] waiting for log file..."})
-            await asyncio.sleep(0.25)
-
-        with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
-            while True:
-                line = handle.readline()
-                if line:
-                    yield _sse({"line": line.rstrip("\n")})
-                    continue
-
+            while not os.path.isfile(log_path):
                 meta = meta_loader() or {}
                 status = meta.get("status")
-                exit_code = meta.get("exit_code")
 
                 if str(status) in terminal_statuses:
                     yield _sse(_terminal_payload(meta))
                     return
+                yield _sse({"line": "[stream] waiting for log file..."})
                 await asyncio.sleep(0.25)
+
+            last_pos = 0
+            while True:
+                if not os.path.isfile(log_path):
+                    break
+
+                try:
+                    with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                        handle.seek(last_pos)
+                        new_lines = handle.readlines()
+                        if new_lines:
+                            for line in new_lines:
+                                yield _sse({"line": line.rstrip("\n")})
+                            last_pos = handle.tell()
+                except IOError:
+                    pass
+
+                meta = meta_loader() or {}
+                status = meta.get("status")
+
+                if str(status) in terminal_statuses:
+                    with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+                        remaining = handle.read()
+                        if remaining:
+                            for line in remaining.splitlines():
+                                yield _sse({"line": line})
+                    yield _sse(_terminal_payload(meta))
+                    return
+
+                await asyncio.sleep(0.5)
+
+        except asyncio.CancelledError:
+            yield _sse({"line": "[stream] cancelled"})
+        except Exception as exc:
+            yield _sse({"line": f"[stream] error: {exc}"})
 
     return StreamingResponse(
         log_generator(),
@@ -573,7 +664,7 @@ async def run_backtest(payload: BacktestRunRequest):
     run_record.status = BacktestRunStatus.RUNNING
     run_record.updated_at = now_iso()
     run_record.command = result.get("command", run_record.command)
-    run_record.artifact_path = result.get("log_file")
+    run_record.artifact_path = result.get("run_record_log_path") or result.get("log_file")
     run_record.raw_result_path = result.get("raw_result_path", run_record.raw_result_path)
     run_record.pid = result.get("pid")
     run_record.error = None
@@ -663,10 +754,16 @@ async def download_data(payload: dict):
 @router.get("/runs/{run_id}/logs/stream")
 async def stream_backtest_logs(run_id: str):
     """Server-sent event stream for backtest live logs."""
-    if not persistence.load_backtest_run(run_id):
+    run = _load_run_record(run_id)
+    if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    def _meta_loader() -> dict:
+        current = _load_run_record(run_id)
+        return current.model_dump(mode="json") if current is not None else {}
+
     return stream_log_response(
-        lambda: persistence.load_backtest_run(run_id),
+        _meta_loader,
         user_data_results_dir(),
         _TERMINAL_BACKTEST_STATUSES,
     )

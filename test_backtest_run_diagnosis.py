@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+import zipfile
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -37,6 +38,13 @@ def _write_text(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(content)
+
+
+def _write_raw_zip(path: str, payload: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    json_name = f"{os.path.splitext(os.path.basename(path))[0]}.json"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(json_name, json.dumps(payload))
 
 
 def _make_trade(index: int, *, pair: str = "BTC/USDT", profit_ratio: float = 0.05, open_hour: int = 0, duration_min: int = 60, max_gain: float = 0.10, min_loss: float = -0.35) -> dict:
@@ -191,6 +199,7 @@ class _PatchedEnv:
         self._patch(persistence_module, "backtest_runs_dir", lambda: self.backtest_runs_dir)
         self._patch(results_module, "strategy_results_dir", lambda strategy: os.path.join(self.results_dir, strategy))
         self._patch(results_module, "user_data_results_dir", lambda: self.results_dir)
+        self._patch(backtest_router, "user_data_results_dir", lambda: self.results_dir)
         self._patch(mutation_module, "storage_dir", lambda: self.data_dir)
         self._patch(mutation_module, "strategy_versions_dir", lambda strategy: os.path.join(self.versions_root, strategy))
         self._patch(mutation_module, "strategy_active_version_file", lambda strategy: os.path.join(self.versions_root, strategy, "active_version.json"))
@@ -256,7 +265,7 @@ def _create_active_version(
     return result.version_id
 
 
-def _write_run_meta(env: _PatchedEnv, *, run_id: str, strategy: str, status: str, summary_payload: dict | None = None, summary_text: str | None = None, error: str | None = None, version_id: str | None = None, completed: bool = False, include_snapshot_fields: bool = True, raw_result_path: str | None = None, summary_path: str | None = None) -> dict:
+def _write_run_meta(env: _PatchedEnv, *, run_id: str, strategy: str, status: str, summary_payload: dict | None = None, summary_text: str | None = None, error: str | None = None, version_id: str | None = None, completed: bool = False, include_snapshot_fields: bool = True, raw_result_path: str | None = None, summary_path: str | None = None, pid: int | None = None, created_at: str = "2026-04-10T10:00:00+00:00") -> dict:
     strategy_dir = os.path.join(env.results_dir, strategy)
     os.makedirs(strategy_dir, exist_ok=True)
 
@@ -273,7 +282,7 @@ def _write_run_meta(env: _PatchedEnv, *, run_id: str, strategy: str, status: str
         "strategy": strategy,
         "version_id": version_id,
         "trigger_source": "manual",
-        "created_at": "2026-04-10T10:00:00+00:00",
+        "created_at": created_at,
         "updated_at": "2026-04-10T10:00:00+00:00",
         "completed_at": "2026-04-10T10:30:00+00:00" if completed else None,
         "status": status,
@@ -283,7 +292,7 @@ def _write_run_meta(env: _PatchedEnv, *, run_id: str, strategy: str, status: str
         "result_path": None,
         "summary_path": summary_path,
         "exit_code": 0 if status == "completed" else 1 if status == "failed" else None,
-        "pid": None,
+        "pid": pid,
         "error": error,
     }
     if include_snapshot_fields:
@@ -1022,6 +1031,45 @@ def test_run_without_explicit_version_uses_active_candidate_workspace() -> None:
         print("[PASS] Active accepted version is used for runs without an explicit version id")
 
 
+def test_stream_reconciles_stale_running_run_to_completed() -> None:
+    with _PatchedEnv() as env:
+        strategy = "RecoveredStrategy"
+        run_id = "bt-recovered-stream"
+        version_id = _create_active_version(strategy, code="class RecoveredStrategy: pass\n")
+        log_path = os.path.join(env.results_dir, strategy, f"{run_id}.backtest.log")
+        raw_result_path = os.path.join(env.results_dir, strategy, f"{run_id}.backtest.zip")
+
+        _write_text(log_path, "$ freqtrade backtesting\n\nBacktest finished\n")
+        _write_raw_zip(
+            raw_result_path,
+            {
+                "strategy": _make_summary(strategy, profit_pct=7.5, total_trades=8, winrate=0.625),
+                "strategy_comparison": {"note": "ok"},
+            },
+        )
+        _write_run_meta(
+            env,
+            run_id=run_id,
+            strategy=strategy,
+            status="running",
+            version_id=version_id,
+            raw_result_path=raw_result_path,
+            pid=999999,
+        )
+
+        client = _make_client()
+        response = client.get(f"/api/backtest/runs/{run_id}/logs/stream")
+        assert response.status_code == 200, response.text
+        assert "[done] status=completed exit_code=0" in response.text
+
+        stored = persistence_module.PersistenceService().load_backtest_run(run_id)
+        assert stored["status"] == "completed"
+        assert stored["exit_code"] == 0
+        assert os.path.isfile(stored["result_path"])
+        assert os.path.isfile(stored["summary_path"])
+        print("[PASS] Stream reconciles stale running runs and emits a terminal completion event")
+
+
 def test_diagnosis_endpoint_states_and_ai_overlay() -> None:
     with _PatchedEnv() as env:
         strategy = "EndpointStrategy"
@@ -1047,6 +1095,8 @@ def test_diagnosis_endpoint_states_and_ai_overlay() -> None:
             completed=False,
             include_snapshot_fields=True,
             raw_result_path=os.path.join(env.results_dir, strategy, "bt-pending.backtest.zip"),
+            pid=os.getpid(),
+            created_at=now_iso(),
         )
         _write_run_meta(
             env,
@@ -1163,5 +1213,6 @@ if __name__ == "__main__":
     test_run_materializes_explicit_candidate_workspace()
     test_parameter_candidate_run_inherits_parent_code_and_merges_parameters()
     test_run_without_explicit_version_uses_active_candidate_workspace()
+    test_stream_reconciles_stale_running_run_to_completed()
     test_diagnosis_endpoint_states_and_ai_overlay()
     print("\n[SUCCESS] Run-scoped diagnosis tests passed")
