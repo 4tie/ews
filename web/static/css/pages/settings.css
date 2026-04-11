@@ -18,7 +18,8 @@
 }
 
 #settings-theme,
-#settings-ai {
+#settings-ollama,
+#settings-ai-routing {
   grid-column: 1 / -1;
 }
 

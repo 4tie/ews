@@ -125,7 +125,11 @@ def get_routing_policy(
     fallback_provider = _select_fallback_provider(provider)
     fallback_model = None
     if fallback_provider:
-        fallback_model = _get_model_for_task(normalized_task, fallback_provider, payload)
+        fallback_model = (
+            _ollama_default_model(payload)
+            if fallback_provider == "ollama"
+            else _get_model_for_task(normalized_task, fallback_provider, payload)
+        )
 
     return RoutingPolicy(
         task_type=normalized_task,
@@ -156,3 +160,4 @@ __all__ = [
     "get_routing_policy",
     "get_fallback_policy",
 ]
+
