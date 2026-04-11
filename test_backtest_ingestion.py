@@ -250,6 +250,24 @@ def test_build_backtest_command_includes_backtest_directory_and_notes() -> None:
     print("[PASS] Backtest command includes backtest directory and run notes")
 
 
+
+def test_build_backtest_command_supports_multiple_configs_and_strategy_path() -> None:
+    cmd = build_backtest_command(
+        freqtrade_path="",
+        strategy="Anything",
+        config_paths=["base.json", "workspace/config.version.json"],
+        strategy_path="workspace/strategies",
+        timeframe="5m",
+    )
+
+    assert cmd.count("--config") == 2
+    assert "base.json" in cmd
+    assert "workspace/config.version.json" in cmd
+    assert "--strategy-path" in cmd
+    assert "workspace/strategies" in cmd
+    print("[PASS] Backtest command supports multiple config files and explicit strategy path")
+
+
 def test_prepare_backtest_run_preserves_explicit_cache_flag() -> None:
     cli = FreqtradeCliService()
     prepared = cli.prepare_backtest_run(
@@ -313,6 +331,7 @@ if __name__ == "__main__":
     test_freqtrade_engine_validate_data_reports_partial_coverage()
     test_prepare_backtest_run_uses_strategy_directory_and_notes()
     test_build_backtest_command_includes_backtest_directory_and_notes()
+    test_build_backtest_command_supports_multiple_configs_and_strategy_path()
     test_prepare_backtest_run_preserves_explicit_cache_flag()
     test_prepare_download_data_uses_prepend_by_default()
     test_resolve_backtest_raw_result_matches_run_note()

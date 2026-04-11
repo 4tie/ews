@@ -6,7 +6,9 @@ from app.utils.freqtrade_resolver import resolve_freqtrade_executable
 def build_backtest_command(
     freqtrade_path: str,
     strategy: str,
-    config_path: str,
+    config_path: Optional[str] = None,
+    config_paths: Optional[List[str]] = None,
+    strategy_path: Optional[str] = None,
     timerange: Optional[str] = None,
     pairs: Optional[List[str]] = None,
     timeframe: Optional[str] = None,
@@ -20,12 +22,21 @@ def build_backtest_command(
 ) -> List[str]:
     """Build a freqtrade backtesting command as a list of args."""
     exe = resolve_freqtrade_executable(freqtrade_path)
+    resolved_config_paths = list(config_paths or [])
+    if not resolved_config_paths and config_path:
+        resolved_config_paths.append(config_path)
+    if not resolved_config_paths:
+        raise ValueError("build_backtest_command requires at least one config path")
+
     cmd = [
         exe,
         "backtesting",
         "--strategy", strategy,
-        "--config", config_path,
     ]
+    for path in resolved_config_paths:
+        cmd.extend(["--config", path])
+    if strategy_path:
+        cmd.extend(["--strategy-path", strategy_path])
     if timeframe:
         cmd.extend(["--timeframe", timeframe])
     if timerange:

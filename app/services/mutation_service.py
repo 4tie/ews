@@ -14,7 +14,7 @@ import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.models.optimizer_models import (
     MutationRequest,
@@ -91,6 +91,18 @@ class StrategyMutationService:
         data = read_json(active_file, fallback={})
         return data.get("version_id")
 
+    @staticmethod
+    def _deep_merge_dicts(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+        """Merge nested parameter dictionaries with child values taking precedence."""
+        merged = dict(base)
+        for key, value in overlay.items():
+            current = merged.get(key)
+            if isinstance(current, dict) and isinstance(value, dict):
+                merged[key] = StrategyMutationService._deep_merge_dicts(current, value)
+            else:
+                merged[key] = value
+        return merged
+
     def get_version_by_id(self, version_id: str) -> Optional[StrategyVersion]:
         """Get a version by ID without inferring ownership from the ID format."""
         if version_id in self._cache:
@@ -110,6 +122,61 @@ class StrategyMutationService:
                 return version
 
         return None
+
+    def resolve_effective_artifacts(self, version_id: str) -> dict[str, Any]:
+        """Resolve the effective code and parameter snapshots for a version lineage."""
+        version = self.get_version_by_id(version_id)
+        if not version:
+            raise ValueError(f"Version {version_id} not found")
+
+        strategy_name = version.strategy_name
+        lineage: list[str] = []
+        seen: set[str] = set()
+        code_snapshot: str | None = None
+        parameter_layers: list[dict[str, Any]] = []
+        current: StrategyVersion | None = version
+
+        while current is not None:
+            if current.version_id in seen:
+                raise ValueError(f"Version lineage cycle detected at {current.version_id}")
+
+            seen.add(current.version_id)
+            lineage.append(current.version_id)
+
+            if current.strategy_name != strategy_name:
+                raise ValueError(
+                    f"Version lineage crosses strategies: {version_id} -> {current.version_id}"
+                )
+
+            if code_snapshot is None and isinstance(current.code_snapshot, str) and current.code_snapshot.strip():
+                code_snapshot = current.code_snapshot
+
+            if isinstance(current.parameters_snapshot, dict) and current.parameters_snapshot:
+                parameter_layers.append(current.parameters_snapshot)
+
+            parent_version_id = current.parent_version_id
+            if not parent_version_id:
+                break
+
+            parent = self.get_version_by_id(parent_version_id)
+            if parent is None:
+                break
+            current = parent
+
+        parameters_snapshot: dict[str, Any] | None = None
+        if parameter_layers:
+            merged: dict[str, Any] = {}
+            for layer in reversed(parameter_layers):
+                merged = self._deep_merge_dicts(merged, layer)
+            parameters_snapshot = merged
+
+        return {
+            "version_id": version.version_id,
+            "strategy_name": strategy_name,
+            "lineage": lineage,
+            "code_snapshot": code_snapshot,
+            "parameters_snapshot": parameters_snapshot,
+        }
 
     def create_mutation(self, request: MutationRequest) -> MutationResult:
         """

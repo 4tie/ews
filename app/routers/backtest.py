@@ -522,7 +522,7 @@ async def run_backtest(payload: BacktestRunRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    launch_payload["config_path"] = prepared.get("config_path") or launch_payload.get("config_path")
+    launch_payload["config_path"] = prepared.get("request_config_path") or prepared.get("config_path") or launch_payload.get("config_path")
     request_snapshot = _build_request_snapshot(launch_payload, engine.engine_id)
 
     created_at = now_iso()

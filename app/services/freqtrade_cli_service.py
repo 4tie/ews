@@ -7,8 +7,9 @@ from datetime import datetime
 from typing import Any
 
 from app.services.config_service import ConfigService
+from app.services.mutation_service import mutation_service
 from app.utils.command_builder import build_backtest_command, build_download_command, command_to_string
-from app.utils.paths import BASE_DIR, default_freqtrade_config_path, strategy_results_dir
+from app.utils.paths import BASE_DIR, backtest_runs_dir, default_freqtrade_config_path, resolve_safe, strategy_results_dir
 
 config_svc = ConfigService()
 logger = logging.getLogger(__name__)
@@ -83,6 +84,63 @@ class FreqtradeCliService:
             "raw_result_path": None,
         }
 
+    def _workspace_paths(self, run_id: str, strategy: str) -> dict[str, str]:
+        workspace_dir = resolve_safe(backtest_runs_dir(), run_id, "workspace")
+        strategies_dir = os.path.join(workspace_dir, "strategies")
+        return {
+            "workspace_dir": workspace_dir,
+            "strategies_dir": strategies_dir,
+            "strategy_file": os.path.join(strategies_dir, f"{strategy}.py"),
+            "config_overlay_path": os.path.join(workspace_dir, "config.version.json"),
+        }
+
+    def _materialize_version_workspace(self, payload: dict[str, Any], base_config_path: str) -> dict[str, Any]:
+        version_id = payload.get("version_id")
+        strategy = payload.get("strategy", "") or "unknown"
+        if not version_id:
+            return {
+                "config_paths": [base_config_path],
+                "request_config_path": base_config_path,
+                "strategy_path": None,
+                "workspace_dir": None,
+                "strategy_file": None,
+                "config_overlay_path": None,
+            }
+
+        version = mutation_service.get_version_by_id(str(version_id))
+        if version is None:
+            raise ValueError(f"Version {version_id} not found")
+        if version.strategy_name != strategy:
+            raise ValueError(
+                f"Version {version_id} belongs to {version.strategy_name}, not {strategy}"
+            )
+
+        resolved = mutation_service.resolve_effective_artifacts(str(version_id))
+        code_snapshot = resolved.get("code_snapshot")
+        if not isinstance(code_snapshot, str) or not code_snapshot.strip():
+            raise ValueError(f"Version {version_id} does not resolve to a strategy code snapshot")
+
+        parameters_snapshot = resolved.get("parameters_snapshot")
+        if not isinstance(parameters_snapshot, dict):
+            parameters_snapshot = {}
+
+        workspace_paths = self._workspace_paths(str(payload.get("run_id") or ""), strategy)
+        os.makedirs(workspace_paths["strategies_dir"], exist_ok=True)
+
+        with open(workspace_paths["strategy_file"], "w", encoding="utf-8") as handle:
+            handle.write(code_snapshot)
+        with open(workspace_paths["config_overlay_path"], "w", encoding="utf-8") as handle:
+            json.dump(parameters_snapshot, handle, indent=2)
+
+        return {
+            "config_paths": [base_config_path, workspace_paths["config_overlay_path"]],
+            "request_config_path": base_config_path,
+            "strategy_path": workspace_paths["strategies_dir"],
+            "workspace_dir": workspace_paths["workspace_dir"],
+            "strategy_file": workspace_paths["strategy_file"],
+            "config_overlay_path": workspace_paths["config_overlay_path"],
+        }
+
     def _backtest_meta_paths(self, strategy: str) -> list[str]:
         result_dir = strategy_results_dir(strategy)
         pattern = os.path.join(result_dir, "backtest-result-*.meta.json")
@@ -151,12 +209,14 @@ class FreqtradeCliService:
         run_id = payload.get("run_id") or datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         extra_flags = self._backtest_extra_flags(payload)
         config_path = self.resolve_backtest_config_path(payload)
+        materialized = self._materialize_version_workspace(payload, config_path)
 
         artifacts = self._backtest_artifact_paths(strategy, run_id)
         cmd = build_backtest_command(
             freqtrade_path=self._freqtrade_path(),
             strategy=strategy,
-            config_path=config_path,
+            config_paths=materialized["config_paths"],
+            strategy_path=materialized.get("strategy_path"),
             timerange=payload.get("timerange"),
             pairs=payload.get("pairs"),
             timeframe=payload.get("timeframe"),
@@ -173,6 +233,7 @@ class FreqtradeCliService:
             "command": command_to_string(cmd),
             "config_path": config_path,
             **artifacts,
+            **materialized,
         }
 
     def list_strategies(self) -> list[str]:

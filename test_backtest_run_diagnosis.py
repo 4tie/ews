@@ -125,6 +125,32 @@ class _DummyEngine:
         }
 
 
+class _CapturingFreqtradeEngine:
+    engine_id = "freqtrade"
+
+    def __init__(self, env):
+        self._env = env
+        self._cli = FreqtradeCliService()
+
+    def prepare_backtest_run(self, payload: dict) -> dict:
+        prepared = self._cli.prepare_backtest_run(payload)
+        self._env.last_prepared = prepared
+        self._env.last_launch_payload = dict(payload)
+        return prepared
+
+    def run_backtest(self, payload: dict, prepared: dict | None = None) -> dict:
+        prepared = prepared or self.prepare_backtest_run(payload)
+        self._env.last_prepared = prepared
+        self._env.last_launch_payload = dict(payload)
+        return {
+            "command": prepared["command"],
+            "log_file": os.path.join(self._env.results_dir, payload["strategy"], f"{payload['run_id']}.backtest.log"),
+            "raw_result_path": prepared.get("raw_result_path"),
+            "pid": 4321,
+            "process": None,
+        }
+
+
 class _PatchedEnv:
     def __init__(self):
         self.tmpdir = tempfile.mkdtemp(prefix="bt-diagnosis-")
@@ -137,6 +163,8 @@ class _PatchedEnv:
         self.strategies_dir = os.path.join(self.user_data_dir, "strategies")
         self.config_dir = os.path.join(self.user_data_dir, "config")
         self.default_config_path = os.path.join(self.user_data_dir, "config.json")
+        self.last_prepared = None
+        self.last_launch_payload = None
         os.makedirs(self.backtest_runs_dir, exist_ok=True)
         os.makedirs(self.download_runs_dir, exist_ok=True)
         os.makedirs(self.versions_root, exist_ok=True)
@@ -170,6 +198,7 @@ class _PatchedEnv:
         self._patch(backtest_router, "strategy_config_file", lambda strategy_name, user_data_path=None: os.path.join(self.config_dir, f"config_{strategy_name}.json"))
         self._patch(backtest_router.config_svc, "get_settings", self.settings)
         self._patch(cli_module, "strategy_results_dir", lambda strategy: os.path.join(self.results_dir, strategy))
+        self._patch(cli_module, "backtest_runs_dir", lambda: self.backtest_runs_dir)
         self._patch(cli_module.config_svc, "get_settings", self.settings)
         mutation_module.mutation_service._cache.clear()
         return self
@@ -196,16 +225,20 @@ def _make_full_client() -> TestClient:
 
 
 @contextmanager
-def _patched_engine(env: _PatchedEnv):
+def _patched_engine(env: _PatchedEnv, engine_cls=_DummyEngine):
     original = backtest_router._resolve_engine
-    backtest_router._resolve_engine = lambda: _DummyEngine(env)
+    backtest_router._resolve_engine = lambda: engine_cls(env)
     try:
         yield
     finally:
         backtest_router._resolve_engine = original
 
 
-def _create_active_version(strategy_name: str, code: str = "class Sample: pass\n") -> str:
+def _create_active_version(
+    strategy_name: str,
+    code: str = "class Sample: pass\n",
+    parameters: dict | None = None,
+) -> str:
     result = mutation_module.mutation_service.create_mutation(
         MutationRequest(
             strategy_name=strategy_name,
@@ -213,6 +246,7 @@ def _create_active_version(strategy_name: str, code: str = "class Sample: pass\n
             summary=f"Seed version for {strategy_name}",
             created_by="test",
             code=code,
+            parameters=parameters,
         )
     )
     accepted = mutation_module.mutation_service.accept_version(result.version_id, notes="Seed active version")
@@ -719,6 +753,163 @@ def test_versions_reject_and_rollback_workflow() -> None:
         print("[PASS] Version reject and rollback workflow updates version state correctly")
 
 
+
+def test_run_materializes_explicit_candidate_workspace() -> None:
+    with _PatchedEnv() as env, _patched_engine(env, _CapturingFreqtradeEngine):
+        strategy = "WorkspaceCandidateStrategy"
+        live_code = "class WorkspaceCandidateStrategy:\n    origin = 'live'\n"
+        baseline_code = "class WorkspaceCandidateStrategy:\n    origin = 'baseline'\n"
+        candidate_code = "class WorkspaceCandidateStrategy:\n    origin = 'candidate'\n"
+        _write_text(os.path.join(env.strategies_dir, f"{strategy}.py"), live_code)
+        baseline_version_id = _create_active_version(strategy, code=baseline_code)
+        candidate_version_id = mutation_module.mutation_service.create_mutation(
+            MutationRequest(
+                strategy_name=strategy,
+                change_type=ChangeType.CODE_CHANGE,
+                summary="Workspace candidate",
+                created_by="ai_apply",
+                code=candidate_code,
+                parameters={"stoploss": -0.07},
+                parent_version_id=baseline_version_id,
+            )
+        ).version_id
+
+        client = _make_client()
+        response = client.post(
+            "/api/backtest/run",
+            json={
+                "strategy": strategy,
+                "timeframe": "5m",
+                "pairs": ["BTC/USDT"],
+                "version_id": candidate_version_id,
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        prepared = env.last_prepared
+        assert prepared is not None
+        assert payload["version_id"] == candidate_version_id
+        assert prepared["strategy_path"] == os.path.join(
+            env.backtest_runs_dir,
+            payload["run_id"],
+            "workspace",
+            "strategies",
+        )
+        assert prepared["config_paths"][0] == env.default_config_path
+        assert prepared["config_paths"][1] == prepared["config_overlay_path"]
+        assert "--strategy-path" in prepared["cmd"]
+        assert prepared["strategy_path"] in prepared["cmd"]
+
+        with open(prepared["strategy_file"], "r", encoding="utf-8") as handle:
+            assert handle.read() == candidate_code
+        with open(prepared["config_overlay_path"], "r", encoding="utf-8") as handle:
+            assert json.load(handle) == {"stoploss": -0.07}
+
+        run_meta = persistence_module.PersistenceService().load_backtest_run(payload["run_id"])
+        assert run_meta["request_snapshot"]["config_path"] == env.default_config_path
+        print("[PASS] Explicit candidate run materializes version-exact workspace artifacts")
+
+
+def test_parameter_candidate_run_inherits_parent_code_and_merges_parameters() -> None:
+    with _PatchedEnv() as env, _patched_engine(env, _CapturingFreqtradeEngine):
+        strategy = "InheritedWorkspaceStrategy"
+        live_code = "class InheritedWorkspaceStrategy:\n    origin = 'live'\n"
+        parent_code = "class InheritedWorkspaceStrategy:\n    origin = 'parent'\n"
+        _write_text(os.path.join(env.strategies_dir, f"{strategy}.py"), live_code)
+        baseline_version_id = _create_active_version(
+            strategy,
+            code=parent_code,
+            parameters={
+                "max_open_trades": 1,
+                "nested": {"left": 1, "right": 1},
+            },
+        )
+        candidate_version_id = mutation_module.mutation_service.create_mutation(
+            MutationRequest(
+                strategy_name=strategy,
+                change_type=ChangeType.PARAMETER_CHANGE,
+                summary="Parameter workspace candidate",
+                created_by="ai_apply",
+                parameters={
+                    "nested": {"right": 2},
+                    "dry_run_wallet": 250,
+                },
+                parent_version_id=baseline_version_id,
+            )
+        ).version_id
+
+        client = _make_client()
+        response = client.post(
+            "/api/backtest/run",
+            json={
+                "strategy": strategy,
+                "timeframe": "5m",
+                "pairs": ["BTC/USDT"],
+                "version_id": candidate_version_id,
+            },
+        )
+        assert response.status_code == 200, response.text
+        prepared = env.last_prepared
+        assert prepared is not None
+
+        with open(prepared["strategy_file"], "r", encoding="utf-8") as handle:
+            assert handle.read() == parent_code
+        with open(prepared["config_overlay_path"], "r", encoding="utf-8") as handle:
+            assert json.load(handle) == {
+                "max_open_trades": 1,
+                "nested": {"left": 1, "right": 2},
+                "dry_run_wallet": 250,
+            }
+        print("[PASS] Parameter-only candidate run inherits parent code and merges parameter lineage")
+
+
+def test_run_without_explicit_version_uses_active_candidate_workspace() -> None:
+    with _PatchedEnv() as env, _patched_engine(env, _CapturingFreqtradeEngine):
+        strategy = "AcceptedWorkspaceStrategy"
+        live_code = "class AcceptedWorkspaceStrategy:\n    origin = 'live'\n"
+        baseline_code = "class AcceptedWorkspaceStrategy:\n    origin = 'baseline'\n"
+        candidate_code = "class AcceptedWorkspaceStrategy:\n    origin = 'accepted'\n"
+        _write_text(os.path.join(env.strategies_dir, f"{strategy}.py"), live_code)
+        baseline_version_id = _create_active_version(strategy, code=baseline_code)
+        candidate_version_id = mutation_module.mutation_service.create_mutation(
+            MutationRequest(
+                strategy_name=strategy,
+                change_type=ChangeType.CODE_CHANGE,
+                summary="Accepted workspace candidate",
+                created_by="ai_apply",
+                code=candidate_code,
+                parameters={"stoploss": -0.09},
+                parent_version_id=baseline_version_id,
+            )
+        ).version_id
+        accepted = mutation_module.mutation_service.accept_version(
+            candidate_version_id,
+            notes="Promote candidate",
+        )
+        assert accepted.status == "accepted", accepted
+
+        client = _make_client()
+        response = client.post(
+            "/api/backtest/run",
+            json={
+                "strategy": strategy,
+                "timeframe": "5m",
+                "pairs": ["BTC/USDT"],
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        prepared = env.last_prepared
+        assert prepared is not None
+        assert payload["version_id"] == candidate_version_id
+
+        with open(prepared["strategy_file"], "r", encoding="utf-8") as handle:
+            assert handle.read() == candidate_code
+        with open(prepared["config_overlay_path"], "r", encoding="utf-8") as handle:
+            assert json.load(handle) == {"stoploss": -0.09}
+        print("[PASS] Active accepted version is used for runs without an explicit version id")
+
+
 def test_diagnosis_endpoint_states_and_ai_overlay() -> None:
     with _PatchedEnv() as env:
         strategy = "EndpointStrategy"
@@ -855,5 +1046,8 @@ if __name__ == "__main__":
     test_proposal_candidate_endpoint_supports_all_sources()
     test_proposal_candidate_endpoint_falls_back_to_active_version_for_historical_run()
     test_versions_reject_and_rollback_workflow()
+    test_run_materializes_explicit_candidate_workspace()
+    test_parameter_candidate_run_inherits_parent_code_and_merges_parameters()
+    test_run_without_explicit_version_uses_active_candidate_workspace()
     test_diagnosis_endpoint_states_and_ai_overlay()
     print("\n[SUCCESS] Run-scoped diagnosis tests passed")
