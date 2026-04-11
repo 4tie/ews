@@ -12,21 +12,6 @@ import { initPersistedRunsStore, subscribePersistedRuns } from "./persisted-runs
 
 const root = document.getElementById("summary-proposals");
 
-// Mapping from diagnosis flags to deterministic actions
-const DIAGNOSIS_FLAG_TO_ACTION = {
-  "high_drawdown": "tighten_stoploss",
-  "exit_inefficiency": "tighten_stoploss",
-  "pair_dragger": "reduce_weak_pairs",
-  "low_win_rate": "tighten_entries",
-  "long_hold_time": "accelerate_exits",
-};
-
-const ACTION_TYPE_LABELS = {
-  "tighten_entries": "Tighten Entry Conditions",
-  "reduce_weak_pairs": "Reduce Weak Pairs",
-  "tighten_stoploss": "Tighten Stoploss",
-  "accelerate_exits": "Accelerate Exits",
-};
 
 let latestPayload = null;
 let runsSnapshot = { status: "idle", strategy: "", runs: [], error: null };
@@ -194,60 +179,15 @@ function renderAiSuggestion(item) {
   `;
 }
 
-function buildDeterministicActions(diagnosis) {
-  const actions = [];
-  if (!isObject(diagnosis)) return actions;
-
-  // Check primary flags and ranked issues for deterministic action triggers
-  const primaryFlags = Array.isArray(diagnosis.primary_flags) ? diagnosis.primary_flags : [];
-  const rankedIssues = Array.isArray(diagnosis.ranked_issues) ? diagnosis.ranked_issues : [];
-
-  // Build set of rules we've already seen to avoid duplication
-  const seenRules = new Set();
-
-  // Process primary flags
-  primaryFlags.forEach((flag) => {
-    const rule = flag?.rule;
-    const actionType = DIAGNOSIS_FLAG_TO_ACTION[rule];
-    if (actionType && !seenRules.has(actionType)) {
-      seenRules.add(actionType);
-      actions.push({
-        rule: actionType,
-        action_type: actionType,
-        label: ACTION_TYPE_LABELS[actionType] || actionType,
-        message: flag?.message || `Apply ${ACTION_TYPE_LABELS[actionType] || actionType}`,
-        severity: flag?.severity || "warning",
-      });
-    }
-  });
-
-  // Process ranked issues (if not already added from primary flags)
-  rankedIssues.forEach((issue) => {
-    const rule = issue?.rule;
-    const actionType = DIAGNOSIS_FLAG_TO_ACTION[rule];
-    if (actionType && !seenRules.has(actionType)) {
-      seenRules.add(actionType);
-      actions.push({
-        rule: actionType,
-        action_type: actionType,
-        label: ACTION_TYPE_LABELS[actionType] || actionType,
-        message: issue?.message || `Apply ${ACTION_TYPE_LABELS[actionType] || actionType}`,
-        severity: issue?.severity || "warning",
-      });
-    }
-  });
-
-  return actions;
-}
-
 function renderDeterministicAction(item) {
-  const actionType = item?.action_type || item?.rule || "unknown";
-  const label = ACTION_TYPE_LABELS[actionType] || actionType;
+  const parameters = Array.isArray(item?.parameters) ? item.parameters.join(", ") : "-";
+  const matchedRules = Array.isArray(item?.matched_rules) ? item.matched_rules.join(", ") : "-";
   return `
-    <div class="proposal-item__body">${escapeHtml(item?.message || `Apply ${label} to improve strategy performance`)}</div>
+    <div class="proposal-item__body">${escapeHtml(item?.summary || item?.message || "Diagnosis-backed deterministic action")}</div>
     <div class="proposal-item__meta">
-      <span><strong>Action:</strong> ${escapeHtml(label)}</span>
-      <span><strong>Type:</strong> Parameter Change</span>
+      <span><strong>Action:</strong> ${escapeHtml(item?.label || item?.action_type || "-")}</span>
+      <span><strong>Rules:</strong> ${escapeHtml(matchedRules)}</span>
+      <span><strong>Parameters:</strong> ${escapeHtml(parameters)}</span>
     </div>
   `;
 }
@@ -432,7 +372,7 @@ function render() {
 
   const rankedIssues = Array.isArray(latestPayload?.diagnosis?.ranked_issues) ? latestPayload.diagnosis.ranked_issues : [];
   const parameterHints = Array.isArray(latestPayload?.diagnosis?.parameter_hints) ? latestPayload.diagnosis.parameter_hints : [];
-  const deterministic_actions = buildDeterministicActions(latestPayload?.diagnosis || {});
+  const deterministic_actions = Array.isArray(latestPayload?.diagnosis?.proposal_actions) ? latestPayload.diagnosis.proposal_actions : [];
   const aiSuggestions = latestPayload?.ai?.ai_status === "ready" && Array.isArray(latestPayload?.ai?.parameter_suggestions)
     ? latestPayload.ai.parameter_suggestions
     : [];

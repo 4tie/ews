@@ -341,7 +341,7 @@ async def _apply_tighten_stoploss_action(
 
     stoploss = modified_params.get("stoploss")
     if isinstance(stoploss, (int, float)) and stoploss < 0:
-        modified_params["stoploss"] = max(float(stoploss) * 0.75, -0.5)
+        modified_params["stoploss"] = round(max(float(stoploss) * 0.75, -0.5), 6)
         changed = True
 
     trailing_stop = modified_params.get("trailing_stop")
@@ -351,7 +351,7 @@ async def _apply_tighten_stoploss_action(
 
     trailing_positive = modified_params.get("trailing_stop_positive")
     if isinstance(trailing_positive, (int, float)) and float(trailing_positive) > 0.001:
-        modified_params["trailing_stop_positive"] = max(float(trailing_positive) * 0.5, 0.001)
+        modified_params["trailing_stop_positive"] = round(max(float(trailing_positive) * 0.5, 0.001), 6)
         changed = True
 
     if not changed:
@@ -403,7 +403,7 @@ async def _apply_review_exit_timing_action(
 
     trailing_positive = modified_params.get("trailing_stop_positive")
     if isinstance(trailing_positive, (int, float)) and float(trailing_positive) > 0.001:
-        modified_params["trailing_stop_positive"] = max(float(trailing_positive) * 0.7, 0.001)
+        modified_params["trailing_stop_positive"] = round(max(float(trailing_positive) * 0.7, 0.001), 6)
         changed = True
 
     if not changed:
@@ -780,9 +780,7 @@ def _build_candidate_prompt(
         f"Linked version id: {linked_version_id or 'unavailable'}",
         f"Linked version change type: {linked_change_type or 'unavailable'}",
     ]
-    return "
-
-".join(prompt_sections)
+    return "\n".join(prompt_sections)
 
 
 __all__ = [

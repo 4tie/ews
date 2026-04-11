@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import app.routers.ai_chat as ai_chat_router
 import app.routers.backtest as backtest_router
 import app.routers.versions as versions_router
 import app.services.freqtrade_cli_service as cli_module
@@ -221,6 +222,7 @@ def _make_full_client() -> TestClient:
     app = FastAPI()
     app.include_router(backtest_router.router, prefix="/api/backtest")
     app.include_router(versions_router.router, prefix="/api/versions")
+    app.include_router(ai_chat_router.router, prefix="/api/ai/chat")
     return TestClient(app)
 
 
@@ -512,6 +514,13 @@ def test_diagnosis_rules_and_insufficient_evidence() -> None:
     assert diagnosis["facts"]["avg_mfe_captured_pct"] is not None
     assert diagnosis["facts"]["avg_mfe_captured_pct"] < 60.0
     assert diagnosis["facts"]["late_stop_flag"] is True
+    proposal_action_types = [item["action_type"] for item in diagnosis["proposal_actions"]]
+    assert proposal_action_types == [
+        "tighten_entries",
+        "tighten_stoploss",
+        "review_exit_timing",
+        "reduce_weak_pairs",
+    ]
 
     insufficient = diagnosis_service.diagnose_run(
         run_record=run,
@@ -701,6 +710,111 @@ def test_proposal_candidate_endpoint_falls_back_to_active_version_for_historical
             print("[PASS] Proposal candidate endpoint falls back to the active version for historical runs")
         finally:
             backtest_router.create_proposal_candidate_from_diagnosis = original_create_candidate
+
+
+def test_deterministic_action_creates_parameter_candidate_without_ai() -> None:
+    with _PatchedEnv() as env:
+        strategy = "DeterministicActionStrategy"
+        baseline_version_id = _create_active_version(
+            strategy,
+            code="class DeterministicActionStrategy: pass
+",
+            parameters={
+                "stoploss": -0.10,
+                "trailing_stop": False,
+                "trailing_stop_positive": 0.02,
+            },
+        )
+        summary = _make_summary(
+            strategy,
+            profit_pct=-6.0,
+            total_trades=12,
+            winrate=0.42,
+            drawdown_account=0.30,
+            results_per_pair=[
+                {"key": "TOTAL", "profit_total_pct": -6.0, "trades": 12, "winrate": 0.42, "max_drawdown_account": 0.30},
+                {"key": "BTC/USDT", "profit_total_pct": -4.0, "trades": 6},
+                {"key": "ETH/USDT", "profit_total_pct": -2.0, "trades": 6},
+            ],
+        )
+        _write_run_meta(
+            env,
+            run_id="bt-deterministic-action",
+            strategy=strategy,
+            status="completed",
+            summary_payload=summary,
+            version_id=baseline_version_id,
+            completed=True,
+            include_snapshot_fields=True,
+            raw_result_path=os.path.join(env.results_dir, strategy, "bt-deterministic-action.backtest.zip"),
+        )
+
+        client = _make_full_client()
+        response = client.post(
+            "/api/backtest/runs/bt-deterministic-action/proposal-candidates",
+            json={
+                "source_kind": "deterministic_action",
+                "source_index": 0,
+                "candidate_mode": "auto",
+                "action_type": "tighten_stoploss",
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        version = mutation_module.mutation_service.get_version_by_id(payload["candidate_version_id"])
+        assert version is not None
+        assert version.created_by == "deterministic_proposal"
+        assert version.parent_version_id == baseline_version_id
+        assert version.source_ref == "backtest_run:bt-deterministic-action"
+        assert version.change_type.value == "parameter_change"
+        assert version.parameters_snapshot["stoploss"] == -0.075
+        assert version.parameters_snapshot["trailing_stop"] is True
+        assert version.parameters_snapshot["trailing_stop_positive"] == 0.01
+        print("[PASS] Deterministic proposal actions create parameter candidates without AI")
+
+
+def test_ai_chat_apply_parameters_uses_unified_run_scoped_candidate_path() -> None:
+    with _PatchedEnv() as env:
+        strategy = "AiChatUnifiedStrategy"
+        baseline_version_id = _create_active_version(
+            strategy,
+            code="class AiChatUnifiedStrategy: pass
+",
+            parameters={"stoploss": -0.10},
+        )
+        summary = _make_summary(strategy, profit_pct=-4.0, total_trades=10, winrate=0.45, drawdown_account=0.12)
+        _write_run_meta(
+            env,
+            run_id="bt-ai-chat-unified",
+            strategy=strategy,
+            status="completed",
+            summary_payload=summary,
+            version_id=baseline_version_id,
+            completed=True,
+            include_snapshot_fields=True,
+            raw_result_path=os.path.join(env.results_dir, strategy, "bt-ai-chat-unified.backtest.zip"),
+        )
+
+        client = _make_full_client()
+        response = client.post(
+            "/api/ai/chat/apply-parameters",
+            json={
+                "run_id": "bt-ai-chat-unified",
+                "strategy_name": strategy,
+                "parameters": {"stoploss": -0.08},
+                "summary": "AI chat suggested tighter stoploss",
+            },
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        version = mutation_module.mutation_service.get_version_by_id(payload["version_id"])
+        assert version is not None
+        assert version.created_by == "ai_apply"
+        assert version.parent_version_id == baseline_version_id
+        assert version.source_ref == "backtest_run:bt-ai-chat-unified"
+        assert version.change_type.value == "parameter_change"
+        assert version.parameters_snapshot == {"stoploss": -0.08}
+        print("[PASS] AI chat parameter candidates use the unified run-scoped proposal lifecycle")
 
 
 def test_versions_reject_and_rollback_workflow() -> None:
@@ -1045,6 +1159,8 @@ if __name__ == "__main__":
     test_diagnosis_rules_and_insufficient_evidence()
     test_proposal_candidate_endpoint_supports_all_sources()
     test_proposal_candidate_endpoint_falls_back_to_active_version_for_historical_run()
+    test_deterministic_action_creates_parameter_candidate_without_ai()
+    test_ai_chat_apply_parameters_uses_unified_run_scoped_candidate_path()
     test_versions_reject_and_rollback_workflow()
     test_run_materializes_explicit_candidate_workspace()
     test_parameter_candidate_run_inherits_parent_code_and_merges_parameters()

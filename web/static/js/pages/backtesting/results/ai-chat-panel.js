@@ -4,7 +4,7 @@
 
 import api from "../../../core/api.js";
 import { getState, on as onState } from "../../../core/state.js";
-import { on as onEvent, EVENTS } from "../../../core/events.js";
+import { emit, on as onEvent, EVENTS } from "../../../core/events.js";
 import showToast from "../../../components/toast.js";
 import { setButtonLoading } from "../../../components/loading-state.js";
 import { getLatestResultsPayload } from "./results-controller.js";
@@ -247,8 +247,13 @@ function renderRecommendations(message) {
 function renderActions(message) {
   if (message?.versionId) return "";
 
+  const hasCandidatePayload = Boolean(message?.parameters || message?.code);
+  if (!hasCandidatePayload) return "";
+
+  const payload = currentPayload();
+  const runReady = Boolean(payload?.run_id && payload?.diagnosis_status === "ready" && payload?.summary_available);
   const actions = [];
-  const disabled = busy ? " disabled" : "";
+  const disabled = busy || !runReady ? " disabled" : "";
 
   if (message?.parameters) {
     actions.push(
@@ -262,7 +267,11 @@ function renderActions(message) {
     );
   }
 
-  return actions.length ? `<div class="ai-chat-message__actions">${actions.join("")}</div>` : "";
+  const note = !runReady
+    ? '<div class="ai-chat-message__note">Load a completed run diagnosis first. AI candidates now stage through the same run-scoped proposal workflow.</div>'
+    : "";
+
+  return `${actions.length ? `<div class="ai-chat-message__actions">${actions.join("")}</div>` : ""}${note}`;
 }
 
 function renderMessages() {
@@ -474,8 +483,14 @@ async function handleApplyAction(messageId, action) {
 
   const message = messages.find((entry) => entry.id === messageId);
   const strategy = resolveStrategy();
-  if (!message || !strategy) {
-    showToast("Strategy context is unavailable.", "warning");
+  const payload = currentPayload();
+  const runId = payload?.run_id;
+  if (!message || !strategy || !runId) {
+    showToast("A completed run context is required before staging a candidate.", "warning");
+    return;
+  }
+  if (payload?.diagnosis_status !== "ready" || !payload?.summary_available) {
+    showToast("Load a completed run diagnosis before staging a candidate.", "warning");
     return;
   }
 
@@ -483,32 +498,27 @@ async function handleApplyAction(messageId, action) {
   renderMessages();
 
   try {
-    let response;
-    if (action === "apply-parameters") {
-      response = await api.aiChat.applyParameters({
-        strategy_name: strategy,
-        parameters: message.parameters,
-      });
-    } else if (action === "apply-code") {
-      response = await api.aiChat.applyCode({
-        strategy_name: strategy,
-        code: message.code,
-      });
-    } else {
-      return;
-    }
+    const response = await api.backtest.createProposalCandidate(runId, {
+      source_kind: "ai_chat_draft",
+      source_index: 0,
+      candidate_mode: action === "apply-code" ? "code_patch" : "parameter_only",
+      parameters: action === "apply-parameters" ? message.parameters : null,
+      code: action === "apply-code" ? message.code : null,
+      summary: compactText(message.text || "AI chat candidate", 220),
+    });
 
-    message.versionId = response?.version_id || null;
+    message.versionId = response?.candidate_version_id || null;
     message.note = response?.message || "Candidate version created.";
     renderMessages();
+    emit(EVENTS.RESULTS_LOADED, payload);
 
     pushMessage("system", {
       title: "Candidate Staged",
       text: `${response?.message || "Candidate version created."} Accept or rerun it explicitly from the existing version workflow.`,
-      meta: response?.version_id ? `version ${response.version_id}` : "",
+      meta: response?.candidate_version_id ? `version ${response.candidate_version_id}` : "",
     });
 
-    showToast(response?.version_id ? `Candidate version ${response.version_id} created.` : "Candidate version created.", "success");
+    showToast(response?.candidate_version_id ? `Candidate version ${response.candidate_version_id} created.` : "Candidate version created.", "success");
   } catch (error) {
     const messageText = error?.message || String(error);
     pushMessage("system", {
