@@ -1,4 +1,4 @@
-"""
+﻿"""
 Task classifier - classifies user requests into task types and determines pipeline.
 """
 from __future__ import annotations
@@ -23,22 +23,19 @@ class Classification:
 
 async def classify_request(user_message: str) -> Classification:
     """Classify a user request to determine the appropriate AI pipeline."""
-    messages = [
-        {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
-        {"role": "user", "content": user_message},
-    ]
-
     dispatch = get_dispatch()
-    routed = await dispatch.complete_routed(
-        messages=messages,
-        task_type="classification",
-        complexity="low",
+    response = await dispatch.complete_for_task(
+        task_type="classifier",
+        messages=[
+            {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
         temperature=0.2,
         max_tokens=500,
     )
 
     try:
-        result = json.loads(routed.response.content)
+        result = json.loads(response.content)
         return Classification(
             task_types=result.get("task_types", ["casual_chat"]),
             complexity=result.get("complexity", "medium"),
@@ -47,7 +44,7 @@ async def classify_request(user_message: str) -> Classification:
             confidence=result.get("confidence", 0.5),
             recommended_pipeline=result.get("recommended_pipeline", "simple"),
         )
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError, TypeError):
         return Classification(
             task_types=["casual_chat"],
             complexity="medium",

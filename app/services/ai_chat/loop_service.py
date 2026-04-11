@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI Chat Loop Service - Orchestrates AI conversation with two-mode output enforcement.
 """
 from __future__ import annotations
@@ -9,11 +9,7 @@ from typing import Any, Callable
 from app.ai.context_builder import build_strategy_context
 from app.ai.memory import get_thread_store
 from app.ai.models import get_dispatch
-from app.ai.output_format import (
-    OutputMode,
-    parse_ai_response,
-    validate_output_mode,
-)
+from app.ai.output_format import OutputMode, parse_ai_response, validate_output_mode
 from app.ai.prompts.trading import TWO_MODE_SYSTEM_PROMPT as TRADING_TWO_MODE_SYSTEM_PROMPT
 
 
@@ -45,6 +41,8 @@ class LoopResult:
     final_parameters: dict[str, Any] | None
     final_code: str | None
     error: str | None
+    provider: str | None = None
+    model: str | None = None
 
 
 async def _emit_timeline(callback: TimelineCallback | None, payload: dict[str, Any]) -> None:
@@ -78,45 +76,39 @@ async def run_ai_loop(
         backtest_results=backtest_results if config.include_backtest else None,
         optimizer_results=optimizer_results if config.include_optimizer else None,
     )
+    system_prompt = f"{TRADING_TWO_MODE_SYSTEM_PROMPT}\n\nContext:\n{context}"
 
-    system_prompt = f"{TRADING_TWO_MODE_SYSTEM_PROMPT}
-
-Context:
-{context}"
     iterations: list[LoopIteration] = []
-    last_route_key: tuple[str, str] | None = None
+    last_provider: str | None = None
+    last_model: str | None = None
 
-    for i in range(config.max_iterations):
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(thread.get_messages())
-
-        routed = await dispatch.complete_routed(
+    for index in range(config.max_iterations):
+        messages = [{"role": "system", "content": system_prompt}, *thread.get_messages()]
+        response = await dispatch.complete_for_task(
+            task_type="candidate",
             messages=messages,
-            task_type="candidate_generation",
-            complexity="high" if strategy_code else "medium",
-            model_override=config.model,
             temperature=config.temperature,
             max_tokens=4000,
+            model=config.model,
         )
-        route_key = (routed.provider, routed.model)
-        if route_key != last_route_key:
-            await _emit_timeline(timeline_callback, {
-                "type": "route_selected",
-                "provider": routed.provider,
-                "model": routed.model,
-                "fallback_used": routed.fallback_used,
-                "errors": routed.errors,
-            })
-            last_route_key = route_key
+        if response.provider != last_provider or response.model != last_model:
+            await _emit_timeline(
+                timeline_callback,
+                {
+                    "type": "route_selected",
+                    "provider": response.provider,
+                    "model": response.model,
+                },
+            )
+            last_provider = response.provider
+            last_model = response.model
 
-        response = routed.response
         thread.add_message("assistant", response.content)
-
         parsed = parse_ai_response(response.content)
         is_valid, errors = validate_output_mode(response.content)
         iterations.append(
             LoopIteration(
-                iteration=i + 1,
+                iteration=index + 1,
                 ai_message=response.content,
                 parsed_mode=parsed,
                 validation_errors=errors if not is_valid else [],
@@ -125,11 +117,27 @@ Context:
 
         if parsed.is_applicable:
             if parsed.mode == "parameter_only" and parsed.parameters:
-                return LoopResult(True, iterations, parsed.parameters, None, None)
+                return LoopResult(
+                    success=True,
+                    iterations=iterations,
+                    final_parameters=parsed.parameters,
+                    final_code=None,
+                    error=None,
+                    provider=response.provider,
+                    model=response.model,
+                )
             if parsed.mode == "code_patch" and parsed.code:
-                return LoopResult(True, iterations, None, parsed.code, None)
+                return LoopResult(
+                    success=True,
+                    iterations=iterations,
+                    final_parameters=None,
+                    final_code=parsed.code,
+                    error=None,
+                    provider=response.provider,
+                    model=response.model,
+                )
 
-        if i < config.max_iterations - 1 and errors:
+        if index < config.max_iterations - 1 and errors:
             feedback = f"Invalid output: {', '.join(errors)}. Please correct and provide valid output."
             thread.add_message("user", feedback)
 
@@ -139,6 +147,8 @@ Context:
         final_parameters=None,
         final_code=None,
         error=f"Failed to produce valid output after {config.max_iterations} iterations",
+        provider=last_provider,
+        model=last_model,
     )
 
 
@@ -153,38 +163,30 @@ async def analyze_with_two_mode(
 
     full_context = context or ""
     if strategy_code:
-        full_context = f"{full_context}
+        full_context = f"{full_context}\n\nStrategy Code:\n{strategy_code}" if full_context else f"Strategy Code:\n{strategy_code}"
 
-Strategy Code:
-{strategy_code}"
-
-    system_prompt = f"{TRADING_TWO_MODE_SYSTEM_PROMPT}"
+    system_prompt = TRADING_TWO_MODE_SYSTEM_PROMPT
     if full_context:
-        system_prompt = f"{system_prompt}
+        system_prompt = f"{system_prompt}\n\nContext:\n{full_context}"
 
-Context:
-{full_context}"
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message},
-    ]
-
-    routed = await dispatch.complete_routed(
-        messages=messages,
-        task_type="candidate_generation",
-        complexity="high" if strategy_code else "medium",
+    response = await dispatch.complete_for_task(
+        task_type="candidate",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
         temperature=0.3,
         max_tokens=4000,
     )
-    await _emit_timeline(timeline_callback, {
-        "type": "route_selected",
-        "provider": routed.provider,
-        "model": routed.model,
-        "fallback_used": routed.fallback_used,
-        "errors": routed.errors,
-    })
-    return parse_ai_response(routed.response.content)
+    await _emit_timeline(
+        timeline_callback,
+        {
+            "type": "route_selected",
+            "provider": response.provider,
+            "model": response.model,
+        },
+    )
+    return parse_ai_response(response.content)
 
 
 __all__ = [
