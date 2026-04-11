@@ -50,6 +50,20 @@ async def _fake_analyze_strategy(*args, **kwargs):
         parameters={"stoploss": -0.12},
         code_suggestions=None,
         is_applicable=True,
+        analysis_payload={
+            "summary": "Analysis completed for TestStrat.",
+            "diagnosis": {"problem": "Weak exits"},
+            "priorities": ["Tighten exit logic"],
+            "rationale": ["Losses are realized too late."],
+            "parameter_suggestions": [{"name": "stoploss", "value": -0.12, "reason": "Cut losses sooner."}],
+            "code_change_summary": None,
+            "recommended_next_step": "parameter_candidate",
+            "confidence": 0.82,
+            "raw_text": "raw-analysis",
+        },
+        provider="huggingface",
+        model="openai/gpt-oss-20b",
+        raw_text="raw-analysis",
     )
 
 
@@ -97,6 +111,9 @@ def test_ai_chat_thread_and_job_persist_across_reconnect(monkeypatch, tmp_path):
     assert payload["active_job"] is None
     assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
     assert payload["messages"][1]["parameters"] == {"stoploss": -0.12}
+    assert payload["messages"][1]["analysis_payload"]["summary"] == "Analysis completed for TestStrat."
+    assert payload["messages"][1]["provider"] == "huggingface"
+    assert payload["messages"][1]["model"] == "openai/gpt-oss-20b"
     assert payload["latest_context"]["version_id"] == "v-test-1"
 
     other_thread = client.get("/api/ai/chat/threads/OtherStrat")
@@ -174,3 +191,4 @@ def test_ai_chat_stale_running_job_is_marked_interrupted(monkeypatch, tmp_path):
     thread_payload = thread_response.json()
     assert thread_payload["active_job"] is None
     assert thread_payload["messages"][-1]["title"] == "AI Interrupted"
+

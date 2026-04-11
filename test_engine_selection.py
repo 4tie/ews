@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from fastapi.testclient import TestClient
 
 from app.engines.resolver import resolve_engine, resolve_engine_id
@@ -34,3 +34,15 @@ def test_settings_route_returns_freqtrade_runtime_defaults(monkeypatch):
     assert payload["freqtrade_path"] == "T:/freqtrade"
     assert "config_path" in payload
     assert "results_base_path" in payload
+
+def test_runtime_settings_backfill_ai_defaults():
+    payload = get_freqtrade_runtime_settings({"freqtrade_path": "T:/freqtrade"})
+
+    assert payload["ai_provider"] == "ollama"
+    assert payload["ai_classifier_model"] == ""
+    assert payload["ai_analysis_model"] == ""
+    assert payload["ai_candidate_model"] == ""
+    assert payload["ai_overlay_model"] == ""
+    assert payload["ollama_host"] == "http://localhost:11434"
+    assert payload["openrouter_api_key_env"] == "OPENROUTER_API_KEY"
+    assert payload["hf_token_env"] == "HF_TOKEN"
