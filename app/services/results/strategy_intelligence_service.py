@@ -1,11 +1,11 @@
-﻿"""
+"""
 Strategy Intelligence Service - AI-powered strategy analysis.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from app.ai.context_builder import build_strategy_analysis_context
 from app.ai.models import ModelResponse, get_dispatch
@@ -32,6 +32,9 @@ Do not include markdown fences or extra prose outside the JSON object.
 """.strip()
 
 
+TimelineCallback = Callable[[dict[str, Any]], Any]
+
+
 @dataclass
 class IntelligenceResult:
     analysis: str
@@ -45,11 +48,20 @@ class IntelligenceResult:
     raw_text: str | None = None
 
 
+async def _emit_timeline(callback: TimelineCallback | None, payload: dict[str, Any]) -> None:
+    if callback is None:
+        return
+    maybe_awaitable = callback(payload)
+    if hasattr(maybe_awaitable, "__await__"):
+        await maybe_awaitable
+
+
 async def analyze_strategy(
     strategy_name: str,
     strategy_code: str,
     backtest_results: dict[str, Any],
     user_question: str | None = None,
+    timeline_callback: TimelineCallback | None = None,
 ) -> IntelligenceResult:
     """Analyze strategy and provide AI-powered insights."""
     context = build_strategy_analysis_context(
@@ -63,12 +75,14 @@ async def analyze_strategy(
         task_type="analysis",
         base_prompt=CODE_AWARE_ADVISOR_SYSTEM_PROMPT,
         context=context,
+        timeline_callback=timeline_callback,
     )
 
 
 async def analyze_metrics(
     metrics: dict[str, Any],
     context: str | None = None,
+    timeline_callback: TimelineCallback | None = None,
 ) -> IntelligenceResult:
     """Analyze trading metrics and provide insights."""
     analysis_context = build_strategy_analysis_context(
@@ -81,6 +95,7 @@ async def analyze_metrics(
         task_type="analysis",
         base_prompt=ANALYST_SYSTEM_PROMPT,
         context=analysis_context,
+        timeline_callback=timeline_callback,
     )
 
 
@@ -128,20 +143,101 @@ async def _run_structured_analysis(
     task_type: str,
     base_prompt: str,
     context: str,
+    timeline_callback: TimelineCallback | None = None,
 ) -> IntelligenceResult:
     dispatch = get_dispatch()
+    messages = [
+        {"role": "system", "content": _build_analysis_system_prompt(base_prompt)},
+        {"role": "user", "content": context},
+    ]
+    policy = dispatch.get_task_policy(task_type)
+
+    if timeline_callback is not None:
+        await _emit_timeline(
+            timeline_callback,
+            {
+                "type": "route_selected",
+                "provider": policy.provider,
+                "model": policy.model,
+            },
+        )
+
+    if timeline_callback is not None and policy.provider == "ollama" and policy.stream_preferred:
+        client = dispatch.get_client("ollama")
+        if hasattr(client, "stream_chat"):
+            try:
+                chunks: list[str] = []
+                tool_event_sent = False
+                async for payload in client.stream_chat(
+                    messages=messages,
+                    model=policy.model,
+                    temperature=policy.temperature,
+                    max_tokens=policy.max_tokens,
+                ):
+                    message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+                    delta = str(message.get("content") or "")
+                    if delta:
+                        chunks.append(delta)
+                        await _emit_timeline(
+                            timeline_callback,
+                            {
+                                "type": "stream_delta",
+                                "provider": policy.provider,
+                                "model": policy.model,
+                                "delta": delta,
+                            },
+                        )
+                    if message.get("tool_calls") and not tool_event_sent:
+                        tool_event_sent = True
+                        await _emit_timeline(
+                            timeline_callback,
+                            {
+                                "type": "tool_call_detected",
+                                "provider": policy.provider,
+                                "model": policy.model,
+                                "detail": "Model advertised a tool call. Tool execution remains disabled in this app.",
+                            },
+                        )
+                response = ModelResponse(
+                    content="".join(chunks),
+                    model=policy.model,
+                    provider=policy.provider,
+                    task_type=task_type,
+                )
+                return _response_to_intelligence_result(response)
+            except Exception as exc:
+                if policy.fallback_provider and policy.fallback_model:
+                    await _emit_timeline(
+                        timeline_callback,
+                        {
+                            "type": "route_selected",
+                            "provider": policy.fallback_provider,
+                            "model": policy.fallback_model,
+                            "message": f"Primary route failed, falling back: {exc}",
+                        },
+                    )
+                    response = await dispatch.complete(
+                        messages=messages,
+                        provider=policy.fallback_provider,
+                        model=policy.fallback_model,
+                        temperature=policy.temperature,
+                        max_tokens=policy.max_tokens,
+                    )
+                    response.task_type = task_type
+                    return _response_to_intelligence_result(response)
+                raise
+
     response = await dispatch.complete_for_task(
         task_type=task_type,
-        messages=[
-            {"role": "system", "content": _build_analysis_system_prompt(base_prompt)},
-            {"role": "user", "content": context},
-        ],
+        messages=messages,
     )
     return _response_to_intelligence_result(response)
 
 
 def _build_analysis_system_prompt(base_prompt: str) -> str:
-    return f"{base_prompt}\n\n{_ANALYSIS_JSON_INSTRUCTIONS}"
+    return f"{base_prompt}
+
+{_ANALYSIS_JSON_INSTRUCTIONS}"
 
 
 def _response_to_intelligence_result(response: ModelResponse) -> IntelligenceResult:
