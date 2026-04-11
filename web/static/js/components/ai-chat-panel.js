@@ -1,4 +1,4 @@
-﻿import api from "../core/api.js";
+import api from "../core/api.js";
 import { getState, on as onState } from "../core/state.js";
 import { emit, on as onEvent, EVENTS } from "../core/events.js";
 import persistence, { KEYS } from "../core/persistence.js";
@@ -14,6 +14,7 @@ const inputEl = document.getElementById("chat-input");
 const sendBtn = document.getElementById("btn-send-chat");
 
 const POLL_INTERVAL_MS = 1200;
+const MAX_LIVE_EVENTS = 24;
 
 const state = {
   isInitialized: false,
@@ -25,11 +26,18 @@ const state = {
   currentVersionSource: "none",
   thread: { strategy_name: "", messages: [], latest_context: {}, active_job: null },
   latestResultsPayload: null,
-  pollingJobId: null,
+  activeJobId: null,
   pollTimer: null,
+  streamSource: null,
   requestInFlight: false,
   threadLoadToken: 0,
   versionLookupToken: 0,
+  liveTimeline: [],
+  liveDraft: "",
+  deliveredEventSeq: 0,
+  liveProvider: "",
+  liveModel: "",
+  liveStatusText: "",
 };
 
 function isObject(value) {
@@ -55,7 +63,7 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 
@@ -182,6 +190,88 @@ function rememberCandidateOverlay(strategy, messageId, payload) {
   saveOverlays();
 }
 
+function resetLiveState() {
+  state.liveTimeline = [];
+  state.liveDraft = "";
+  state.deliveredEventSeq = 0;
+  state.liveProvider = "";
+  state.liveModel = "";
+  state.liveStatusText = "";
+}
+
+function closeLiveStream() {
+  if (state.streamSource) {
+    state.streamSource.close();
+    state.streamSource = null;
+  }
+}
+
+function stopPollingTimer() {
+  if (state.pollTimer) {
+    window.clearTimeout(state.pollTimer);
+    state.pollTimer = null;
+  }
+}
+
+function stopJobTracking({ clearLiveState = true } = {}) {
+  closeLiveStream();
+  stopPollingTimer();
+  state.activeJobId = null;
+  state.requestInFlight = false;
+  if (clearLiveState) {
+    resetLiveState();
+  }
+  updateComposerState();
+}
+
+function appendLiveEvent(event) {
+  if (!isObject(event)) return;
+  if (event.type === "stream_delta") return;
+  state.liveTimeline.push(event);
+  if (state.liveTimeline.length > MAX_LIVE_EVENTS) {
+    state.liveTimeline = state.liveTimeline.slice(-MAX_LIVE_EVENTS);
+  }
+}
+
+function applyLiveEvent(event) {
+  const seq = Number(event?.seq || 0);
+  if (seq && seq <= state.deliveredEventSeq) {
+    return false;
+  }
+  if (seq) {
+    state.deliveredEventSeq = seq;
+  }
+  if (event?.provider) state.liveProvider = String(event.provider || "");
+  if (event?.model) state.liveModel = String(event.model || "");
+  if (event?.message && event.type !== "stream_delta") {
+    state.liveStatusText = String(event.message || "");
+  }
+  if (event?.type === "stream_delta" && event?.delta) {
+    state.liveDraft += String(event.delta || "");
+  }
+  appendLiveEvent(event);
+  render();
+  return true;
+}
+
+function renderTimelineEvent(event) {
+  const label = labelize(event?.type || "status");
+  const detail = compactText(
+    event?.message
+      || event?.detail
+      || event?.recommended_pipeline
+      || (event?.task_types ? safeArray(event.task_types).join(", ") : "")
+      || (event?.provider ? `${event.provider}${event.model ? ` / ${event.model}` : ""}` : ""),
+    160,
+  );
+  return `
+    <li class="ai-live-event ai-live-event--${escapeHtml(event?.type || "status")}">
+      <span class="ai-live-event__label">${escapeHtml(label)}</span>
+      ${detail ? `<span class="ai-live-event__detail">${escapeHtml(detail)}</span>` : ""}
+    </li>
+  `;
+}
+
 async function refreshVersionContext() {
   const strategy = resolveStrategy();
   const lookupToken = ++state.versionLookupToken;
@@ -236,80 +326,94 @@ async function refreshVersionContext() {
   render();
 }
 
-async function loadThread(strategy = resolveStrategy()) {
-  const token = ++state.threadLoadToken;
+function handleStreamDisconnect(jobId) {
+  if (state.activeJobId !== jobId) return;
+  closeLiveStream();
+  state.liveStatusText = "Live stream disconnected. Falling back to polling.";
+  render();
+  startPolling(jobId);
+}
 
-  if (!strategy) {
-    state.thread = { strategy_name: "", messages: [], latest_context: {}, active_job: null };
-    stopPolling();
-    render();
-    return;
-  }
-
+function startStream(jobId) {
+  closeLiveStream();
   try {
-    const response = await api.aiChat.getThread(strategy);
-    if (token !== state.threadLoadToken || resolveStrategy() !== strategy) return;
-
-    state.thread = isObject(response) ? response : { strategy_name: strategy, messages: [], latest_context: {}, active_job: null };
-
-    const serverContext = normalizeContext({ ...(response?.latest_context || {}), strategy });
-    if (serverContext.strategy && (serverContext.run_id || serverContext.version_id || state.latestContext.strategy !== strategy)) {
-      saveContext({ ...currentContext(strategy), ...serverContext, strategy });
-    }
-
-    const activeJob = response?.active_job;
-    if (activeJob?.job_id) {
-      startPolling(activeJob.job_id);
-    } else {
-      stopPolling();
-    }
-
-    render();
+    const source = api.aiChat.streamJob(jobId);
+    state.streamSource = source;
+    source.onmessage = (event) => {
+      let payload = null;
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        payload = null;
+      }
+      if (!payload || state.activeJobId !== jobId) return;
+      if (!applyLiveEvent(payload)) return;
+      if (payload.type === "completed") {
+        void finalizeJob(jobId, "completed", payload);
+      } else if (payload.type === "failed") {
+        void finalizeJob(jobId, payload.interrupted ? "interrupted" : "failed", payload);
+      }
+    };
+    source.onerror = () => {
+      handleStreamDisconnect(jobId);
+    };
   } catch (error) {
-    if (token !== state.threadLoadToken) return;
-    console.warn("[ai-chat] Failed to load strategy thread:", error);
-    state.thread = { strategy_name: strategy, messages: [], latest_context: {}, active_job: null };
-    stopPolling();
-    render();
+    console.warn("[ai-chat] Failed to open live stream:", error);
+    startPolling(jobId);
   }
 }
 
-async function refreshConversation() {
-  await refreshVersionContext();
-  await loadThread();
-}
-
-function startPolling(jobId) {
+function startJobTracking(jobId) {
   if (!jobId) return;
-  if (state.pollingJobId === jobId) {
+  if (state.activeJobId === jobId && (state.streamSource || state.pollTimer)) {
     state.requestInFlight = true;
     updateComposerState();
     render();
     return;
   }
 
-  stopPolling();
-  state.pollingJobId = jobId;
+  stopJobTracking();
+  state.activeJobId = jobId;
+  state.requestInFlight = true;
+  resetLiveState();
+  updateComposerState();
+  render();
+  startStream(jobId);
+}
+
+function startPolling(jobId) {
+  if (!jobId) return;
+  stopPollingTimer();
+  state.activeJobId = jobId;
   state.requestInFlight = true;
   updateComposerState();
   render();
   void pollJob(jobId);
 }
 
-function stopPolling() {
-  if (state.pollTimer) {
-    window.clearTimeout(state.pollTimer);
-    state.pollTimer = null;
-  }
-  state.pollingJobId = null;
+async function finalizeJob(jobId, status, payload = null) {
+  if (state.activeJobId !== jobId) return;
+  closeLiveStream();
+  stopPollingTimer();
+  const strategy = resolveStrategy();
   state.requestInFlight = false;
   updateComposerState();
+
+  await loadThread(strategy);
+
+  if (status === "completed") {
+    showToast("AI response ready.", "success", 2500);
+  } else if (status === "interrupted") {
+    showToast("The previous AI request was interrupted.", "warning", 3500);
+  } else if (status === "failed") {
+    showToast(`AI request failed: ${payload?.message || payload?.error || "unknown error"}`, "error");
+  }
 }
 
 async function pollJob(jobId) {
   try {
     const response = await api.aiChat.getJob(jobId);
-    if (state.pollingJobId !== jobId) return;
+    if (state.activeJobId !== jobId) return;
 
     const job = response?.job;
     if (!job) {
@@ -326,23 +430,56 @@ async function pollJob(jobId) {
       return;
     }
 
-    stopPolling();
-    await loadThread(resolveStrategy());
-
-    if (job.status === "completed") {
-      showToast("AI response ready.", "success", 2500);
-    } else if (job.status === "interrupted") {
-      showToast("The previous AI request was interrupted.", "warning", 3500);
-    } else if (job.status === "failed") {
-      showToast(`AI request failed: ${job.error || "unknown error"}`, "error");
-    }
+    await finalizeJob(jobId, job.status, job);
   } catch (error) {
-    if (state.pollingJobId !== jobId) return;
+    if (state.activeJobId !== jobId) return;
     console.warn("[ai-chat] Polling failed, retrying:", error);
     state.pollTimer = window.setTimeout(() => {
       void pollJob(jobId);
     }, POLL_INTERVAL_MS + 300);
   }
+}
+
+async function loadThread(strategy = resolveStrategy()) {
+  const token = ++state.threadLoadToken;
+
+  if (!strategy) {
+    state.thread = { strategy_name: "", messages: [], latest_context: {}, active_job: null };
+    stopJobTracking();
+    render();
+    return;
+  }
+
+  try {
+    const response = await api.aiChat.getThread(strategy);
+    if (token !== state.threadLoadToken || resolveStrategy() !== strategy) return;
+
+    state.thread = isObject(response) ? response : { strategy_name: strategy, messages: [], latest_context: {}, active_job: null };
+    const serverContext = normalizeContext({ ...(response?.latest_context || {}), strategy });
+    if (serverContext.strategy && (serverContext.run_id || serverContext.version_id || state.latestContext.strategy !== strategy)) {
+      saveContext({ ...currentContext(strategy), ...serverContext, strategy });
+    }
+
+    const activeJob = response?.active_job;
+    if (activeJob?.job_id) {
+      startJobTracking(activeJob.job_id);
+    } else {
+      stopJobTracking();
+    }
+
+    render();
+  } catch (error) {
+    if (token !== state.threadLoadToken) return;
+    console.warn("[ai-chat] Failed to load strategy thread:", error);
+    state.thread = { strategy_name: strategy, messages: [], latest_context: {}, active_job: null };
+    stopJobTracking();
+    render();
+  }
+}
+
+async function refreshConversation() {
+  await refreshVersionContext();
+  await loadThread();
 }
 
 function renderRecommendations(message) {
@@ -353,17 +490,14 @@ function renderRecommendations(message) {
 
 function renderActions(message) {
   if (message?.candidate_version_id) return "";
-
   const hasCandidatePayload = Boolean(hasKeys(message?.parameters) || (typeof message?.code === "string" && message.code.trim()));
   if (!hasCandidatePayload) return "";
 
   const disabled = state.requestInFlight || !currentRunReady() ? " disabled" : "";
   const actions = [];
-
   if (hasKeys(message?.parameters)) {
     actions.push(`<button type="button" class="btn btn--secondary btn--sm" data-action="apply-parameters" data-message-id="${escapeHtml(message.id)}"${disabled}>Create Parameter Candidate</button>`);
   }
-
   if (typeof message?.code === "string" && message.code.trim()) {
     actions.push(`<button type="button" class="btn btn--secondary btn--sm" data-action="apply-code" data-message-id="${escapeHtml(message.id)}"${disabled}>Create Code Candidate</button>`);
   }
@@ -371,7 +505,6 @@ function renderActions(message) {
   const note = !currentRunReady()
     ? '<div class="ai-chat-message__note">Load a completed run diagnosis first. AI candidates still stage through the existing run-scoped version workflow.</div>'
     : "";
-
   return `${actions.length ? `<div class="ai-chat-message__actions">${actions.join("")}</div>` : ""}${note}`;
 }
 
@@ -432,14 +565,29 @@ function renderStatusMessage() {
 }
 
 function renderActiveJobMessage() {
-  if (!state.pollingJobId) return "";
+  if (!state.activeJobId) return "";
+  const telemetry = state.liveProvider
+    ? `${state.liveProvider}${state.liveModel ? ` / ${state.liveModel}` : ""}`
+    : `server job ${state.activeJobId}`;
+  const draft = state.liveDraft
+    ? `<pre class="ai-chat-message__payload ai-chat-message__payload--code ai-chat-live-draft">${escapeHtml(state.liveDraft)}</pre>`
+    : '<div class="ai-chat-message__note">Waiting for the model to start producing output?</div>';
+  const timeline = state.liveTimeline.length
+    ? `<ol class="ai-live-timeline">${state.liveTimeline.map(renderTimelineEvent).join("")}</ol>`
+    : '<div class="ai-chat-message__note">Queued on the server. Live timeline events will appear here as the job advances.</div>';
+
   return `
-    <article class="ai-chat-message ai-chat-message--system">
+    <article class="ai-chat-message ai-chat-message--system ai-chat-message--live">
       <div class="ai-chat-message__header">
-        <span class="ai-chat-message__role">AI Working</span>
-        <span class="ai-chat-message__meta">server job ${escapeHtml(state.pollingJobId)}</span>
+        <span class="ai-chat-message__role">AI Live Timeline</span>
+        <span class="ai-chat-message__meta">${escapeHtml(telemetry)}</span>
       </div>
-      <div class="ai-chat-message__body">This request is running on the server. Refreshing or navigating away will not stop it.</div>
+      ${state.liveStatusText ? `<div class="ai-chat-message__body">${escapeHtml(state.liveStatusText)}</div>` : ""}
+      ${timeline}
+      <div class="ai-chat-live-draft-wrap">
+        <div class="ai-chat-message__role">Assistant Draft</div>
+        ${draft}
+      </div>
     </article>
   `;
 }
@@ -478,7 +626,6 @@ function renderMessage(message) {
 
 function renderTranscript() {
   if (!messagesEl) return;
-
   const strategy = resolveStrategy();
   const messages = mergedMessages();
 
@@ -500,7 +647,6 @@ function renderTranscript() {
   }
 
   messagesEl.innerHTML = parts.filter(Boolean).join("");
-
   if (state.isOpen) {
     requestAnimationFrame(() => {
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -516,7 +662,6 @@ function updateComposerState() {
   if (inputEl) {
     inputEl.disabled = disabled;
   }
-
   if (sendBtn) {
     sendBtn.disabled = disabled;
     if (state.requestInFlight) {
@@ -538,25 +683,18 @@ function setOpen(nextOpen, { persist = true } = {}) {
   backdrop?.classList.toggle("is-open", state.isOpen);
   panel?.setAttribute("aria-hidden", state.isOpen ? "false" : "true");
   openBtn?.setAttribute("aria-pressed", state.isOpen ? "true" : "false");
-  if (persist) {
-    persistUiState();
-  }
-  if (state.isOpen) {
-    void refreshConversation();
-  }
-  render();
+  if (persist) persistUiState();
 }
 
 function buildRequestContext(strategy) {
   const context = currentContext(strategy);
   return {
+    strategy_name: strategy,
     run_id: context.run_id || null,
     version_id: context.version_id || state.currentVersion?.version_id || null,
     diagnosis_status: context.diagnosis_status || null,
     summary_available: Boolean(context.summary_available),
-    version_source: state.currentVersionSource && state.currentVersionSource !== "loading"
-      ? state.currentVersionSource
-      : context.version_source || "none",
+    version_source: context.version_source || state.currentVersionSource || "none",
   };
 }
 
@@ -594,10 +732,9 @@ async function handleSend() {
       inputEl.value = "";
     }
     persistUiState();
-
     await loadThread(strategy);
     if (response?.job_id) {
-      startPolling(response.job_id);
+      startJobTracking(response.job_id);
     }
     showToast("AI request queued.", "success", 2000);
   } catch (error) {
@@ -649,12 +786,12 @@ async function handleApplyAction(messageId, action) {
     render();
     showToast(
       response?.candidate_version_id ? `Candidate version ${response.candidate_version_id} created.` : "Candidate version created.",
-      "success"
+      "success",
     );
   } catch (error) {
     showToast(`Failed to create candidate: ${error?.message || String(error)}`, "error");
   } finally {
-    state.requestInFlight = Boolean(state.pollingJobId);
+    state.requestInFlight = Boolean(state.activeJobId);
     updateComposerState();
     render();
   }
@@ -672,7 +809,6 @@ function handleKeydown(event) {
     setOpen(false);
     return;
   }
-
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     void handleSend();
@@ -686,7 +822,7 @@ function handleStrategyChange(strategyValue) {
   if (!strategy) {
     saveContext(defaultContext(""));
     state.thread = { strategy_name: "", messages: [], latest_context: {}, active_job: null };
-    stopPolling();
+    stopJobTracking();
     render();
     return;
   }
@@ -758,4 +894,3 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
-
