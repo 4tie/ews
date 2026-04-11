@@ -98,7 +98,8 @@ function renderModels(result) {
             </div>
           </div>
           <div class="settings-ai-card__badges">
-          </div>
+            <span class="settings-ai-badge ${model.tool_calling_supported_by_model ? "" : "settings-ai-badge--muted"}">Model Tools: ${escapeHtml(model.tool_calling_supported_by_model ? "supported" : "not reported")}</span>
+            <span class="settings-ai-badge settings-ai-badge--muted">App Tools: ${escapeHtml(model.tool_calling_enabled_in_app ? "enabled" : "disabled")}</span>
         </header>
         <div class="settings-ai-card__caps">
           ${capabilities.length ? capabilities.map((capability) => `<span class="settings-ai-badge">${escapeHtml(capability)}</span>`).join("") : '<span class="settings-ai-badge settings-ai-badge--muted">No raw capabilities reported</span>'}
@@ -128,7 +129,7 @@ async function discover({ silent = false } = {}) {
   }
 
   refreshBtn?.setAttribute("disabled", "disabled");
-  setConnectionStatus("Checking Ollama host…");
+  setConnectionStatus("Checking Ollama host...");
 
   try {
     const result = await api.settings.discoverOllama({ host });
