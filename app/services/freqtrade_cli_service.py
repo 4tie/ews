@@ -46,7 +46,9 @@ class FreqtradeCliService:
 
     def _freqtrade_subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()
-        env["FT_FORCE_THREADED_RESOLVER"] = "1"
+        # DISABLED: FT_FORCE_THREADED_RESOLVER trigger an aiohttp import during Python init,
+        # causing a fatal cascade on Windows Python 3.12. Removed to allow freqtrade to run.
+        # env["FT_FORCE_THREADED_RESOLVER"] = "1"
 
         existing = env.get("PYTHONPATH")
         env["PYTHONPATH"] = BASE_DIR if not existing else BASE_DIR + os.pathsep + existing
@@ -129,16 +131,23 @@ class FreqtradeCliService:
 
         with open(workspace_paths["strategy_file"], "w", encoding="utf-8") as handle:
             handle.write(code_snapshot)
-        with open(workspace_paths["config_overlay_path"], "w", encoding="utf-8") as handle:
-            json.dump(parameters_snapshot, handle, indent=2)
+
+        # Only write config overlay if we have parameters; freqtrade fails on empty config files
+        config_overlay_path = None
+        config_paths = [base_config_path]
+        if parameters_snapshot:
+            with open(workspace_paths["config_overlay_path"], "w", encoding="utf-8") as handle:
+                json.dump(parameters_snapshot, handle, indent=2)
+            config_overlay_path = workspace_paths["config_overlay_path"]
+            config_paths.append(config_overlay_path)
 
         return {
-            "config_paths": [base_config_path, workspace_paths["config_overlay_path"]],
+            "config_paths": config_paths,
             "request_config_path": base_config_path,
             "strategy_path": workspace_paths["strategies_dir"],
             "workspace_dir": workspace_paths["workspace_dir"],
             "strategy_file": workspace_paths["strategy_file"],
-            "config_overlay_path": workspace_paths["config_overlay_path"],
+            "config_overlay_path": config_overlay_path,
         }
 
     def _backtest_meta_paths(self, strategy: str) -> list[str]:
