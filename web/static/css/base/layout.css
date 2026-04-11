@@ -27,7 +27,7 @@
 }
 
 .sidebar::-webkit-scrollbar-thumb {
-  background-color: var(--color-border);
+  background-color: var(--color-accent);
   border-radius: 3px;
 }
 
@@ -159,7 +159,7 @@
 }
 
 .app-content::-webkit-scrollbar-thumb {
-  background-color: var(--color-border);
+  background-color: var(--color-accent);
   border-radius: 4px;
 }
 
