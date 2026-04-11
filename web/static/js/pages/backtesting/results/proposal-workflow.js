@@ -12,6 +12,22 @@ import { initPersistedRunsStore, subscribePersistedRuns } from "./persisted-runs
 
 const root = document.getElementById("summary-proposals");
 
+// Mapping from diagnosis flags to deterministic actions
+const DIAGNOSIS_FLAG_TO_ACTION = {
+  "high_drawdown": "tighten_stoploss",
+  "exit_inefficiency": "tighten_stoploss",
+  "pair_dragger": "reduce_weak_pairs",
+  "low_win_rate": "tighten_entries",
+  "long_hold_time": "accelerate_exits",
+};
+
+const ACTION_TYPE_LABELS = {
+  "tighten_entries": "Tighten Entry Conditions",
+  "reduce_weak_pairs": "Reduce Weak Pairs",
+  "tighten_stoploss": "Tighten Stoploss",
+  "accelerate_exits": "Accelerate Exits",
+};
+
 let latestPayload = null;
 let runsSnapshot = { status: "idle", strategy: "", runs: [], error: null };
 let versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
@@ -178,20 +194,79 @@ function renderAiSuggestion(item) {
   `;
 }
 
+function buildDeterministicActions(diagnosis) {
+  const actions = [];
+  if (!isObject(diagnosis)) return actions;
+
+  // Check primary flags and ranked issues for deterministic action triggers
+  const primaryFlags = Array.isArray(diagnosis.primary_flags) ? diagnosis.primary_flags : [];
+  const rankedIssues = Array.isArray(diagnosis.ranked_issues) ? diagnosis.ranked_issues : [];
+
+  // Build set of rules we've already seen to avoid duplication
+  const seenRules = new Set();
+
+  // Process primary flags
+  primaryFlags.forEach((flag) => {
+    const rule = flag?.rule;
+    const actionType = DIAGNOSIS_FLAG_TO_ACTION[rule];
+    if (actionType && !seenRules.has(actionType)) {
+      seenRules.add(actionType);
+      actions.push({
+        rule: actionType,
+        action_type: actionType,
+        label: ACTION_TYPE_LABELS[actionType] || actionType,
+        message: flag?.message || `Apply ${ACTION_TYPE_LABELS[actionType] || actionType}`,
+        severity: flag?.severity || "warning",
+      });
+    }
+  });
+
+  // Process ranked issues (if not already added from primary flags)
+  rankedIssues.forEach((issue) => {
+    const rule = issue?.rule;
+    const actionType = DIAGNOSIS_FLAG_TO_ACTION[rule];
+    if (actionType && !seenRules.has(actionType)) {
+      seenRules.add(actionType);
+      actions.push({
+        rule: actionType,
+        action_type: actionType,
+        label: ACTION_TYPE_LABELS[actionType] || actionType,
+        message: issue?.message || `Apply ${ACTION_TYPE_LABELS[actionType] || actionType}`,
+        severity: issue?.severity || "warning",
+      });
+    }
+  });
+
+  return actions;
+}
+
+function renderDeterministicAction(item) {
+  const actionType = item?.action_type || item?.rule || "unknown";
+  const label = ACTION_TYPE_LABELS[actionType] || actionType;
+  return `
+    <div class="proposal-item__body">${escapeHtml(item?.message || `Apply ${label} to improve strategy performance`)}</div>
+    <div class="proposal-item__meta">
+      <span><strong>Action:</strong> ${escapeHtml(label)}</span>
+      <span><strong>Type:</strong> Parameter Change</span>
+    </div>
+  `;
+}
+
 function renderActionSection({ title, sourceKind, items, note, renderer }) {
   const body = items.length
     ? items.map((item, index) => {
         const actionKey = `create:${sourceKind}:${index}`;
         const disabled = busyAction && busyAction !== actionKey ? " disabled" : "";
         const loading = busyAction === actionKey;
+        const actionTypeAttr = item?.action_type ? ` data-action-type="${escapeHtml(item.action_type)}"` : "";
         return `
           <article class="proposal-item">
             <div class="proposal-item__header">
               <div>
-                <div class="proposal-item__title">${escapeHtml(item?.rule || item?.name || item?.parameter || item?.key || `${title} ${index + 1}`)}</div>
+                <div class="proposal-item__title">${escapeHtml(item?.label || item?.rule || item?.name || item?.parameter || item?.key || `${title} ${index + 1}`)}</div>
                 <div class="proposal-item__subtitle">${escapeHtml(sourceKind.replace(/_/g, " "))}</div>
               </div>
-              <button type="button" class="btn btn--secondary btn--sm" data-action="create-candidate" data-source-kind="${escapeHtml(sourceKind)}" data-source-index="${index}"${disabled}>${loading ? "Creating..." : "Create Candidate"}</button>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="create-candidate" data-source-kind="${escapeHtml(sourceKind)}" data-source-index="${index}"${actionTypeAttr}${disabled}>${loading ? "Creating..." : "Create Candidate"}</button>
             </div>
             ${renderer(item)}
           </article>
@@ -357,6 +432,7 @@ function render() {
 
   const rankedIssues = Array.isArray(latestPayload?.diagnosis?.ranked_issues) ? latestPayload.diagnosis.ranked_issues : [];
   const parameterHints = Array.isArray(latestPayload?.diagnosis?.parameter_hints) ? latestPayload.diagnosis.parameter_hints : [];
+  const deterministic_actions = buildDeterministicActions(latestPayload?.diagnosis || {});
   const aiSuggestions = latestPayload?.ai?.ai_status === "ready" && Array.isArray(latestPayload?.ai?.parameter_suggestions)
     ? latestPayload.ai.parameter_suggestions
     : [];
@@ -366,6 +442,13 @@ function render() {
 
   root.innerHTML = `
     ${renderPrimaryFlags()}
+    ${renderActionSection({
+      title: "Deterministic Actions",
+      sourceKind: "deterministic_action",
+      items: deterministic_actions,
+      note: "No deterministic actions are recommended for this run based on the diagnosis flags.",
+      renderer: renderDeterministicAction,
+    })}
     ${renderActionSection({
       title: "Ranked Issues",
       sourceKind: "ranked_issue",
@@ -465,7 +548,7 @@ async function ensureCompareLoaded() {
   }
 }
 
-async function handleCreateCandidate(sourceKind, sourceIndex) {
+async function handleCreateCandidate(sourceKind, sourceIndex, actionType) {
   const baselineRunId = currentBaselineRunId();
   if (!baselineRunId) {
     showToast("No baseline run is loaded for proposal creation.", "warning");
@@ -476,11 +559,15 @@ async function handleCreateCandidate(sourceKind, sourceIndex) {
   render();
 
   try {
-    const response = await api.backtest.createProposalCandidate(baselineRunId, {
+    const payload = {
       source_kind: sourceKind,
       source_index: Number(sourceIndex),
       candidate_mode: "auto",
-    });
+    };
+    if (actionType) {
+      payload.action_type = actionType;
+    }
+    const response = await api.backtest.createProposalCandidate(baselineRunId, payload);
     showToast(response?.candidate_version_id ? `Candidate ${response.candidate_version_id} created.` : "Candidate created.", "success");
     await loadVersions(resolveStrategy(), { silent: true });
     await ensureCompareLoaded();
@@ -620,7 +707,10 @@ function handleRootClick(event) {
   const action = button.dataset.action || "";
 
   if (action === "create-candidate") {
-    void handleCreateCandidate(button.dataset.sourceKind || "", button.dataset.sourceIndex || "0");
+    const sourceKind = button.dataset.sourceKind || "";
+    const sourceIndex = button.dataset.sourceIndex || "0";
+    const actionType = button.dataset.actionType || null;
+    void handleCreateCandidate(sourceKind, sourceIndex, actionType);
     return;
   }
   if (action === "rerun-candidate") {

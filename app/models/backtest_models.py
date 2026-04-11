@@ -55,7 +55,8 @@ class BacktestRunRequest(BaseModel):
 class ProposalCandidateRequest(BaseModel):
     source_kind: ProposalSourceKind
     source_index: int = Field(default=0, ge=0)
-    candidate_mode: ProposalCandidateMode = ProposalCandidateMode.AUTO    action_type: Optional[DeterministicActionType] = None
+    candidate_mode: ProposalCandidateMode = ProposalCandidateMode.AUTO
+    action_type: Optional[DeterministicActionType] = None
 
 class BacktestRunRecord(BaseModel):
     run_id: str
