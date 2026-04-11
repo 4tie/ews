@@ -8,10 +8,11 @@ html {
   height: 100%;
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
+  overflow: hidden;
 }
 
 body {
-  min-height: 100%;
+  height: 100%;
   background-color: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -19,6 +20,7 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
 }
 
 a {

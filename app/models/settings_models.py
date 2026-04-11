@@ -1,4 +1,10 @@
-﻿from pydantic import BaseModel, ConfigDict, field_validator
+﻿import re
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+_SUPPORTED_AI_PROVIDERS = {"ollama", "openrouter", "huggingface", "openai"}
+_ENV_REF_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class AppSettings(BaseModel):
@@ -15,8 +21,15 @@ class AppSettings(BaseModel):
     theme: str = "dark"
     results_base_path: str = ""
     config_path: str = ""
-    ollama_host: str = "http://127.0.0.1:11434"
-    ollama_default_model: str = ""
+
+    ai_provider: str = "ollama"
+    ai_classifier_model: str = ""
+    ai_analysis_model: str = ""
+    ai_candidate_model: str = ""
+    ai_overlay_model: str = ""
+    ollama_host: str = "http://localhost:11434"
+    openrouter_api_key_env: str = "OPENROUTER_API_KEY"
+    hf_token_env: str = "HF_TOKEN"
 
     @field_validator("engine")
     @classmethod
@@ -24,4 +37,32 @@ class AppSettings(BaseModel):
         normalized = (value or "").strip().lower()
         if normalized not in {"freqtrade"}:
             raise ValueError("engine must be: freqtrade")
+        return normalized
+
+    @field_validator("ai_provider")
+    @classmethod
+    def _validate_ai_provider(cls, value: str) -> str:
+        normalized = (value or "ollama").strip().lower()
+        if normalized not in _SUPPORTED_AI_PROVIDERS:
+            raise ValueError("ai_provider must be one of: ollama, openrouter, huggingface, openai")
+        return normalized
+
+    @field_validator(
+        "ai_classifier_model",
+        "ai_analysis_model",
+        "ai_candidate_model",
+        "ai_overlay_model",
+        "ollama_host",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_string_fields(cls, value: str | None) -> str:
+        return str(value or "").strip()
+
+    @field_validator("openrouter_api_key_env", "hf_token_env")
+    @classmethod
+    def _validate_env_ref(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if normalized and not _ENV_REF_PATTERN.fullmatch(normalized):
+            raise ValueError("environment variable references must use letters, digits, and underscores only")
         return normalized

@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Literal
 
-from app.ai.models import get_dispatch, ModelResponse
+from app.ai.models import get_dispatch
 from app.ai.prompts.trading import CLASSIFIER_SYSTEM_PROMPT
 
 
@@ -27,17 +27,18 @@ async def classify_request(user_message: str) -> Classification:
         {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
         {"role": "user", "content": user_message},
     ]
-    
+
     dispatch = get_dispatch()
-    response = await dispatch.complete(
+    routed = await dispatch.complete_routed(
         messages=messages,
-        model="openai/gpt-4o-mini",
+        task_type="classification",
+        complexity="low",
         temperature=0.2,
         max_tokens=500,
     )
-    
+
     try:
-        result = json.loads(response.content)
+        result = json.loads(routed.response.content)
         return Classification(
             task_types=result.get("task_types", ["casual_chat"]),
             complexity=result.get("complexity", "medium"),
@@ -46,7 +47,7 @@ async def classify_request(user_message: str) -> Classification:
             confidence=result.get("confidence", 0.5),
             recommended_pipeline=result.get("recommended_pipeline", "simple"),
         )
-    except (json.JSONDecodeError, KeyError) as e:
+    except (json.JSONDecodeError, KeyError):
         return Classification(
             task_types=["casual_chat"],
             complexity="medium",
