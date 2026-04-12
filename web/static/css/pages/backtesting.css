@@ -988,9 +988,21 @@
   gap: var(--space-3);
 }
 
+.compare-diff-table,
+.compare-pairs-table {
+  min-width: 720px;
+}
+
 .compare-diff-table td,
 .compare-pairs-table td {
   vertical-align: top;
+}
+
+.compare-cell-note {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
 }
 
 .compare-code-summary {

@@ -71,6 +71,22 @@ function renderRuleList(title, rules, emptyNote) {
   `;
 }
 
+function collectMetricLabels(rows, classification) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => row?.classification === classification)
+    .map((row) => row?.label || row?.key || "Metric");
+}
+
+function renderMetricHighlights(rows) {
+  return `
+    <div class="compare-diagnosis-grid">
+      ${renderRuleList("Improved", collectMetricLabels(rows, "improved"), "No metrics improved on the selected candidate.")}
+      ${renderRuleList("Regressed", collectMetricLabels(rows, "regressed"), "No metrics regressed on the selected candidate.")}
+      ${renderRuleList("Changed", collectMetricLabels(rows, "changed"), "No metrics changed without a directional verdict.")}
+    </div>
+  `;
+}
+
 function renderParameterDiffTable(versionDiff) {
   const rows = Array.isArray(versionDiff?.parameter_diff_rows) ? versionDiff.parameter_diff_rows : [];
   if (!rows.length) {
@@ -82,6 +98,7 @@ function renderParameterDiffTable(versionDiff) {
       <table class="data-table compare-table compare-diff-table">
         <thead>
           <tr>
+            <th>Status</th>
             <th>Parameter Path</th>
             <th>Baseline</th>
             <th>Selected Candidate</th>
@@ -90,6 +107,7 @@ function renderParameterDiffTable(versionDiff) {
         <tbody>
           ${rows.map((row) => `
             <tr>
+              <td>${renderDecisionBadge(row?.status || "changed")}</td>
               <td class="mono">${escapeHtml(row?.path || "-")}</td>
               <td>${escapeHtml(formatCompactValue(row?.before))}</td>
               <td>${escapeHtml(formatCompactValue(row?.after))}</td>
@@ -129,6 +147,7 @@ function renderMetricTable(comparison, options = {}) {
   return `
     <section class="results-context results-context--table compare-decision-section">
       <div class="results-context__title">Decision Metrics</div>
+      ${renderMetricHighlights(rows)}
       ${rows.length ? `
         <div class="results-context__table">
           <table class="data-table compare-table proposal-compare-table">
@@ -144,7 +163,10 @@ function renderMetricTable(comparison, options = {}) {
             <tbody>
               ${rows.map((metric) => `
                 <tr>
-                  <td>${escapeHtml(metric?.label || "-")}</td>
+                  <td>
+                    <div>${escapeHtml(metric?.label || "-")}</div>
+                    <div class="compare-cell-note">${escapeHtml(metric?.reason || "")}</div>
+                  </td>
                   <td>${escapeHtml(formatMetricValue(metric?.format, metric?.left, leftCurrency))}</td>
                   <td>${escapeHtml(formatMetricValue(metric?.format, metric?.right, rightCurrency))}</td>
                   <td class="compare-metric-delta compare-metric-delta--${escapeHtml(metric?.classification || "neutral")}">${escapeHtml(formatMetricValue(metric?.format, metric?.delta, rightCurrency, { signed: true }))}</td>
@@ -169,6 +191,7 @@ function renderPairTable(comparison, options = {}) {
   const worstBefore = pairs?.worst_pair_change?.before || {};
   const worstAfter = pairs?.worst_pair_change?.after || {};
   const dragger = pairs?.pair_dragger_evidence || {};
+  const summary = pairs?.summary || {};
 
   const improvementSummary = topImprovements.length
     ? topImprovements.map((row) => `${row.pair} (${formatPct(row?.delta?.profit_total_pct)})`).join(', ')
@@ -181,6 +204,10 @@ function renderPairTable(comparison, options = {}) {
     <section class="results-context results-context--table compare-decision-section">
       <div class="results-context__title">Pair Delta</div>
       <div class="results-context__meta compare-pair-summary-grid">
+        <span><strong>Improved Pairs:</strong> ${escapeHtml(formatCompactValue(summary?.improved_count ?? 0))}</span>
+        <span><strong>Regressed Pairs:</strong> ${escapeHtml(formatCompactValue(summary?.regressed_count ?? 0))}</span>
+        <span><strong>Changed Pairs:</strong> ${escapeHtml(formatCompactValue(summary?.changed_count ?? 0))}</span>
+        <span><strong>Neutral Pairs:</strong> ${escapeHtml(formatCompactValue(summary?.neutral_count ?? 0))}</span>
         <span><strong>Top Improvements:</strong> ${escapeHtml(improvementSummary)}</span>
         <span><strong>Top Regressions:</strong> ${escapeHtml(regressionSummary)}</span>
         <span><strong>Worst Pair Before:</strong> ${escapeHtml(worstBefore?.pair || '-')}${worstBefore?.profit_total_pct == null ? '' : ` (${formatPct(worstBefore.profit_total_pct)})`}</span>
@@ -195,6 +222,10 @@ function renderPairTable(comparison, options = {}) {
                 <th>Pair</th>
                 <th>${escapeHtml(baselineLabel)} Profit</th>
                 <th>${escapeHtml(candidateLabel)} Profit</th>
+                <th>${escapeHtml(baselineLabel)} Win Rate</th>
+                <th>${escapeHtml(candidateLabel)} Win Rate</th>
+                <th>${escapeHtml(baselineLabel)} Trades</th>
+                <th>${escapeHtml(candidateLabel)} Trades</th>
                 <th>Profit Delta</th>
                 <th>Win Rate Delta</th>
                 <th>Trade Delta</th>
@@ -204,9 +235,16 @@ function renderPairTable(comparison, options = {}) {
             <tbody>
               ${rows.map((row) => `
                 <tr>
-                  <td>${escapeHtml(row?.pair || '-')}</td>
+                  <td>
+                    <div>${escapeHtml(row?.pair || '-')}</div>
+                    <div class="compare-cell-note">${escapeHtml(row?.reason || '')}</div>
+                  </td>
                   <td>${escapeHtml(formatMetricValue('pct', row?.left?.profit_total_pct))}</td>
                   <td>${escapeHtml(formatMetricValue('pct', row?.right?.profit_total_pct))}</td>
+                  <td>${escapeHtml(formatMetricValue('pct', row?.left?.win_rate))}</td>
+                  <td>${escapeHtml(formatMetricValue('pct', row?.right?.win_rate))}</td>
+                  <td>${escapeHtml(formatMetricValue('count', row?.left?.trades))}</td>
+                  <td>${escapeHtml(formatMetricValue('count', row?.right?.trades))}</td>
                   <td class="compare-metric-delta compare-metric-delta--${escapeHtml(row?.classification || 'neutral')}">${escapeHtml(formatMetricValue('pct', row?.delta?.profit_total_pct, '', { signed: true }))}</td>
                   <td>${escapeHtml(formatMetricValue('pct', row?.delta?.win_rate, '', { signed: true }))}</td>
                   <td>${escapeHtml(formatMetricValue('count', row?.delta?.trades, '', { signed: true }))}</td>
@@ -226,6 +264,7 @@ function renderDiagnosisDelta(comparison) {
   return `
     <section class="results-context compare-decision-section">
       <div class="results-context__title">Diagnosis Delta</div>
+      <div class="results-context__note">Deterministic-only diagnosis evidence from persisted summaries, request snapshots, and run-linked versions.</div>
       <div class="compare-diagnosis-grid">
         ${renderRuleList('Resolved Rules', delta?.resolved_rules, 'No deterministic rules were resolved by the selected candidate.')}
         ${renderRuleList('New Rules', delta?.new_rules, 'No new deterministic rules appeared on the selected candidate.')}
@@ -244,6 +283,7 @@ export function renderDecisionReadyCompare(comparison, options = {}) {
   const baselineLabel = options.baselineLabel || 'Baseline';
   const candidateLabel = options.candidateLabel || 'Selected Candidate';
   const summaryText = versionDiff?.summary || 'No persisted candidate summary is available.';
+  const matchedRules = Array.isArray(versionDiff?.matched_rules) ? versionDiff.matched_rules : [];
 
   return `
     <section class="results-context results-context--table compare-decision-section">
@@ -259,8 +299,11 @@ export function renderDecisionReadyCompare(comparison, options = {}) {
         <span><strong>Source Title:</strong> ${escapeHtml(versionDiff?.source_title || '-')}</span>
         <span><strong>Candidate Mode:</strong> ${escapeHtml(labelize(versionDiff?.candidate_mode || '-'))}</span>
         <span><strong>Change Type:</strong> ${escapeHtml(labelize(versionDiff?.change_type || '-'))}</span>
+        <span><strong>Action Type:</strong> ${escapeHtml(labelize(versionDiff?.action_type || '-'))}</span>
+        <span><strong>Rule:</strong> ${escapeHtml(versionDiff?.rule || '-')}</span>
       </div>
       <div class="results-context__note">${escapeHtml(summaryText)}</div>
+      ${matchedRules.length ? `<div class="compare-token-list">${matchedRules.map((rule) => `<span class="compare-token">${escapeHtml(rule)}</span>`).join('')}</div>` : ''}
       ${renderParameterDiffTable(versionDiff)}
       ${renderCodeDiff(versionDiff)}
     </section>

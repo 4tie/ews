@@ -231,7 +231,9 @@ def test_compare_backtest_runs_adds_version_diff_pair_deltas_and_diagnosis_delta
     assert comparison["right"]["summary_available"] is True
     assert profit_row["delta"] == 1.5
     assert profit_row["classification"] == "improved"
+    assert profit_row["reason"] == "Higher profit is better."
     assert trades_row["classification"] == "improved"
+    assert trades_row["reason"] == "More trades help reduce low-sample-size risk."
 
     assert comparison["versions"] == {
         "baseline_version_id": "v-baseline",
@@ -244,13 +246,24 @@ def test_compare_backtest_runs_adds_version_diff_pair_deltas_and_diagnosis_delta
     assert comparison["version_diff"]["candidate_mode"] == "parameter_only"
     assert comparison["version_diff"]["change_type"] == "code_change"
     assert comparison["version_diff"]["summary"] == "Candidate from diagnosis"
+    assert comparison["version_diff"]["rule"] == "low_sample_size"
+    assert comparison["version_diff"]["action_type"] is None
+    assert comparison["version_diff"]["matched_rules"] == []
     assert [row["path"] for row in comparison["version_diff"]["parameter_diff_rows"]] == ["entry.alpha", "stoploss"]
+    assert [row["status"] for row in comparison["version_diff"]["parameter_diff_rows"]] == ["changed", "changed"]
     assert comparison["version_diff"]["code_diff"]["changed"] is True
     assert comparison["version_diff"]["code_diff"]["diff_ref"] == "diff://candidate"
 
     pair_rows = comparison["pairs"]["rows"]
     assert [row["pair"] for row in pair_rows] == ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    assert comparison["pairs"]["summary"] == {
+        "improved_count": 2,
+        "regressed_count": 0,
+        "changed_count": 0,
+        "neutral_count": 1,
+    }
     assert comparison["pairs"]["top_improvements"][0]["pair"] == "ETH/USDT"
+    assert comparison["pairs"]["top_regressions"] == []
     assert comparison["pairs"]["pair_dragger_evidence"]["status"] == "resolved"
     assert comparison["pairs"]["worst_pair_change"]["before"]["pair"] == "ETH/USDT"
     assert comparison["pairs"]["worst_pair_change"]["after"]["profit_total_pct"] == -1.0

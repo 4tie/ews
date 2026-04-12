@@ -526,6 +526,54 @@ def test_stage_backtest_candidate_returns_additive_canonical_response(monkeypatc
     assert payload["candidate_ai_mode"] == "parameter_only"
 
 
+def test_stage_backtest_candidate_normalizes_reload_safe_source_context(monkeypatch):
+    captured = {}
+
+    def _create_mutation(request):
+        captured["request"] = request
+        return MutationResult(version_id="v-stage", status="created", message="created")
+
+    monkeypatch.setattr(apply_service.mutation_service, "create_mutation", _create_mutation)
+    monkeypatch.setattr(
+        apply_service.mutation_service,
+        "get_version_by_id",
+        lambda version_id: _version(version_id, ChangeType.PARAMETER_CHANGE),
+    )
+
+    result = apply_service.stage_backtest_candidate(
+        strategy_name="TestStrat",
+        linked_version=SimpleNamespace(version_id="v-linked"),
+        summary="Candidate from run bt-stage",
+        created_by="deterministic_proposal",
+        parameters={"stoploss": -0.11},
+        source_ref="backtest_run:bt-stage",
+        source_kind="deterministic_action",
+        source_context={
+            "run_id": "bt-stage",
+            "source_index": "3",
+            "rule": " low_win_rate ",
+            "action_type": " tighten_entries ",
+            "matched_rules": [" low_win_rate ", "", "low_win_rate"],
+            "chat_summary": "  candidate summary  ",
+        },
+        source_title=" Tighten Entries ",
+        ai_mode=" parameter_only ",
+    )
+
+    assert result.success is True
+    assert captured["request"].source_context == {
+        "run_id": "bt-stage",
+        "source_index": 3,
+        "rule": "low_win_rate",
+        "action_type": "tighten_entries",
+        "matched_rules": ["low_win_rate"],
+        "chat_summary": "candidate summary",
+        "title": "Tighten Entries",
+        "candidate_mode": "parameter_only",
+        "flag_rule": "low_win_rate",
+    }
+
+
 def test_apply_strategy_recommendations_uses_stage_backtest_candidate(monkeypatch):
     calls = []
 

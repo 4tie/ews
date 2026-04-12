@@ -315,11 +315,12 @@ function renderCompareSection() {
   if (!candidate) {
     return "";
   }
+  const candidateSourceTitle = candidate?.source_context?.title || candidate?.summary || candidate?.source_ref || "selected candidate";
   if (!candidateRun) {
     return `
       <section class="results-context results-context--table results-context--empty">
         <div class="results-context__title">Candidate Compare</div>
-        <div class="results-context__note">Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run inline.</div>
+        <div class="results-context__note">Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run inline. Current selection: ${escapeHtml(candidate.version_id || "-")} | ${escapeHtml(candidateSourceTitle)}.</div>
       </section>
     `;
   }
@@ -346,7 +347,7 @@ function renderCompareSection() {
   return `
     <section class="results-context">
       <div class="results-context__title">Candidate Compare</div>
-      <div class="results-context__note">Baseline run ${escapeHtml(currentBaselineRunId())} vs selected candidate run ${escapeHtml(candidateRun.run_id)}.</div>
+      <div class="results-context__note">Baseline run ${escapeHtml(currentBaselineRunId())} (version ${escapeHtml(currentBaselineVersionId() || "-")}) vs selected candidate ${escapeHtml(candidate.version_id || "-")} on persisted rerun ${escapeHtml(candidateRun.run_id)}.</div>
     </section>
     ${renderDecisionReadyCompare(compareState.data, { baselineLabel: "Baseline", candidateLabel: "Selected Candidate" })}
     <section class="results-context">

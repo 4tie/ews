@@ -186,6 +186,14 @@ class StrategyMutationService:
         return value
 
     @staticmethod
+    def _classify_parameter_diff_row(before: Any, after: Any) -> str:
+        if before is None and after is not None:
+            return "added"
+        if before is not None and after is None:
+            return "removed"
+        return "changed"
+
+    @staticmethod
     def _collect_parameter_diff_rows(before: Any, after: Any, path: str, rows: list[dict[str, Any]]) -> None:
         before_value = StrategyMutationService._normalize_diff_value(before)
         after_value = StrategyMutationService._normalize_diff_value(after)
@@ -225,6 +233,7 @@ class StrategyMutationService:
                 "path": path or "$",
                 "before": before_value,
                 "after": after_value,
+                "status": StrategyMutationService._classify_parameter_diff_row(before_value, after_value),
             }
         )
 
@@ -256,7 +265,12 @@ class StrategyMutationService:
         if not isinstance(matched_rules, list):
             matched_rules = []
 
-        source_title = str(source_context.get("title") or source_context.get("chat_summary") or "").strip() or None
+        source_title = (
+            str(source_context.get("title") or source_context.get("chat_summary") or "").strip()
+            or str(getattr(version, "summary", None) or "").strip()
+            or str(getattr(version, "source_ref", None) or "").strip()
+            or None
+        )
         candidate_mode = str(source_context.get("candidate_mode") or "").strip() or None
         action_type = str(source_context.get("action_type") or "").strip() or None
         rule = str(source_context.get("rule") or source_context.get("flag_rule") or "").strip() or None
@@ -304,6 +318,7 @@ class StrategyMutationService:
 
         rows: list[dict[str, Any]] = []
         self._collect_parameter_diff_rows(baseline_parameters, candidate_parameters, "", rows)
+        rows.sort(key=lambda row: str(row.get("path") or ""))
         return rows
 
     def summarize_code_diff(

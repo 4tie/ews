@@ -97,6 +97,64 @@ def _normalize_string_list(values: Any) -> list[str]:
     return normalized
 
 
+def _normalize_candidate_source_context(
+    source_context: dict[str, Any] | None,
+    *,
+    source_title: str | None = None,
+    candidate_mode: str | None = None,
+) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    raw_context = source_context if isinstance(source_context, dict) else {}
+
+    for key, value in raw_context.items():
+        if key == "matched_rules":
+            matched_rules = _normalize_string_list(value)
+            if matched_rules:
+                normalized[key] = matched_rules
+            continue
+        if key == "source_index":
+            if isinstance(value, bool):
+                continue
+            try:
+                normalized[key] = int(value)
+            except (TypeError, ValueError):
+                pass
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                normalized[key] = text
+            continue
+        if value in (None, [], {}):
+            continue
+        normalized[key] = value
+
+    normalized_title = str(source_title or "").strip()
+    normalized_mode = str(candidate_mode or "").strip()
+    if normalized_title and not normalized.get("title"):
+        normalized["title"] = normalized_title
+    if normalized_mode and not normalized.get("candidate_mode"):
+        normalized["candidate_mode"] = normalized_mode
+
+    rule = str(normalized.get("rule") or "").strip()
+    flag_rule = str(normalized.get("flag_rule") or "").strip()
+    if rule:
+        normalized["rule"] = rule
+        normalized.setdefault("flag_rule", rule)
+    elif flag_rule:
+        normalized["flag_rule"] = flag_rule
+
+    action_type = str(normalized.get("action_type") or "").strip()
+    if action_type:
+        normalized["action_type"] = action_type
+
+    chat_summary = str(normalized.get("chat_summary") or "").strip()
+    if chat_summary:
+        normalized["chat_summary"] = chat_summary
+
+    return normalized
+
+
 def _build_source_context(
     *,
     run_id: str,
@@ -223,7 +281,11 @@ def stage_backtest_candidate(
     if not isinstance(code, str) or not code.strip():
         code = None
 
-    normalized_source_context = dict(source_context or {})
+    normalized_source_context = _normalize_candidate_source_context(
+        source_context,
+        source_title=source_title,
+        candidate_mode=ai_mode,
+    )
     parent_version_id = getattr(linked_version, "version_id", None)
     resolved_baseline_run_id = baseline_run_id or str(normalized_source_context.get("run_id") or "").strip() or None
     resolved_baseline_version_id = baseline_version_id or parent_version_id
@@ -246,10 +308,6 @@ def stage_backtest_candidate(
         )
 
     change_type = ChangeType.CODE_CHANGE if code is not None else ChangeType.PARAMETER_CHANGE
-    if source_title and not normalized_source_context.get("title"):
-        normalized_source_context["title"] = str(source_title).strip()
-    if ai_mode and not normalized_source_context.get("candidate_mode"):
-        normalized_source_context["candidate_mode"] = str(ai_mode).strip()
 
     mutation_result = mutation_service.create_mutation(
         MutationRequest(

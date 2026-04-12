@@ -340,6 +340,32 @@ class ResultsService:
             return "changed"
         return "changed"
 
+    def _describe_metric_delta(
+        self,
+        key: str,
+        classification: str,
+        left_rules: set[str],
+        right_rules: set[str],
+    ) -> str:
+        if classification == "neutral":
+            return "No persisted change detected."
+        if key in {"profit_total_pct", "profit_total_abs"}:
+            return "Higher profit is better."
+        if key == "win_rate":
+            return "Higher win rate is better."
+        if key == "max_drawdown_pct":
+            return "Lower drawdown is better."
+        if key == "total_trades":
+            rules = set(left_rules) | set(right_rules)
+            if "low_sample_size" in rules:
+                return "More trades help reduce low-sample-size risk."
+            if "overtrading" in rules:
+                return "Fewer trades help reduce overtrading risk."
+            return "Trade count changed without a deterministic rule preference."
+        if key in {"sharpe", "sortino", "calmar"}:
+            return "Higher risk-adjusted return is better."
+        return "Persisted metric changed between baseline and candidate."
+
     def _normalize_pair_metrics(self, row: dict[str, Any]) -> dict[str, Any]:
         profit_total_pct = self._to_number(row.get("profit_total_pct"))
         if profit_total_pct is None:
@@ -402,6 +428,15 @@ class ResultsService:
             right_trades = self._to_number(right_metrics.get("trades"))
             if left_trades is not None and right_trades is not None:
                 trades_delta = right_trades - left_trades
+            pair_classification = "neutral"
+            pair_reason = "No persisted pair delta was detected."
+            if profit_delta not in (None, 0):
+                pair_classification = "improved" if profit_delta > 0 else "regressed"
+                pair_reason = "Per-pair profit improved." if profit_delta > 0 else "Per-pair profit regressed."
+            elif win_rate_delta not in (None, 0) or trades_delta not in (None, 0):
+                pair_classification = "changed"
+                pair_reason = "Per-pair win rate or trade count changed without a profit delta."
+
             rows.append(
                 {
                     "pair": pair,
@@ -412,21 +447,18 @@ class ResultsService:
                         "win_rate": win_rate_delta,
                         "trades": trades_delta,
                     },
-                    "classification": (
-                        "neutral"
-                        if profit_delta in (None, 0)
-                        else "improved" if profit_delta > 0 else "regressed"
-                    ),
+                    "classification": pair_classification,
+                    "reason": pair_reason,
                 }
             )
 
         scored_rows = [row for row in rows if self._to_number(row.get("delta", {}).get("profit_total_pct")) is not None]
         top_improvements = sorted(
-            scored_rows,
+            [row for row in scored_rows if self._to_number(row["delta"]["profit_total_pct"]) not in (None, 0) and float(row["delta"]["profit_total_pct"]) > 0],
             key=lambda item: (-float(item["delta"]["profit_total_pct"]), item["pair"]),
         )[:5]
         top_regressions = sorted(
-            scored_rows,
+            [row for row in scored_rows if self._to_number(row["delta"]["profit_total_pct"]) not in (None, 0) and float(row["delta"]["profit_total_pct"]) < 0],
             key=lambda item: (float(item["delta"]["profit_total_pct"]), item["pair"]),
         )[:5]
 
@@ -441,8 +473,16 @@ class ResultsService:
         else:
             pair_dragger_status = "none"
 
+        summary = {
+            "improved_count": sum(1 for row in rows if row.get("classification") == "improved"),
+            "regressed_count": sum(1 for row in rows if row.get("classification") == "regressed"),
+            "changed_count": sum(1 for row in rows if row.get("classification") == "changed"),
+            "neutral_count": sum(1 for row in rows if row.get("classification") == "neutral"),
+        }
+
         return {
             "rows": rows,
+            "summary": summary,
             "top_improvements": top_improvements,
             "top_regressions": top_regressions,
             "worst_pair_change": {
@@ -531,6 +571,7 @@ class ResultsService:
             if left_number is not None and right_number is not None:
                 delta = right_number - left_number
 
+            classification = self._classify_metric_delta(key, delta, left_rules, right_rules)
             rows.append(
                 {
                     "key": key,
@@ -539,7 +580,8 @@ class ResultsService:
                     "left": left_value,
                     "right": right_value,
                     "delta": delta,
-                    "classification": self._classify_metric_delta(key, delta, left_rules, right_rules),
+                    "classification": classification,
+                    "reason": self._describe_metric_delta(key, classification, left_rules, right_rules),
                 }
             )
 

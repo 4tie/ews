@@ -345,6 +345,8 @@ function buildContextGrid(comparison, { leftTitle = "Left run", rightTitle = "Ri
 
 function buildRunContext(run, title) {
   const metrics = run?.summary_metrics || {};
+  const snapshot = run?.request_snapshot || {};
+  const pairCount = Array.isArray(snapshot?.pairs) ? snapshot.pairs.length : null;
   const section = el("section", { class: "results-context" });
   section.innerHTML = `
     <div class="results-context__title">${escapeHtml(title)}</div>
@@ -353,6 +355,9 @@ function buildRunContext(run, title) {
       <span><strong>Strategy:</strong> ${escapeHtml(metrics.strategy || run?.strategy || "-")}</span>
       <span><strong>Version:</strong> ${escapeHtml(run?.version_id || "-")}</span>
       <span><strong>Status:</strong> ${escapeHtml(labelize(run?.status))}</span>
+      <span><strong>Timeframe:</strong> ${escapeHtml(snapshot?.timeframe || metrics?.timeframe || "-")}</span>
+      <span><strong>Pairs:</strong> ${escapeHtml(pairCount == null ? "-" : String(pairCount))}</span>
+      <span><strong>Trigger:</strong> ${escapeHtml(labelize(run?.trigger_source || "-"))}</span>
       <span><strong>Created:</strong> ${escapeHtml(formatDate(run?.completed_at || run?.created_at))}</span>
     </div>
   `;
@@ -361,6 +366,9 @@ function buildRunContext(run, title) {
 
 function renderWorkflowCompare(layout) {
   layout.appendChild(buildWorkflowToolbar());
+
+  const candidateVersion = workflowCandidateVersion();
+  const candidateSourceTitle = candidateVersion?.source_context?.title || candidateVersion?.summary || candidateVersion?.source_ref || "selected candidate";
 
   if (versionsState.status === "loading") {
     layout.appendChild(el("div", { class: "compare-note" }, "Loading workflow-linked candidate versions..."));
@@ -377,9 +385,11 @@ function renderWorkflowCompare(layout) {
 
   const candidateRun = workflowCandidateRun();
   if (!candidateRun) {
-    layout.appendChild(el("div", { class: "info-empty" }, "Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run."));
+    layout.appendChild(el("div", { class: "info-empty" }, `Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run. Current selection: ${candidateVersion?.version_id || '-'} | ${candidateSourceTitle}.`));
     return;
   }
+
+  layout.appendChild(el("div", { class: "compare-note" }, `Baseline ${workflowBaselineRunId()} vs selected candidate ${candidateVersion?.version_id || '-'} on persisted rerun ${candidateRun.run_id}.`));
 
   if (compareLoading) {
     layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted compare evidence for the baseline run and selected candidate..."));
