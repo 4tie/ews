@@ -25,11 +25,12 @@ class OllamaClient:
     def _build_payload(
         self,
         *,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
         stream: bool = False,
+        tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": model or self.model,
@@ -39,11 +40,13 @@ class OllamaClient:
         }
         if max_tokens:
             payload["options"] = {"num_predict": max_tokens}
+        if tools:
+            payload["tools"] = tools
         return payload
 
     async def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
@@ -55,27 +58,34 @@ class OllamaClient:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=False,
+            tools=_normalize_tools(kwargs.get("tools")),
         )
         async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(f"{self.host}/api/chat", json=payload)
             response.raise_for_status()
             data = response.json()
 
+        tool_calls = _normalize_tool_calls(data.get("message", {}).get("tool_calls"))
+        usage = {
+            "done_reason": data.get("done_reason"),
+            "eval_count": data.get("eval_count"),
+            "prompt_eval_count": data.get("prompt_eval_count"),
+        }
+        if tool_calls:
+            usage["tool_calls_count"] = len(tool_calls)
+
         return ModelResponse(
             content=str(data.get("message", {}).get("content") or ""),
             model=str(data.get("model") or model or self.model),
-            usage={
-                "done_reason": data.get("done_reason"),
-                "eval_count": data.get("eval_count"),
-                "prompt_eval_count": data.get("prompt_eval_count"),
-            },
+            usage=usage,
             finish_reason="stop" if data.get("done") else None,
             provider="ollama",
+            tool_calls=tool_calls or None,
         )
 
     async def stream_chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
@@ -87,6 +97,7 @@ class OllamaClient:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            tools=_normalize_tools(kwargs.get("tools")),
         )
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream("POST", f"{self.host}/api/chat", json=payload) as response:
@@ -94,7 +105,14 @@ class OllamaClient:
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    yield json.loads(line)
+                    data = json.loads(line)
+                    message = data.get("message") if isinstance(data.get("message"), dict) else None
+                    if message and message.get("tool_calls"):
+                        normalized_message = dict(message)
+                        normalized_message["tool_calls"] = _normalize_tool_calls(message.get("tool_calls"))
+                        data = dict(data)
+                        data["message"] = normalized_message
+                    yield data
 
     async def get_version(self) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -167,7 +185,7 @@ class OllamaClient:
             "quantization_level": str(details.get("quantization_level") or "").strip(),
             "raw_capabilities": normalized_capabilities,
             "tool_calling_supported_by_model": "tools" in capability_set,
-            "tool_calling_enabled_in_app": False,
+            "tool_calling_enabled_in_app": True,
             "app_recommended_for": recommended_for,
             "app_not_recommended_for": not_recommended_for,
             "modified_at": entry.get("modified_at"),
@@ -202,6 +220,7 @@ class OllamaClient:
             not_recommended.append("long multi-step reasoning")
         if "tools" in capability_set:
             recommended.append("tool-aware planning prompts")
+            recommended.append("allowlisted in-app workflow actions")
         else:
             not_recommended.append("tool calling")
         if "insert" in capability_set or "coder" in lowered_name or "coder" in lowered_family:
@@ -214,6 +233,42 @@ class OllamaClient:
             recommended.append("audio prompts")
 
         return _dedupe_strings(recommended), _dedupe_strings(not_recommended)
+
+
+def _normalize_tools(tools: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(tools, list):
+        return None
+    normalized = [tool for tool in tools if isinstance(tool, dict)]
+    return normalized or None
+
+
+def _normalize_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
+    if not isinstance(tool_calls, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, tool_call in enumerate(tool_calls):
+        if not isinstance(tool_call, dict):
+            continue
+        function_payload = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+        arguments = function_payload.get("arguments")
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = {"raw": arguments}
+        if not isinstance(arguments, dict):
+            arguments = {}
+        normalized.append(
+            {
+                "id": str(tool_call.get("id") or f"tool-call-{index + 1}"),
+                "type": str(tool_call.get("type") or "function"),
+                "function": {
+                    "name": str(function_payload.get("name") or "").strip(),
+                    "arguments": arguments,
+                },
+            }
+        )
+    return normalized
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:

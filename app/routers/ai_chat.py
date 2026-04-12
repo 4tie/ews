@@ -1,4 +1,4 @@
-﻿"""
+"""
 AI Chat Router - Endpoints for AI-powered chat with unified run-scoped candidate creation.
 """
 from __future__ import annotations
@@ -12,19 +12,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.ai.output_format import parse_ai_response
-from app.models.backtest_models import BacktestRunRecord
+from app.services.ai_chat.apply_code_service import create_run_scoped_candidate
 from app.services.ai_chat.loop_service import LoopConfig, analyze_with_two_mode, run_ai_loop
 from app.services.ai_chat.persistent_chat_service import TERMINAL_JOB_STATUSES, persistent_ai_chat_service
-from app.services.mutation_service import mutation_service
-from app.services.persistence_service import PersistenceService
-from app.services.results.diagnosis_service import diagnosis_service
-from app.services.results.strategy_intelligence_apply_service import create_proposal_candidate_from_diagnosis
-from app.services.results_service import ResultsService
 
 
 router = APIRouter()
-persistence = PersistenceService()
-results_svc = ResultsService()
 
 
 class ChatRequest(BaseModel):
@@ -63,6 +56,7 @@ class PersistentThreadContext(BaseModel):
     diagnosis_status: str | None = None
     summary_available: bool = False
     version_source: str | None = None
+    allow_run_actions: bool = False
 
 
 class PersistentThreadMessageRequest(BaseModel):
@@ -194,7 +188,7 @@ async def stream_ai_job(job_id: str, request: Request):
 @router.post("/apply-code")
 async def apply_code(request: ApplyCodeRequest):
     """Create a run-scoped code candidate through the unified proposal lifecycle."""
-    result = await _create_run_scoped_ai_candidate(
+    result = await create_run_scoped_candidate(
         run_id=request.run_id,
         strategy_name=request.strategy_name,
         code=request.code,
@@ -203,16 +197,14 @@ async def apply_code(request: ApplyCodeRequest):
     return {
         "success": True,
         "version_id": result["candidate_version_id"],
-        "message": result["message"],
-        "candidate_change_type": result["candidate_change_type"],
-        "candidate_status": result["candidate_status"],
+        **result,
     }
 
 
 @router.post("/apply-parameters")
 async def apply_parameters_endpoint(request: ApplyParamsRequest):
     """Create a run-scoped parameter candidate through the unified proposal lifecycle."""
-    result = await _create_run_scoped_ai_candidate(
+    result = await create_run_scoped_candidate(
         run_id=request.run_id,
         strategy_name=request.strategy_name,
         parameters=request.parameters,
@@ -221,9 +213,7 @@ async def apply_parameters_endpoint(request: ApplyParamsRequest):
     return {
         "success": True,
         "version_id": result["candidate_version_id"],
-        "message": result["message"],
-        "candidate_change_type": result["candidate_change_type"],
-        "candidate_status": result["candidate_status"],
+        **result,
     }
 
 
@@ -244,110 +234,3 @@ def _sse(data: dict[str, Any]) -> str:
     if event_id is not None:
         return f"id: {event_id}\ndata: {payload}\n\n"
     return f"data: {payload}\n\n"
-def _load_run_record(run_id: str) -> BacktestRunRecord:
-    data = persistence.load_backtest_run(run_id)
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    try:
-        run = BacktestRunRecord(**data)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Run {run_id} could not be loaded: {exc}") from exc
-    if str(getattr(run, "engine", "freqtrade")) != "freqtrade":
-        raise HTTPException(status_code=400, detail=f"Run {run_id} is not a freqtrade run")
-    return run
-
-
-def _resolve_linked_version_for_run(run: BacktestRunRecord):
-    if run.version_id:
-        linked_version = mutation_service.get_version_by_id(run.version_id)
-        if linked_version is not None:
-            return linked_version, "run"
-
-    active_version = mutation_service.get_active_version(run.strategy)
-    if active_version is not None:
-        return active_version, "active_fallback"
-
-    return None, "unavailable"
-
-
-async def _create_run_scoped_ai_candidate(
-    *,
-    run_id: str,
-    strategy_name: str,
-    parameters: dict[str, Any] | None = None,
-    code: str | None = None,
-    summary: str | None = None,
-) -> dict[str, Any]:
-    run = _load_run_record(run_id)
-    if run.strategy != strategy_name:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Run {run_id} belongs to {run.strategy}, not {strategy_name}",
-        )
-
-    summary_state = results_svc.load_run_summary_state(run)
-    if summary_state.get("state") != "ready":
-        raise HTTPException(
-            status_code=400,
-            detail=summary_state.get("error") or "Summary is not ready for proposal generation yet.",
-        )
-
-    summary_payload = summary_state.get("summary")
-    summary_block = results_svc.extract_run_summary_block(summary_payload, run.strategy) if summary_payload else None
-    summary_metrics = results_svc._normalize_summary_metrics(summary_payload, run.strategy) if summary_payload else None
-    trades = summary_block.get("trades") if isinstance(summary_block, dict) and isinstance(summary_block.get("trades"), list) else []
-    results_per_pair = (
-        summary_block.get("results_per_pair")
-        if isinstance(summary_block, dict) and isinstance(summary_block.get("results_per_pair"), list)
-        else []
-    )
-
-    linked_version, linked_source = _resolve_linked_version_for_run(run)
-    if linked_version is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Run {run_id} is not linked to a version and no active version fallback is available.",
-        )
-
-    diagnosis = diagnosis_service.diagnose_run(
-        run_record=run,
-        summary_metrics=summary_metrics,
-        summary_block=summary_block,
-        trades=trades,
-        results_per_pair=results_per_pair,
-        request_snapshot=run.request_snapshot or {},
-        request_snapshot_schema_version=run.request_snapshot_schema_version,
-        linked_version=linked_version,
-    )
-
-    result = await create_proposal_candidate_from_diagnosis(
-        strategy_name=run.strategy,
-        run_id=run.run_id,
-        linked_version=linked_version,
-        request_snapshot=run.request_snapshot or {},
-        summary_metrics=summary_metrics,
-        diagnosis=diagnosis,
-        ai_payload={},
-        source_kind="ai_chat_draft",
-        source_index=0,
-        candidate_mode="code_patch" if code else "parameter_only",
-        candidate_parameters=parameters,
-        candidate_code=code,
-        candidate_summary=summary,
-    )
-    if not result.success:
-        raise HTTPException(status_code=400, detail=result.error or result.message)
-
-    return {
-        "baseline_run_id": run.run_id,
-        "baseline_version_id": getattr(linked_version, "version_id", None),
-        "baseline_run_version_id": run.version_id,
-        "baseline_version_source": linked_source,
-        "candidate_version_id": result.version_id,
-        "candidate_change_type": result.candidate_change_type,
-        "candidate_status": result.candidate_status,
-        "message": result.message,
-    }
-
-
-

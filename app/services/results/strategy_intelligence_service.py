@@ -31,8 +31,24 @@ Schema:
 Do not include markdown fences or extra prose outside the JSON object.
 """.strip()
 
+_TOOL_RUNTIME_INSTRUCTIONS = """
+You may use the provided allowlisted tools when they materially improve grounded analysis.
+Only claim an action happened if a tool call actually completed successfully.
+After any tool use, still return the same strict JSON schema.
+""".strip()
+
 
 TimelineCallback = Callable[[dict[str, Any]], Any]
+ToolAuthorize = Callable[[str, dict[str, Any]], tuple[bool, str | None]]
+ToolExecutor = Callable[[str, dict[str, Any]], Any]
+
+
+@dataclass
+class ToolRuntime:
+    tools: list[dict[str, Any]]
+    authorize: ToolAuthorize
+    execute: ToolExecutor
+    max_rounds: int = 4
 
 
 @dataclass
@@ -46,6 +62,7 @@ class IntelligenceResult:
     provider: str | None = None
     model: str | None = None
     raw_text: str | None = None
+    tool_state: dict[str, Any] | None = None
 
 
 async def _emit_timeline(callback: TimelineCallback | None, payload: dict[str, Any]) -> None:
@@ -62,6 +79,7 @@ async def analyze_strategy(
     backtest_results: dict[str, Any],
     user_question: str | None = None,
     timeline_callback: TimelineCallback | None = None,
+    tool_runtime: ToolRuntime | None = None,
 ) -> IntelligenceResult:
     """Analyze strategy and provide AI-powered insights."""
     context = build_strategy_analysis_context(
@@ -76,6 +94,7 @@ async def analyze_strategy(
         base_prompt=CODE_AWARE_ADVISOR_SYSTEM_PROMPT,
         context=context,
         timeline_callback=timeline_callback,
+        tool_runtime=tool_runtime,
     )
 
 
@@ -83,6 +102,7 @@ async def analyze_metrics(
     metrics: dict[str, Any],
     context: str | None = None,
     timeline_callback: TimelineCallback | None = None,
+    tool_runtime: ToolRuntime | None = None,
 ) -> IntelligenceResult:
     """Analyze trading metrics and provide insights."""
     analysis_context = build_strategy_analysis_context(
@@ -96,6 +116,7 @@ async def analyze_metrics(
         base_prompt=ANALYST_SYSTEM_PROMPT,
         context=analysis_context,
         timeline_callback=timeline_callback,
+        tool_runtime=tool_runtime,
     )
 
 
@@ -144,10 +165,11 @@ async def _run_structured_analysis(
     base_prompt: str,
     context: str,
     timeline_callback: TimelineCallback | None = None,
+    tool_runtime: ToolRuntime | None = None,
 ) -> IntelligenceResult:
     dispatch = get_dispatch()
-    messages = [
-        {"role": "system", "content": _build_analysis_system_prompt(base_prompt)},
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": _build_analysis_system_prompt(base_prompt, tool_runtime=tool_runtime)},
         {"role": "user", "content": context},
     ]
     policy = dispatch.get_task_policy(task_type)
@@ -163,69 +185,36 @@ async def _run_structured_analysis(
         )
 
     if timeline_callback is not None and policy.provider == "ollama" and policy.stream_preferred:
-        client = dispatch.get_client("ollama")
-        if hasattr(client, "stream_chat"):
-            try:
-                chunks: list[str] = []
-                tool_event_sent = False
-                async for payload in client.stream_chat(
+        try:
+            return await _run_streaming_ollama_analysis(
+                dispatch=dispatch,
+                policy=policy,
+                messages=messages,
+                task_type=task_type,
+                timeline_callback=timeline_callback,
+                tool_runtime=tool_runtime,
+            )
+        except Exception as exc:
+            if policy.fallback_provider and policy.fallback_model:
+                await _emit_timeline(
+                    timeline_callback,
+                    {
+                        "type": "route_selected",
+                        "provider": policy.fallback_provider,
+                        "model": policy.fallback_model,
+                        "message": f"Primary route failed, falling back: {exc}",
+                    },
+                )
+                response = await dispatch.complete(
                     messages=messages,
-                    model=policy.model,
+                    provider=policy.fallback_provider,
+                    model=policy.fallback_model,
                     temperature=policy.temperature,
                     max_tokens=policy.max_tokens,
-                ):
-                    message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
-                    delta = str(message.get("content") or "")
-                    if delta:
-                        chunks.append(delta)
-                        await _emit_timeline(
-                            timeline_callback,
-                            {
-                                "type": "stream_delta",
-                                "provider": policy.provider,
-                                "model": policy.model,
-                                "delta": delta,
-                            },
-                        )
-                    if message.get("tool_calls") and not tool_event_sent:
-                        tool_event_sent = True
-                        await _emit_timeline(
-                            timeline_callback,
-                            {
-                                "type": "tool_call_detected",
-                                "provider": policy.provider,
-                                "model": policy.model,
-                                "detail": "Model advertised a tool call. Tool execution remains disabled in this app.",
-                            },
-                        )
-                response = ModelResponse(
-                    content="".join(chunks),
-                    model=policy.model,
-                    provider=policy.provider,
-                    task_type=task_type,
                 )
+                response.task_type = task_type
                 return _response_to_intelligence_result(response)
-            except Exception as exc:
-                if policy.fallback_provider and policy.fallback_model:
-                    await _emit_timeline(
-                        timeline_callback,
-                        {
-                            "type": "route_selected",
-                            "provider": policy.fallback_provider,
-                            "model": policy.fallback_model,
-                            "message": f"Primary route failed, falling back: {exc}",
-                        },
-                    )
-                    response = await dispatch.complete(
-                        messages=messages,
-                        provider=policy.fallback_provider,
-                        model=policy.fallback_model,
-                        temperature=policy.temperature,
-                        max_tokens=policy.max_tokens,
-                    )
-                    response.task_type = task_type
-                    return _response_to_intelligence_result(response)
-                raise
+            raise
 
     response = await dispatch.complete_for_task(
         task_type=task_type,
@@ -234,8 +223,261 @@ async def _run_structured_analysis(
     return _response_to_intelligence_result(response)
 
 
-def _build_analysis_system_prompt(base_prompt: str) -> str:
-    return f"{base_prompt}\n\n{_ANALYSIS_JSON_INSTRUCTIONS}"
+async def _run_streaming_ollama_analysis(
+    *,
+    dispatch,
+    policy,
+    messages: list[dict[str, Any]],
+    task_type: str,
+    timeline_callback: TimelineCallback | None,
+    tool_runtime: ToolRuntime | None,
+) -> IntelligenceResult:
+    client = dispatch.get_client("ollama")
+    conversation = [dict(message) for message in messages]
+    tool_state: dict[str, Any] = {}
+    tool_rounds = 0
+
+    while True:
+        chunks: list[str] = []
+        pending_tool_calls: list[dict[str, Any]] = []
+        seen_tool_call_ids: set[str] = set()
+        tool_event_sent = False
+
+        async for payload in client.stream_chat(
+            messages=conversation,
+            model=policy.model,
+            temperature=policy.temperature,
+            max_tokens=policy.max_tokens,
+            tools=tool_runtime.tools if tool_runtime else None,
+        ):
+            message = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+            delta = str(message.get("content") or "")
+            if delta:
+                chunks.append(delta)
+                await _emit_timeline(
+                    timeline_callback,
+                    {
+                        "type": "stream_delta",
+                        "provider": policy.provider,
+                        "model": policy.model,
+                        "delta": delta,
+                    },
+                )
+
+            tool_calls = _normalize_tool_calls(message.get("tool_calls"))
+            if tool_calls and not tool_event_sent:
+                tool_event_sent = True
+                await _emit_timeline(
+                    timeline_callback,
+                    {
+                        "type": "tool_call_detected",
+                        "provider": policy.provider,
+                        "model": policy.model,
+                        "detail": "Model requested an allowlisted tool call.",
+                    },
+                )
+            for tool_call in tool_calls:
+                tool_call_id = str(tool_call.get("id") or "").strip()
+                if not tool_call_id or tool_call_id in seen_tool_call_ids:
+                    continue
+                seen_tool_call_ids.add(tool_call_id)
+                pending_tool_calls.append(tool_call)
+
+        assistant_text = "".join(chunks)
+        if not pending_tool_calls:
+            response = ModelResponse(
+                content=assistant_text,
+                model=policy.model,
+                provider=policy.provider,
+                task_type=task_type,
+            )
+            result = _response_to_intelligence_result(response)
+            result.tool_state = tool_state or None
+            return result
+
+        if tool_runtime is None:
+            response = ModelResponse(
+                content=assistant_text,
+                model=policy.model,
+                provider=policy.provider,
+                task_type=task_type,
+                tool_calls=pending_tool_calls,
+            )
+            result = _response_to_intelligence_result(response)
+            result.tool_state = tool_state or None
+            return result
+
+        if tool_rounds >= max(int(tool_runtime.max_rounds or 0), 1):
+            raise RuntimeError("Ollama tool loop exceeded the maximum number of rounds")
+
+        conversation.append(
+            {
+                "role": "assistant",
+                "content": assistant_text,
+                "tool_calls": pending_tool_calls,
+            }
+        )
+        for tool_call in pending_tool_calls:
+            tool_result = await _execute_tool_call(
+                tool_call=tool_call,
+                tool_runtime=tool_runtime,
+                timeline_callback=timeline_callback,
+                provider=policy.provider,
+                model=policy.model,
+            )
+            tool_state.update(tool_result.pop("tool_state", {}) or {})
+            conversation.append(
+                {
+                    "role": "tool",
+                    "name": str(tool_result.get("tool_name") or "tool"),
+                    "content": json.dumps(tool_result, ensure_ascii=False),
+                }
+            )
+        tool_rounds += 1
+
+
+async def _execute_tool_call(
+    *,
+    tool_call: dict[str, Any],
+    tool_runtime: ToolRuntime,
+    timeline_callback: TimelineCallback | None,
+    provider: str,
+    model: str,
+) -> dict[str, Any]:
+    tool_name, arguments = _extract_tool_call(tool_call)
+    tool_call_id = str(tool_call.get("id") or f"tool:{tool_name or 'unknown'}")
+
+    await _emit_timeline(
+        timeline_callback,
+        {
+            "type": "tool_call_requested",
+            "provider": provider,
+            "model": model,
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+        },
+    )
+
+    allowed, denial_reason = tool_runtime.authorize(tool_name, arguments)
+    if not allowed:
+        blocked_result = {
+            "ok": False,
+            "blocked": True,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "message": denial_reason or "Tool call is not allowed in this session.",
+        }
+        await _emit_timeline(
+            timeline_callback,
+            {
+                "type": "tool_call_failed",
+                "provider": provider,
+                "model": model,
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                "message": blocked_result["message"],
+                "blocked": True,
+            },
+        )
+        return blocked_result
+
+    await _emit_timeline(
+        timeline_callback,
+        {
+            "type": "tool_call_started",
+            "provider": provider,
+            "model": model,
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+        },
+    )
+
+    try:
+        execution_result = tool_runtime.execute(tool_name, arguments)
+        if hasattr(execution_result, "__await__"):
+            execution_result = await execution_result
+        normalized = execution_result if isinstance(execution_result, dict) else {"ok": True, "result": execution_result}
+    except Exception as exc:
+        failure_result = {
+            "ok": False,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "message": str(exc),
+        }
+        await _emit_timeline(
+            timeline_callback,
+            {
+                "type": "tool_call_failed",
+                "provider": provider,
+                "model": model,
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                "message": str(exc),
+            },
+        )
+        return failure_result
+
+    ok = bool(normalized.get("ok", True))
+    event_type = "tool_call_completed" if ok else "tool_call_failed"
+    await _emit_timeline(
+        timeline_callback,
+        {
+            "type": event_type,
+            "provider": provider,
+            "model": model,
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+            "message": str(normalized.get("message") or normalized.get("summary") or "Tool call completed."),
+            "blocked": bool(normalized.get("blocked", False)),
+        },
+    )
+    normalized.setdefault("tool_name", tool_name)
+    normalized.setdefault("arguments", arguments)
+    return normalized
+
+
+def _build_analysis_system_prompt(base_prompt: str, *, tool_runtime: ToolRuntime | None = None) -> str:
+    sections = [base_prompt]
+    if tool_runtime and tool_runtime.tools:
+        sections.append(_TOOL_RUNTIME_INSTRUCTIONS)
+    sections.append(_ANALYSIS_JSON_INSTRUCTIONS)
+    return "\n\n".join(section for section in sections if section)
+
+
+def _extract_tool_call(tool_call: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    function_payload = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+    name = str(function_payload.get("name") or "").strip()
+    arguments = function_payload.get("arguments")
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except json.JSONDecodeError:
+            arguments = {"raw": arguments}
+    if not isinstance(arguments, dict):
+        arguments = {}
+    return name, arguments
+
+
+def _normalize_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
+    if not isinstance(tool_calls, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, tool_call in enumerate(tool_calls):
+        if not isinstance(tool_call, dict):
+            continue
+        name, arguments = _extract_tool_call(tool_call)
+        normalized.append(
+            {
+                "id": str(tool_call.get("id") or f"tool-call-{index + 1}"),
+                "type": str(tool_call.get("type") or "function"),
+                "function": {
+                    "name": name,
+                    "arguments": arguments,
+                },
+            }
+        )
+    return normalized
 
 
 def _response_to_intelligence_result(response: ModelResponse) -> IntelligenceResult:
@@ -382,5 +624,10 @@ def _extract_recommendations(payload: dict[str, Any]) -> list[str]:
     ]
 
 
-__all__ = ["IntelligenceResult", "analyze_strategy", "analyze_metrics", "analyze_run_diagnosis_overlay"]
-
+__all__ = [
+    "ToolRuntime",
+    "IntelligenceResult",
+    "analyze_strategy",
+    "analyze_metrics",
+    "analyze_run_diagnosis_overlay",
+]

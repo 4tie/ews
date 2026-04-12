@@ -1,4 +1,4 @@
-﻿"""
+"""
 AI Models - Provider registry and dispatch.
 """
 from __future__ import annotations
@@ -15,6 +15,7 @@ class ModelResponse:
     finish_reason: str | None = None
     provider: str | None = None
     task_type: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class LLMClient(Protocol):

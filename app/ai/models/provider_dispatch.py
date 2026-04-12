@@ -111,6 +111,7 @@ class ProviderDispatch:
         temperature: float = 0.7,
         max_tokens: int | None = None,
         settings: Mapping[str, Any] | None = None,
+        **kwargs: Any,
     ) -> ModelResponse:
         payload = self._load_settings(settings)
         resolved_provider = normalize_provider(provider or self.default_provider)
@@ -122,6 +123,7 @@ class ProviderDispatch:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                **kwargs,
             )
             response.provider = response.provider or resolved_provider
             return response
@@ -151,6 +153,7 @@ class ProviderDispatch:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        **kwargs: Any,
     ) -> ModelResponse:
         payload = self._load_settings(settings)
         policy = self.get_task_policy(task_type, settings=payload, provider=provider, model=model)
@@ -168,6 +171,7 @@ class ProviderDispatch:
                     temperature=policy.temperature if temperature is None else temperature,
                     max_tokens=policy.max_tokens if max_tokens is None else max_tokens,
                     settings=payload,
+                    **kwargs,
                 )
                 response.task_type = task_type
                 response.provider = response.provider or attempt_provider
