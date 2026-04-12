@@ -4,6 +4,7 @@ import { emit, on as onEvent, EVENTS } from "../core/events.js";
 import persistence, { KEYS } from "../core/persistence.js";
 import showToast from "./toast.js";
 import { setButtonLoading } from "./loading-state.js";
+import { copyToClipboard } from "../core/utils.js";
 
 const panel = document.getElementById("ai-chat-panel");
 const backdrop = document.getElementById("ai-chat-backdrop");
@@ -15,6 +16,10 @@ const sendBtn = document.getElementById("btn-send-chat");
 
 const POLL_INTERVAL_MS = 1200;
 const MAX_LIVE_EVENTS = 24;
+
+const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
+const APPLY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></svg>';
+const REDO_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6.01 6.01 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
 
 const state = {
   isInitialized: false,
@@ -38,6 +43,7 @@ const state = {
   liveProvider: "",
   liveModel: "",
   liveStatusText: "",
+  lastRedoTrace: null,
 };
 
 function isObject(value) {
@@ -516,31 +522,117 @@ function renderRecommendations(message) {
   return `<ul class="ai-chat-message__list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
-function renderActions(message) {
+function payloadText(message, payloadKind) {
+  if (payloadKind === "parameters" && hasKeys(message?.parameters)) {
+    return JSON.stringify(message.parameters, null, 2);
+  }
+  if (payloadKind === "code" && typeof message?.code === "string" && message.code.trim()) {
+    return message.code.trim();
+  }
+  return "";
+}
+
+function messageContentForCopy(message) {
+  const parts = [];
+  const title = message?.title || (message?.role === "user" ? "You" : message?.role === "assistant" ? "AI" : "Panel");
+  if (title) parts.push(String(title).trim());
+  if (message?.meta) parts.push(String(message.meta).trim());
+  if (message?.text) parts.push(String(message.text).trim());
+  const recommendations = safeArray(message?.recommendations).filter(Boolean);
+  if (recommendations.length) {
+    parts.push(recommendations.map((item) => `- ${item}`).join("\n"));
+  }
+  const parameters = payloadText(message, "parameters");
+  if (parameters) parts.push(parameters);
+  const code = payloadText(message, "code");
+  if (code) parts.push(code);
+  const note = message?.candidate_note || message?.note || "";
+  if (note) parts.push(String(note).trim());
+  if (message?.candidate_version_id) {
+    const status = message?.candidate_status ? ` (${message.candidate_status})` : "";
+    parts.push(`Candidate version ${message.candidate_version_id}${status}`);
+  }
+  return parts.filter(Boolean).join("\n\n");
+}
+
+function renderIconButton({ action, messageId, payloadKind = "", label, icon, disabled = false }) {
+  const payloadAttr = payloadKind ? ` data-payload-kind="${escapeHtml(payloadKind)}"` : "";
+  return `<button type="button" class="ai-chat-icon-btn" data-action="${escapeHtml(action)}" data-message-id="${escapeHtml(messageId)}"${payloadAttr} aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"${disabled ? " disabled" : ""}>${icon}</button>`;
+}
+
+function renderPayloadActions(message, payloadKind) {
+  const actions = [
+    renderIconButton({
+      action: "copy-payload",
+      messageId: message.id,
+      payloadKind,
+      label: payloadKind === "code" ? "Copy code" : "Copy parameters",
+      icon: COPY_ICON,
+    }),
+  ];
+
+  if (!message?.candidate_version_id) {
+    const currentPayload = payloadText(message, payloadKind);
+    const canStage = Boolean(currentPayload && currentRunReady() && !state.requestInFlight);
+    actions.push(renderIconButton({
+      action: payloadKind === "code" ? "apply-code" : "apply-parameters",
+      messageId: message.id,
+      payloadKind,
+      label: payloadKind === "code" ? "Create code candidate" : "Create parameter candidate",
+      icon: APPLY_ICON,
+      disabled: !canStage,
+    }));
+  }
+
+  return `<div class="ai-chat-message__payload-actions">${actions.join("")}</div>`;
+}
+
+function renderPayloadBlock(message, payloadKind, cssClass = "") {
+  const text = payloadText(message, payloadKind);
+  if (!text) return "";
+  return `
+    <div class="ai-chat-message__payload-shell">
+      ${renderPayloadActions(message, payloadKind)}
+      <pre class="ai-chat-message__payload${cssClass}">${escapeHtml(text)}</pre>
+    </div>
+  `;
+}
+
+function renderRunNotReadyNote(message) {
   if (message?.candidate_version_id) return "";
-  const hasCandidatePayload = Boolean(hasKeys(message?.parameters) || (typeof message?.code === "string" && message.code.trim()));
-  if (!hasCandidatePayload) return "";
-
-  const disabled = state.requestInFlight || !currentRunReady() ? " disabled" : "";
-  const actions = [];
-  if (hasKeys(message?.parameters)) {
-    actions.push(`<button type="button" class="btn btn--secondary btn--sm" data-action="apply-parameters" data-message-id="${escapeHtml(message.id)}"${disabled}>Create Parameter Candidate</button>`);
+  const hasCandidatePayload = Boolean(payloadText(message, "parameters") || payloadText(message, "code"));
+  if (!hasCandidatePayload || currentRunReady()) return "";
+  const context = currentContext();
+  if (!context.run_id) {
+    return '<div class="ai-chat-message__note">No run/diagnosis context yet. Load a completed run before staging a candidate.</div>';
   }
-  if (typeof message?.code === "string" && message.code.trim()) {
-    actions.push(`<button type="button" class="btn btn--secondary btn--sm" data-action="apply-code" data-message-id="${escapeHtml(message.id)}"${disabled}>Create Code Candidate</button>`);
-  }
+  return '<div class="ai-chat-message__note">Candidate staging unavailable for this message until a completed run diagnosis is loaded.</div>';
+}
 
-  const note = !currentRunReady()
-    ? '<div class="ai-chat-message__note">Load a completed run diagnosis first. AI candidates still stage through the existing run-scoped version workflow.</div>'
-    : "";
-  return `${actions.length ? `<div class="ai-chat-message__actions">${actions.join("")}</div>` : ""}${note}`;
+function renderMessageCopyButton(message) {
+  if (!message?.id) return "";
+  return renderIconButton({
+    action: "copy-message",
+    messageId: message.id,
+    label: "Copy message",
+    icon: COPY_ICON,
+  }).replace('class="ai-chat-icon-btn"', 'class="ai-chat-icon-btn ai-chat-copy-message-btn"');
+}
+
+function renderRedoActionRow(message) {
+  if (message?.role !== "assistant" || !message?.id) return "";
+  return `
+    <div class="ai-chat-redo-row">
+      <button type="button" class="ai-chat-redo-btn" data-action="redo-message" data-message-id="${escapeHtml(message.id)}" aria-label="Regenerate response" title="Regenerate response"${state.requestInFlight ? " disabled" : ""}>${REDO_ICON}<span>Regenerate</span></button>
+    </div>
+  `;
 }
 
 function renderStatusMessage() {
   const strategy = resolveStrategy();
   if (!strategy) {
     return `
-      <article class="ai-chat-message ai-chat-message--system ai-chat-message--status">
+      <article class="ai-chat-message ai-chat-message--system ai-chat-message--status ai-chat-message--label">
         <div class="ai-chat-message__header">
           <span class="ai-chat-message__role">AI Panel</span>
         </div>
@@ -551,7 +643,7 @@ function renderStatusMessage() {
 
   if (!canUseAssistant(strategy)) {
     return `
-      <article class="ai-chat-message ai-chat-message--system ai-chat-message--status">
+      <article class="ai-chat-message ai-chat-message--system ai-chat-message--status ai-chat-message--label">
         <div class="ai-chat-message__header">
           <span class="ai-chat-message__role">Grounding Required</span>
         </div>
@@ -623,20 +715,17 @@ function renderActiveJobMessage() {
 function renderMessage(message) {
   const body = message?.text ? `<div class="ai-chat-message__body">${escapeHtml(message.text)}</div>` : "";
   const recommendations = renderRecommendations(message);
-  const parameters = hasKeys(message?.parameters)
-    ? `<pre class="ai-chat-message__payload">${escapeHtml(JSON.stringify(message.parameters, null, 2))}</pre>`
-    : "";
-  const code = typeof message?.code === "string" && message.code.trim()
-    ? `<pre class="ai-chat-message__payload ai-chat-message__payload--code">${escapeHtml(message.code)}</pre>`
-    : "";
+  const parameters = renderPayloadBlock(message, "parameters");
+  const code = renderPayloadBlock(message, "code", " ai-chat-message__payload--code");
   const noteText = message?.candidate_note || message?.note || "";
   const note = noteText ? `<div class="ai-chat-message__note">${escapeHtml(noteText)}</div>` : "";
   const versionNote = message?.candidate_version_id
-    ? `<div class="ai-chat-message__note">Candidate version ${escapeHtml(message.candidate_version_id)} created. It remains pending until you explicitly accept it.</div>`
+    ? `<div class="ai-chat-message__note">Candidate version ${escapeHtml(message.candidate_version_id)}${message?.candidate_change_type ? ` (${escapeHtml(labelize(message.candidate_change_type))})` : ""} created${message?.candidate_status ? ` with ${escapeHtml(labelize(message.candidate_status))} status` : ""}. It remains pending until you explicitly accept it.</div>`
     : "";
 
   return `
-    <article class="ai-chat-message ai-chat-message--${escapeHtml(message.role || "system")}">
+    <article class="ai-chat-message ai-chat-message--${escapeHtml(message.role || "system")}" tabindex="-1">
+      ${renderMessageCopyButton(message)}
       <div class="ai-chat-message__header">
         <span class="ai-chat-message__role">${escapeHtml(message.title || (message.role === "user" ? "You" : message.role === "assistant" ? "AI" : "Panel"))}</span>
         ${message?.meta ? `<span class="ai-chat-message__meta">${escapeHtml(message.meta)}</span>` : ""}
@@ -645,9 +734,10 @@ function renderMessage(message) {
       ${recommendations}
       ${parameters}
       ${code}
-      ${renderActions(message)}
+      ${renderRunNotReadyNote(message)}
       ${note}
       ${versionNote}
+      ${renderRedoActionRow(message)}
     </article>
   `;
 }
@@ -726,24 +816,16 @@ function buildRequestContext(strategy) {
   };
 }
 
-async function handleSend() {
-  if (state.requestInFlight) return;
-
-  const prompt = String(inputEl?.value || "").trim();
-  if (!prompt) {
-    showToast("Enter a prompt first.", "warning");
-    return;
-  }
-
+async function enqueuePrompt(prompt, { successToast = "AI request queued." } = {}) {
   const strategy = resolveStrategy();
   if (!strategy) {
     showToast("Select a strategy first.", "warning");
-    return;
+    return false;
   }
 
   if (!canUseAssistant(strategy)) {
-    showToast("Load a persisted run from Backtesting first.", "warning");
-    return;
+    showToast("No run/diagnosis context yet. Load a persisted run from Backtesting first.", "warning");
+    return false;
   }
 
   state.requestInFlight = true;
@@ -756,21 +838,88 @@ async function handleSend() {
       context: buildRequestContext(strategy),
     });
 
-    if (inputEl) {
-      inputEl.value = "";
-    }
-    persistUiState();
     await loadThread(strategy);
     if (response?.job_id) {
       startJobTracking(response.job_id);
     }
-    showToast("AI request queued.", "success", 2000);
+    showToast(successToast, "success", 2000);
+    return true;
   } catch (error) {
     state.requestInFlight = false;
     updateComposerState();
     render();
     showToast(`AI request failed: ${error?.message || String(error)}`, "error");
+    return false;
   }
+}
+
+async function handleSend() {
+  if (state.requestInFlight) return;
+
+  const prompt = String(inputEl?.value || "").trim();
+  if (!prompt) {
+    showToast("Enter a prompt first.", "warning");
+    return;
+  }
+
+  const queued = await enqueuePrompt(prompt);
+  if (queued && inputEl) {
+    inputEl.value = "";
+    persistUiState();
+  }
+}
+
+function findSourceUserMessage(assistantMessageId) {
+  const messages = mergedMessages();
+  const assistantIndex = messages.findIndex((entry) => entry.id === assistantMessageId);
+  if (assistantIndex < 0) return null;
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user" && String(message?.text || "").trim()) {
+      return message;
+    }
+  }
+  return null;
+}
+
+async function handleRedoAction(messageId) {
+  if (state.requestInFlight) return;
+  const sourceUserMessage = findSourceUserMessage(messageId);
+  if (!sourceUserMessage) {
+    showToast("Redo unavailable because no source user prompt was found.", "warning");
+    return;
+  }
+
+  state.lastRedoTrace = {
+    source_user_message_id: sourceUserMessage.id,
+    redo_of_message_id: messageId,
+  };
+
+  await enqueuePrompt(String(sourceUserMessage.text || "").trim(), {
+    successToast: "AI redo request queued.",
+  });
+}
+
+function handleCopyMessage(messageId) {
+  const message = mergedMessages().find((entry) => entry.id === messageId);
+  const text = messageContentForCopy(message);
+  if (!text) {
+    showToast("Nothing to copy for this message.", "warning");
+    return;
+  }
+  copyToClipboard(text);
+  showToast("Message copied.", "success", 1600);
+}
+
+function handleCopyPayload(messageId, payloadKind) {
+  const message = mergedMessages().find((entry) => entry.id === messageId);
+  const text = payloadText(message, payloadKind);
+  if (!text) {
+    showToast("Nothing to copy for this payload.", "warning");
+    return;
+  }
+  copyToClipboard(text);
+  showToast(payloadKind === "code" ? "Code copied." : "Parameters copied.", "success", 1600);
 }
 
 async function handleApplyAction(messageId, action) {
@@ -780,11 +929,11 @@ async function handleApplyAction(messageId, action) {
   const context = currentContext(strategy);
   const message = mergedMessages().find((entry) => entry.id === messageId);
   if (!message || !strategy || !context.run_id) {
-    showToast("A completed run context is required before staging a candidate.", "warning");
+    showToast("No run/diagnosis context yet. Load a completed run before staging a candidate.", "warning");
     return;
   }
   if (!currentRunReady()) {
-    showToast("Load a completed run diagnosis before staging a candidate.", "warning");
+    showToast("Candidate staging unavailable for this message until a completed run diagnosis is loaded.", "warning");
     return;
   }
 
@@ -823,8 +972,24 @@ async function handleApplyAction(messageId, action) {
 
 function handlePanelClick(event) {
   const actionButton = event.target.closest("[data-action]");
-  if (actionButton) {
-    void handleApplyAction(actionButton.dataset.messageId || "", actionButton.dataset.action || "");
+  if (!actionButton) return;
+
+  const action = actionButton.dataset.action || "";
+  const messageId = actionButton.dataset.messageId || "";
+  if (action === "copy-message") {
+    handleCopyMessage(messageId);
+    return;
+  }
+  if (action === "copy-payload") {
+    handleCopyPayload(messageId, actionButton.dataset.payloadKind || "");
+    return;
+  }
+  if (action === "redo-message") {
+    void handleRedoAction(messageId);
+    return;
+  }
+  if (action === "apply-code" || action === "apply-parameters") {
+    void handleApplyAction(messageId, action);
   }
 }
 

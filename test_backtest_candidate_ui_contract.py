@@ -1,8 +1,10 @@
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 SHARED_DRAWER = ROOT / "web" / "static" / "js" / "components" / "ai-chat-panel.js"
+SHARED_DRAWER_CSS = ROOT / "web" / "static" / "css" / "components" / "ai-chat-panel.css"
 LEGACY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "ai-chat-panel.js"
 API_CLIENT = ROOT / "web" / "static" / "js" / "core" / "api.js"
 STATE = ROOT / "web" / "static" / "js" / "core" / "state.js"
@@ -17,11 +19,83 @@ def test_shared_drawer_normalizes_candidate_overlays_with_canonical_precedence()
     source = SHARED_DRAWER.read_text(encoding="utf-8")
     assert "function normalizeCandidateOverlay(entry)" in source
     assert 'assign("candidate_version_id", raw.candidate_version_id || raw.version_id);' in source
+    assert 'assign("candidate_change_type", raw.candidate_change_type);' in source
+    assert 'assign("candidate_status", raw.candidate_status);' in source
     assert 'assign("message", raw.message || raw.note);' in source
     assert '...normalizeCandidateOverlay(message),' in source
     assert '...normalizeCandidateOverlay(overlays?.[message?.id]),' in source
     assert 'candidate_note: candidateMeta.message || "",' in source
     assert 'rememberCandidateOverlay(strategy, messageId, response);' in source
+
+
+def test_shared_drawer_copy_payload_and_redo_are_data_driven_and_accessible():
+    source = SHARED_DRAWER.read_text(encoding="utf-8")
+
+    assert 'import { copyToClipboard } from "../core/utils.js";' in source
+    assert "function payloadText(message, payloadKind)" in source
+    assert "JSON.stringify(message.parameters, null, 2)" in source
+    assert "return message.code.trim();" in source
+    assert "function messageContentForCopy(message)" in source
+    assert "innerText" not in source
+
+    for token in (
+        'action: "copy-payload"',
+        'action: "copy-message"',
+        'data-action="redo-message"',
+        'aria-label="${escapeHtml(label)}"',
+        'aria-label="Regenerate response"',
+        "source_user_message_id",
+        "redo_of_message_id",
+        "findSourceUserMessage",
+        "api.aiChat.createThreadMessage",
+    ):
+        assert token in source
+
+    assert "/api/ai/chat/threads" not in source
+    assert "api.backtest.createProposalCandidate" in source
+
+
+def test_shared_drawer_action_policy_and_soft_failure_copy_are_explicit():
+    source = SHARED_DRAWER.read_text(encoding="utf-8")
+
+    assert "const canStage = Boolean(currentPayload && currentRunReady() && !state.requestInFlight);" in source
+    assert 'state.requestInFlight ? " disabled" : ""' in source
+    assert "No run/diagnosis context yet. Load a completed run before staging a candidate." in source
+    assert "Candidate staging unavailable for this message until a completed run diagnosis is loaded." in source
+    assert "Redo unavailable because no source user prompt was found." in source
+    assert "Nothing to copy for this message." in source
+    assert "Nothing to copy for this payload." in source
+
+
+def test_shared_drawer_css_uses_theme_tokens_and_accessible_controls():
+    source = SHARED_DRAWER_CSS.read_text(encoding="utf-8")
+
+    forbidden_tokens = (
+        "#0b141a",
+        "#202c33",
+        "#232d36",
+        "#2a3a47",
+        "#0f1a23",
+        "#26a69a",
+        "#58a6ff",
+        "--color-surface-1",
+        "rgba(",
+    )
+    for token in forbidden_tokens:
+        assert token not in source
+
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b", source)
+    assert "var(--color-bg)" in source
+    assert "var(--color-surface)" in source
+    assert "var(--color-surface-2)" in source
+    assert "var(--color-border)" in source
+    assert "color-mix(in srgb" in source
+    assert "prefers-reduced-motion: reduce" in source
+    assert ":focus-visible" in source
+    assert ".ai-chat-message:hover .ai-chat-copy-message-btn" in source
+    assert ".ai-chat-message:focus-within .ai-chat-copy-message-btn" in source
+    assert ".ai-chat-message__payload-actions" in source
+    assert ".ai-chat-redo-row" in source
 
 
 def test_legacy_results_panel_is_removed_from_active_workflow():
@@ -30,6 +104,8 @@ def test_legacy_results_panel_is_removed_from_active_workflow():
     index_source = BACKTESTING_INDEX.read_text(encoding="utf-8")
     assert "./results/ai-chat-panel.js" not in index_source
     assert "initAiChatPanel" not in index_source
+    for shared_drawer_only_token in ("copy-payload", "copy-message", "redo-message", "ai-chat-icon-btn"):
+        assert shared_drawer_only_token not in index_source
 
 
 def test_api_client_removed_deprecated_ai_chat_apply_methods():
