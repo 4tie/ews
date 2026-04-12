@@ -556,7 +556,8 @@ class ResultsService:
             "left": left_view,
             "right": right_view,
             "metrics": rows,
-            **version_compare,
+            "versions": version_compare.get("versions") or {},
+            "version_diff": version_compare.get("version_diff") or {},
             "pairs": pair_compare,
             "diagnosis_delta": diagnosis_delta,
         }

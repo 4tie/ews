@@ -3,6 +3,7 @@ Strategy Intelligence Apply Service - Applies deterministic and AI-backed propos
 """
 from __future__ import annotations
 
+import ast
 import copy
 import json
 from dataclasses import dataclass
@@ -328,11 +329,99 @@ def _resolve_strategy_code(strategy_name: str, linked_version: Any | None) -> st
     return load_live_strategy_code(strategy_name)
 
 
+def _extract_parameter_default_from_call(node: ast.Call) -> Any:
+    func = node.func
+    func_name = None
+    if isinstance(func, ast.Name):
+        func_name = func.id
+    elif isinstance(func, ast.Attribute):
+        func_name = func.attr
+
+    if not func_name or not func_name.endswith("Parameter"):
+        return None
+
+    for keyword in node.keywords:
+        if keyword.arg != "default":
+            continue
+        try:
+            return ast.literal_eval(keyword.value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _extract_parameter_snapshot_from_code(code_snapshot: str | None, strategy_name: str) -> dict[str, Any] | None:
+    if not isinstance(code_snapshot, str) or not code_snapshot.strip():
+        return None
+
+    try:
+        tree = ast.parse(code_snapshot)
+    except SyntaxError:
+        return None
+
+    strategy_class = None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == strategy_name:
+            strategy_class = node
+            break
+    if strategy_class is None:
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                strategy_class = node
+                break
+    if strategy_class is None:
+        return None
+
+    extracted: dict[str, Any] = {}
+    for statement in strategy_class.body:
+        target_name = None
+        value_node = None
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+            target_name = statement.targets[0].id
+            value_node = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            target_name = statement.target.id
+            value_node = statement.value
+        if not target_name or value_node is None:
+            continue
+        if target_name.startswith("_"):
+            continue
+
+        value = None
+        if isinstance(value_node, ast.Call):
+            value = _extract_parameter_default_from_call(value_node)
+        else:
+            try:
+                value = ast.literal_eval(value_node)
+            except (TypeError, ValueError):
+                value = None
+
+        if value is None:
+            continue
+        if isinstance(value, tuple):
+            value = list(value)
+        extracted[target_name] = value
+
+    if isinstance(extracted.get("buy_params"), dict):
+        for key, value in extracted["buy_params"].items():
+            extracted.setdefault(str(key), value)
+    if isinstance(extracted.get("sell_params"), dict):
+        for key, value in extracted["sell_params"].items():
+            extracted.setdefault(str(key), value)
+
+    return extracted or None
+
+
 def _resolve_parameters_snapshot(strategy_name: str, linked_version: Any | None) -> dict[str, Any] | None:
     resolved = _resolve_effective_artifacts(strategy_name, linked_version)
     snapshot = resolved.get("parameters_snapshot")
     if isinstance(snapshot, dict) and snapshot:
         return copy.deepcopy(snapshot)
+
+    code_snapshot = resolved.get("code_snapshot")
+    extracted_snapshot = _extract_parameter_snapshot_from_code(code_snapshot, strategy_name)
+    if isinstance(extracted_snapshot, dict) and extracted_snapshot:
+        return extracted_snapshot
 
     live_parameters = load_live_strategy_parameters(strategy_name)
     if isinstance(live_parameters, dict) and live_parameters:

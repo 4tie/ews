@@ -377,15 +377,15 @@ function renderWorkflowCompare(layout) {
 
   const candidateRun = workflowCandidateRun();
   if (!candidateRun) {
-    layout.appendChild(el("div", { class: "info-empty" }, "Re-run the selected candidate to compare it against the baseline run."));
+    layout.appendChild(el("div", { class: "info-empty" }, "Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run."));
     return;
   }
 
   if (compareLoading) {
-    layout.appendChild(el("div", { class: "compare-note" }, "Loading baseline versus selected candidate compare..."));
+    layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted compare evidence for the baseline run and selected candidate..."));
   }
   if (compareError) {
-    layout.appendChild(el("div", { class: "info-empty" }, `Unable to compare the baseline run and selected candidate: ${compareError}`));
+    layout.appendChild(el("div", { class: "info-empty" }, `Persisted compare evidence is unavailable for the baseline run and selected candidate: ${compareError}`));
     return;
   }
   if (!lastComparison) {
@@ -423,10 +423,10 @@ function renderGenericCompare(layout) {
     return;
   }
   if (compareLoading) {
-    layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted comparison..."));
+    layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted compare evidence for the selected runs..."));
   }
   if (compareError) {
-    layout.appendChild(el("div", { class: "info-empty" }, `Unable to compare the selected runs: ${compareError}`));
+    layout.appendChild(el("div", { class: "info-empty" }, `Persisted compare evidence is unavailable for the selected runs: ${compareError}`));
     return;
   }
   if (!lastComparison) {
@@ -441,7 +441,7 @@ function renderGenericCompare(layout) {
     candidateLabel: "Right run",
   });
   layout.appendChild(evidence);
-  layout.appendChild(el("div", { class: "compare-note" }, "Compare rows are computed from persisted run-linked summary artifacts. Delta is right minus left."));
+  layout.appendChild(el("div", { class: "compare-note" }, "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Delta is right minus left."));
 }
 
 function renderComparePanel() {

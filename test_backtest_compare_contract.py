@@ -222,6 +222,8 @@ def test_compare_backtest_runs_adds_version_diff_pair_deltas_and_diagnosis_delta
 
     comparison = service.compare_backtest_runs(left_run, right_run)
 
+    assert set(comparison.keys()) == {"left", "right", "metrics", "versions", "version_diff", "pairs", "diagnosis_delta"}
+
     profit_row = next(row for row in comparison["metrics"] if row["key"] == "profit_total_pct")
     trades_row = next(row for row in comparison["metrics"] if row["key"] == "total_trades")
 
@@ -311,5 +313,6 @@ def test_compare_backtest_runs_falls_back_to_candidate_parent_only_when_run_vers
 
     comparison = service.compare_backtest_runs(left_run, right_run)
 
+    assert set(comparison.keys()) == {"left", "right", "metrics", "versions", "version_diff", "pairs", "diagnosis_delta"}
     assert comparison["versions"]["baseline_version_id"] == "v-baseline"
     assert comparison["versions"]["baseline_version_source"] == "candidate_parent"

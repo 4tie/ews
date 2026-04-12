@@ -170,6 +170,75 @@ def test_ranked_issue_maps_to_review_exit_timing_and_records_rule_provenance(mon
     assert request.parameters["trailing_stop_positive"] == 0.014
 
 
+def test_deterministic_action_falls_back_to_code_snapshot_parameters(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        apply_service.mutation_service,
+        "resolve_effective_artifacts",
+        lambda version_id: {
+            "strategy_name": "MultiMa",
+            "code_snapshot": """
+from freqtrade.strategy import IntParameter
+
+class MultiMa:
+    buy_params = {"buy_rsi": 31}
+    minimal_roi = {"0": 0.5, "60": 0.1}
+    stoploss = -0.345
+    trailing_stop = False
+    trailing_stop_positive = 0.02
+    trailing_stop_positive_offset = 0.04
+    buy_rsi = IntParameter(10, 50, default=31)
+""",
+            "parameters_snapshot": None,
+        },
+    )
+
+    def _create_mutation(request):
+        captured["request"] = request
+        return MutationResult(
+            version_id="v-review",
+            status="created",
+            message="created",
+        )
+
+    monkeypatch.setattr(apply_service.mutation_service, "create_mutation", _create_mutation)
+    monkeypatch.setattr(
+        apply_service.mutation_service,
+        "get_version_by_id",
+        lambda version_id: _version(version_id, ChangeType.PARAMETER_CHANGE),
+    )
+
+    result = asyncio.run(
+        apply_service.create_proposal_candidate_from_diagnosis(
+            strategy_name="MultiMa",
+            run_id="bt-live-fallback",
+            linked_version=SimpleNamespace(version_id="v-linked"),
+            request_snapshot={},
+            summary_metrics={},
+            diagnosis={
+                "proposal_actions": [
+                    {
+                        "action_type": "review_exit_timing",
+                        "label": "Review Exit Timing",
+                        "matched_rules": ["exit_inefficiency"],
+                    }
+                ]
+            },
+            ai_payload={},
+            source_kind="deterministic_action",
+            source_index=0,
+            candidate_mode="auto",
+        )
+    )
+
+    assert result.success is True
+    request = captured["request"]
+    assert request.parameters["minimal_roi"] == {"0": 0.5, "30": 0.1}
+    assert request.parameters["trailing_stop_positive"] == 0.014
+    assert request.parameters["buy_rsi"] == 31
+
+
 def test_ai_parameter_suggestion_returns_source_metadata(monkeypatch):
     captured = {}
 

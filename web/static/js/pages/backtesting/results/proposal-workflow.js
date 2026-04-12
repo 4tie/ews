@@ -319,7 +319,7 @@ function renderCompareSection() {
     return `
       <section class="results-context results-context--table results-context--empty">
         <div class="results-context__title">Candidate Compare</div>
-        <div class="results-context__note">Run the selected candidate to compare it against the baseline run inline.</div>
+        <div class="results-context__note">Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run inline.</div>
       </section>
     `;
   }
@@ -327,7 +327,7 @@ function renderCompareSection() {
     return `
       <section class="results-context results-context--table results-context--empty">
         <div class="results-context__title">Candidate Compare</div>
-        <div class="results-context__note">Loading inline compare for baseline ${escapeHtml(currentBaselineRunId())} vs selected candidate run ${escapeHtml(candidateRun.run_id)}.</div>
+        <div class="results-context__note">Loading persisted compare evidence for baseline ${escapeHtml(currentBaselineRunId())} vs selected candidate run ${escapeHtml(candidateRun.run_id)}.</div>
       </section>
     `;
   }
@@ -335,7 +335,7 @@ function renderCompareSection() {
     return `
       <section class="results-context results-context--table results-context--empty">
         <div class="results-context__title">Candidate Compare</div>
-        <div class="results-context__note">${escapeHtml(compareState.error || "Inline compare failed.")}</div>
+        <div class="results-context__note">${escapeHtml(compareState.error ? `Persisted compare evidence is unavailable: ${compareState.error}` : "Persisted compare evidence is unavailable.")}</div>
       </section>
     `;
   }
@@ -349,6 +349,9 @@ function renderCompareSection() {
       <div class="results-context__note">Baseline run ${escapeHtml(currentBaselineRunId())} vs selected candidate run ${escapeHtml(candidateRun.run_id)}.</div>
     </section>
     ${renderDecisionReadyCompare(compareState.data, { baselineLabel: "Baseline", candidateLabel: "Selected Candidate" })}
+    <section class="results-context">
+      <div class="results-context__note">Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only.</div>
+    </section>
   `;
 }
 

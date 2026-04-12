@@ -157,6 +157,10 @@ def test_proposal_workflow_uses_selected_candidate_state_and_decision_ready_comp
     assert 'onState("backtest.selectedCandidateVersionId", () => {' in source
     assert "ensureSelectedCandidateVersion(versionsState.versions, currentBaselineRunId())" in source
     assert "Candidate Compare" in source
+    assert "Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run inline." in source
+    assert "Loading persisted compare evidence for baseline" in source
+    assert "Persisted compare evidence is unavailable:" in source
+    assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only." in source
 
 
 def test_compare_panel_is_workflow_aware_and_preserves_generic_fallback():
@@ -170,7 +174,12 @@ def test_compare_panel_is_workflow_aware_and_preserves_generic_fallback():
     assert 'onState("backtest.selectedCandidateVersionId", () => {' in source
     assert "Left run" in source
     assert "Right run" in source
-    assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only." in source
+    assert "Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run." in source
+    assert "Loading persisted compare evidence for the baseline run and selected candidate..." in source
+    assert "Persisted compare evidence is unavailable for the baseline run and selected candidate:" in source
+    assert "Loading persisted compare evidence for the selected runs..." in source
+    assert "Persisted compare evidence is unavailable for the selected runs:" in source
+    assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Delta is right minus left." in source
 
 
 def test_decision_renderer_exposes_diff_pair_and_diagnosis_sections():
