@@ -165,17 +165,46 @@ function currentRunReady() {
   return Boolean(context.run_id && context.diagnosis_status === "ready" && context.summary_available);
 }
 
+function normalizeCandidateOverlay(entry) {
+  const raw = isObject(entry) ? entry : {};
+  const normalized = {};
+
+  const assign = (key, value) => {
+    if (value === null || value === undefined || value === "") return;
+    normalized[key] = value;
+  };
+
+  assign("baseline_run_id", raw.baseline_run_id);
+  assign("baseline_version_id", raw.baseline_version_id);
+  assign("baseline_run_version_id", raw.baseline_run_version_id);
+  assign("baseline_version_source", raw.baseline_version_source);
+  assign("candidate_version_id", raw.candidate_version_id || raw.version_id);
+  assign("candidate_change_type", raw.candidate_change_type);
+  assign("candidate_status", raw.candidate_status);
+  assign("source_kind", raw.source_kind);
+  if (raw.source_index !== undefined && raw.source_index !== null && raw.source_index !== "") {
+    const parsedIndex = Number(raw.source_index);
+    assign("source_index", Number.isFinite(parsedIndex) ? parsedIndex : raw.source_index);
+  }
+  assign("source_title", raw.source_title);
+  assign("candidate_ai_mode", raw.candidate_ai_mode);
+  assign("message", raw.message || raw.note);
+
+  return normalized;
+}
+
 function mergedMessages() {
   const strategy = resolveStrategy();
   const overlays = isObject(state.overlays?.[strategy]) ? state.overlays[strategy] : {};
   return safeArray(state.thread?.messages).map((message) => {
-    const overlay = isObject(overlays?.[message?.id]) ? overlays[message.id] : {};
-    // candidate_version_id is the canonical field for new workflow code.
-    // Legacy/transitional aliases such as version_id are intentionally not used here.
+    const candidateMeta = {
+      ...normalizeCandidateOverlay(message),
+      ...normalizeCandidateOverlay(overlays?.[message?.id]),
+    };
     return {
       ...message,
-      candidate_version_id: overlay.candidate_version_id || message?.candidate_version_id || null,
-      candidate_note: overlay.note || "",
+      ...candidateMeta,
+      candidate_note: candidateMeta.message || "",
     };
   });
 }
@@ -185,10 +214,7 @@ function rememberCandidateOverlay(strategy, messageId, payload) {
   if (!isObject(state.overlays[strategy])) {
     state.overlays[strategy] = {};
   }
-  state.overlays[strategy][messageId] = {
-    candidate_version_id: payload?.candidate_version_id || null,
-    note: payload?.note || "",
-  };
+  state.overlays[strategy][messageId] = normalizeCandidateOverlay(payload);
   saveOverlays();
 }
 
@@ -775,11 +801,7 @@ async function handleApplyAction(messageId, action) {
       code: action === "apply-code" ? message.code : null,
       summary: compactText(message.text || "AI chat candidate", 220),
     });
-
-    rememberCandidateOverlay(strategy, messageId, {
-      candidate_version_id: response?.candidate_version_id || null,
-      note: response?.message || "Candidate version created.",
-    });
+    rememberCandidateOverlay(strategy, messageId, response);
 
     if (state.latestResultsPayload) {
       emit(EVENTS.RESULTS_LOADED, state.latestResultsPayload);

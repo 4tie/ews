@@ -50,7 +50,7 @@ def _patch_ready_summary(monkeypatch):
     def _metrics(summary, strategy):
         return {"profit_total_pct": 1.0}
 
-    for module in (runtime, ai_apply_service):
+    for module in (runtime,):
         monkeypatch.setattr(module.results_svc, "load_run_summary_state", _load_summary)
         monkeypatch.setattr(module.results_svc, "extract_run_summary_block", _summary_block)
         monkeypatch.setattr(module.results_svc, "_normalize_summary_metrics", _metrics)
@@ -126,73 +126,14 @@ def test_backtest_proposal_candidate_keeps_run_version_linkage(monkeypatch):
     assert captured["candidate_code"] is None
 
 
-def test_backtest_candidate_wrappers_use_stage_backtest_candidate(monkeypatch):
-    linked_version = SimpleNamespace(version_id="v-linked")
-    calls = []
+def test_create_run_scoped_candidate_delegates_to_runtime(monkeypatch):
+    captured = {}
 
-    _patch_ready_summary(monkeypatch)
-    monkeypatch.setattr(runtime, "_load_run_record", lambda run_id: _run_record())
     monkeypatch.setattr(ai_apply_service, "_load_run_record", lambda run_id: _run_record())
-    monkeypatch.setattr(runtime, "_resolve_linked_version_for_run", lambda run: (linked_version, "run"))
-    monkeypatch.setattr(ai_apply_service, "_resolve_linked_version_for_run", lambda run: (linked_version, "run"))
-    monkeypatch.setattr(runtime.diagnosis_service, "diagnose_run", lambda **kwargs: {"primary_flags": []})
-    monkeypatch.setattr(ai_apply_service.diagnosis_service, "diagnose_run", lambda **kwargs: {"primary_flags": []})
 
-    def _forbidden_create_mutation(*args, **kwargs):
-        raise AssertionError("Backtest wrappers must route through stage_backtest_candidate().")
-
-    monkeypatch.setattr(runtime.mutation_service, "create_mutation", _forbidden_create_mutation)
-    monkeypatch.setattr(ai_apply_service.mutation_service, "create_mutation", _forbidden_create_mutation)
-
-    def _fake_stage_backtest_candidate(**kwargs):
-        calls.append(kwargs)
-        return apply_service.ProposalCandidateResult(
-            success=True,
-            message="Candidate version created.",
-            version_id=f"v-candidate-{len(calls)}",
-            candidate_change_type="parameter_change",
-            candidate_status="candidate",
-            source_title=kwargs.get("source_title") or "AI Chat Draft",
-            ai_mode=kwargs.get("ai_mode") or kwargs.get("candidate_mode"),
-        )
-
-    monkeypatch.setattr(apply_service, "stage_backtest_candidate", _fake_stage_backtest_candidate)
-    monkeypatch.setattr(runtime, "create_proposal_candidate_from_diagnosis", apply_service.create_proposal_candidate_from_diagnosis)
-
-    runtime_payload = ProposalCandidateRequest(
-        source_kind=ProposalSourceKind.AI_CHAT_DRAFT,
-        candidate_mode=ProposalCandidateMode.PARAMETER_ONLY,
-        parameters={"stoploss": -0.12},
-        summary="AI chat candidate",
-    )
-    runtime_response = asyncio.run(runtime.create_backtest_run_proposal_candidate("bt-1", runtime_payload))
-    scoped_response = asyncio.run(
-        ai_apply_service.create_run_scoped_candidate(
-            run_id="bt-1",
-            strategy_name="TestStrat",
-            parameters={"stoploss": -0.12},
-            summary="AI chat candidate",
-        )
-    )
-
-    assert len(calls) == 2
-    assert [call["source_kind"] for call in calls] == ["ai_chat_draft", "ai_chat_draft"]
-    assert [call["candidate_mode"] for call in calls] == ["parameter_only", "parameter_only"]
-    assert all(call["strategy_name"] == "TestStrat" for call in calls)
-
-    assert runtime_response["candidate_version_id"] == "v-candidate-1"
-    assert runtime_response["source_title"] == "AI Chat Draft"
-    assert runtime_response["candidate_ai_mode"] == "parameter_only"
-
-    assert scoped_response["candidate_version_id"] == "v-candidate-2"
-    assert scoped_response["source_kind"] == "ai_chat_draft"
-    assert scoped_response["source_index"] == 0
-    assert scoped_response["source_title"] == "AI Chat Draft"
-    assert scoped_response["candidate_ai_mode"] == "parameter_only"
-
-
-def test_ai_chat_apply_route_keeps_legacy_version_id_alias(monkeypatch):
-    async def _fake_create_run_scoped_candidate(**kwargs):
+    async def _fake_create_backtest_run_proposal_candidate(run_id, payload):
+        captured["run_id"] = run_id
+        captured["payload"] = payload
         return {
             "baseline_run_id": "bt-1",
             "baseline_version_id": "v-linked",
@@ -208,20 +149,60 @@ def test_ai_chat_apply_route_keeps_legacy_version_id_alias(monkeypatch):
             "message": "Candidate version created.",
         }
 
-    monkeypatch.setattr(ai_chat_router, "create_run_scoped_candidate", _fake_create_run_scoped_candidate)
+    monkeypatch.setattr(ai_apply_service.runtime, "create_backtest_run_proposal_candidate", _fake_create_backtest_run_proposal_candidate)
 
-    response = client.post(
-        "/api/ai/chat/apply-parameters",
-        json={
-            "run_id": "bt-1",
-            "strategy_name": "TestStrat",
-            "parameters": {"stoploss": -0.12},
-            "summary": "AI chat candidate",
-        },
+    response = asyncio.run(
+        ai_apply_service.create_run_scoped_candidate(
+            run_id="bt-1",
+            strategy_name="TestStrat",
+            parameters={"stoploss": -0.12},
+            summary="AI chat candidate",
+        )
     )
 
-    assert response.status_code == 200
-    payload = response.json()
+    assert response["candidate_version_id"] == "v-candidate"
+    assert captured["run_id"] == "bt-1"
+    assert isinstance(captured["payload"], ProposalCandidateRequest)
+    assert captured["payload"].source_kind == ProposalSourceKind.AI_CHAT_DRAFT
+    assert captured["payload"].candidate_mode == ProposalCandidateMode.PARAMETER_ONLY
+    assert captured["payload"].parameters == {"stoploss": -0.12}
+    assert captured["payload"].summary == "AI chat candidate"
+
+def test_ai_chat_apply_route_keeps_canonical_payload_and_only_adds_compat_alias(monkeypatch):
+    canonical_payload = {
+        "baseline_run_id": "bt-1",
+        "baseline_version_id": "v-linked",
+        "baseline_run_version_id": "v-linked",
+        "baseline_version_source": "run",
+        "candidate_version_id": "v-candidate",
+        "candidate_change_type": "parameter_change",
+        "candidate_status": "candidate",
+        "source_kind": "ai_chat_draft",
+        "source_index": 0,
+        "source_title": "AI Chat Draft",
+        "candidate_ai_mode": "parameter_only",
+        "message": "Candidate version created.",
+    }
+
+    async def _fake_create_run_scoped_candidate(**kwargs):
+        return canonical_payload
+
+    monkeypatch.setattr(ai_chat_router, "create_run_scoped_candidate", _fake_create_run_scoped_candidate)
+
+    payload = asyncio.run(
+        ai_chat_router.apply_parameters_endpoint(
+            ai_chat_router.ApplyParamsRequest(
+                run_id="bt-1",
+                strategy_name="TestStrat",
+                parameters={"stoploss": -0.12},
+                summary="AI chat candidate",
+            )
+        )
+    )
+
+    assert list(payload.keys())[: len(canonical_payload)] == list(canonical_payload.keys())
+    assert list(payload.keys())[-2:] == ["success", "version_id"]
+    assert set(payload.keys()) == set(canonical_payload.keys()) | {"success", "version_id"}
     assert payload["success"] is True
     assert payload["version_id"] == "v-candidate"
     assert payload["candidate_version_id"] == "v-candidate"

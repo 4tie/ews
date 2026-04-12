@@ -596,11 +596,14 @@ async def create_proposal_candidate_from_diagnosis(
                 error="code_patch mode requires candidate_code.",
             )
 
-        draft_summary = (candidate_summary or "").strip() or f"AI chat candidate from run {run_id}"
+        chat_summary = str(candidate_summary or "").strip()
+        extra_context = {"candidate_mode": effective_mode}
+        if chat_summary:
+            extra_context["chat_summary"] = chat_summary
         return _stage_candidate_mutation(
             strategy_name=strategy_name,
             linked_version=linked_version,
-            summary=draft_summary,
+            summary=f"AI chat candidate from run {run_id}",
             created_by="ai_apply",
             parameters=candidate_parameters if has_parameters else None,
             code=candidate_code if has_code else None,
@@ -609,7 +612,7 @@ async def create_proposal_candidate_from_diagnosis(
             source_context=_build_source_context(
                 run_id=run_id,
                 source_kind=source_kind,
-                extra={"candidate_mode": effective_mode},
+                extra=extra_context,
             ),
             source_title="AI Chat Draft",
             ai_mode=effective_mode,

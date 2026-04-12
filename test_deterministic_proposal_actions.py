@@ -281,7 +281,8 @@ def test_ai_chat_draft_parameter_candidate_uses_stage_backtest_candidate(monkeyp
     assert request.code is None
     assert request.source_ref == "backtest_run:bt-4"
     assert request.source_kind == "ai_chat_draft"
-    assert request.source_context == {"run_id": "bt-4", "candidate_mode": "parameter_only"}
+    assert request.summary == "AI chat candidate from run bt-4"
+    assert request.source_context == {"run_id": "bt-4", "candidate_mode": "parameter_only", "chat_summary": "AI chat candidate"}
 
 
 def test_ai_chat_draft_code_candidate_uses_stage_backtest_candidate(monkeypatch):
@@ -328,4 +329,5 @@ def test_ai_chat_draft_code_candidate_uses_stage_backtest_candidate(monkeypatch)
     assert request.parameters is None
     assert request.source_ref == "backtest_run:bt-5"
     assert request.source_kind == "ai_chat_draft"
-    assert request.source_context == {"run_id": "bt-5", "candidate_mode": "code_patch"}
+    assert request.summary == "AI chat candidate from run bt-5"
+    assert request.source_context == {"run_id": "bt-5", "candidate_mode": "code_patch", "chat_summary": "AI chat code candidate"}

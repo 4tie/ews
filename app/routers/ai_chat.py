@@ -188,38 +188,32 @@ async def stream_ai_job(job_id: str, request: Request):
 @router.post("/apply-code")
 async def apply_code(request: ApplyCodeRequest):
     """Create a run-scoped code candidate through the unified proposal lifecycle."""
-    result = await create_run_scoped_candidate(
+    canonical_payload = await create_run_scoped_candidate(
         run_id=request.run_id,
         strategy_name=request.strategy_name,
         code=request.code,
         summary=request.summary,
     )
-    # Legacy/transitional alias: keep version_id for older callers.
-    # New frontend code must use candidate_version_id as the canonical field.
     return {
+        **canonical_payload,
         "success": True,
-        "version_id": result["candidate_version_id"],
-        **result,
+        "version_id": canonical_payload["candidate_version_id"],
     }
-
 
 @router.post("/apply-parameters")
 async def apply_parameters_endpoint(request: ApplyParamsRequest):
     """Create a run-scoped parameter candidate through the unified proposal lifecycle."""
-    result = await create_run_scoped_candidate(
+    canonical_payload = await create_run_scoped_candidate(
         run_id=request.run_id,
         strategy_name=request.strategy_name,
         parameters=request.parameters,
         summary=request.summary,
     )
-    # Legacy/transitional alias: keep version_id for older callers.
-    # New frontend code must use candidate_version_id as the canonical field.
     return {
+        **canonical_payload,
         "success": True,
-        "version_id": result["candidate_version_id"],
-        **result,
+        "version_id": canonical_payload["candidate_version_id"],
     }
-
 
 @router.get("/validate-output")
 async def validate_output(text: str):

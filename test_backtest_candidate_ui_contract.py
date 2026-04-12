@@ -6,11 +6,15 @@ SHARED_DRAWER = ROOT / "web" / "static" / "js" / "components" / "ai-chat-panel.j
 LEGACY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "ai-chat-panel.js"
 
 
-def test_shared_drawer_prefers_canonical_candidate_fields():
+def test_shared_drawer_normalizes_candidate_overlays_with_canonical_precedence():
     source = SHARED_DRAWER.read_text(encoding="utf-8")
-    assert "candidate_version_id is the canonical field for new workflow code." in source
-    assert "Legacy/transitional aliases such as version_id are intentionally not used here." in source
-    assert "candidate_version_id" in source
+    assert "function normalizeCandidateOverlay(entry)" in source
+    assert 'assign("candidate_version_id", raw.candidate_version_id || raw.version_id);' in source
+    assert 'assign("message", raw.message || raw.note);' in source
+    assert '...normalizeCandidateOverlay(message),' in source
+    assert '...normalizeCandidateOverlay(overlays?.[message?.id]),' in source
+    assert 'candidate_note: candidateMeta.message || "",' in source
+    assert 'rememberCandidateOverlay(strategy, messageId, response);' in source
 
 
 def test_legacy_results_panel_remains_frozen_from_canonical_wiring():
@@ -23,5 +27,6 @@ def test_legacy_results_panel_remains_frozen_from_canonical_wiring():
         "baseline_run_version_id",
         "baseline_version_source",
         "candidate_ai_mode",
+        "normalizeCandidateOverlay",
     ):
         assert canonical_token not in source
