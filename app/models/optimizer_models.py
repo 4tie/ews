@@ -31,14 +31,16 @@ class StrategyVersion(BaseModel):
     summary: str
     diff_ref: Optional[str] = None
     source_ref: Optional[str] = None
+    source_kind: Optional[str] = None
+    source_context: Dict[str, Any] = Field(default_factory=dict)
     status: VersionStatus = VersionStatus.DRAFT
-    
+
     code_snapshot: Optional[str] = None
     parameters_snapshot: Optional[Dict[str, Any]] = None
-    
+
     backtest_run_id: Optional[str] = None
     backtest_profit_pct: Optional[float] = None
-    
+
     promoted_from_version_id: Optional[str] = None
     promoted_at: Optional[str] = None
 
@@ -48,12 +50,14 @@ class MutationRequest(BaseModel):
     change_type: ChangeType
     summary: str
     created_by: str = "system"
-    
+
     code: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
-    
+
     parent_version_id: Optional[str] = None
     source_ref: Optional[str] = None
+    source_kind: Optional[str] = None
+    source_context: Dict[str, Any] = Field(default_factory=dict)
     diff_ref: Optional[str] = None
 
 
