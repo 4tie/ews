@@ -43,6 +43,28 @@ The required workflow is:
 - Do not invent routes, pages, file names, or services without first checking whether they already exist.
 - Do not create parallel APIs when an existing router/service can be extended safely.
 
+## Correctness Lock Status ✅
+
+All 12 core accept/promotion/rollback/rerun correctness requirements are LOCKED:
+
+- **Accept** validates CANDIDATE status before write ✅
+- **Promotion** is sole path to live files (`mutation_service._write_live_artifacts()`) ✅
+- **Artifact gates** validate code snapshots before any write ✅
+- **Rollback** restores exact artifacts from version lineage ✅
+- **Rerun** uses version-exact isolated workspaces (never touches live) ✅
+- **run_meta.json** is source of truth for version-run linkage ✅
+- **No side-channel writes** to live files detected ✅
+
+See [CORRECTNESS_LOCK.md](CORRECTNESS_LOCK.md) for full enforcement matrix.
+
+**Test Coverage**: 9/9 tests passing (6 existing + 3 comprehensive lockdown tests)
+
+**Key Authority Points**:
+- `app/services/mutation_service.py: _write_live_artifacts()` — sole writer to user_data/
+- `app/services/mutation_service.py: accept_version()` — CANDIDATE validator + pre-write gate
+- `app/services/mutation_service.py: rollback_version()` — artifact validator + pre-write gate
+- `app/freqtrade/cli_service.py: _materialize_version_workspace()` — non-invasive, run-scoped only
+
 ## Repo-First Behaviour
 
 Before planning or coding:

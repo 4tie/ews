@@ -103,6 +103,23 @@ class StrategyMutationService:
         }
 
     def _write_live_artifacts(self, version_id: str) -> dict[str, Any]:
+        """
+        SOLE AUTHORITY for writing to live strategy files.
+        
+        This is the ONLY path that modifies:
+        - {user_data}/strategies/{strategy_name}.py
+        - {user_data}/config/{strategy_name}.json
+        
+        Called exclusively from:
+        - accept_version() — after status + artifact validation gates
+        - rollback_version() — after artifact validation gates
+        
+        Caller must validate:
+        - Version status is correct (accept checks CANDIDATE, rollback checks any)
+        - Version has valid code_snapshot in lineage
+        
+        This ensures no side-channel writes or bypasses of promotion path.
+        """
         resolved = self.resolve_effective_artifacts(version_id)
         strategy_name = str(resolved.get("strategy_name") or "")
         code_snapshot = resolved.get("code_snapshot")
@@ -491,6 +508,18 @@ class StrategyMutationService:
                 message=f"Version {version_id} is not a candidate (status: {version.status})",
             )
 
+        # Gate 1: Ensure valid artifacts before touching live files
+        try:
+            artifacts = self.resolve_effective_artifacts(version_id)
+            if not isinstance(artifacts.get("code_snapshot"), str) or not artifacts.get("code_snapshot", "").strip():
+                raise ValueError(f"Version {version_id} does not resolve to a valid code snapshot")
+        except Exception as exc:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} has invalid artifacts: {exc}",
+            )
+
         try:
             self._write_live_artifacts(version_id)
         except Exception as exc:
@@ -521,6 +550,18 @@ class StrategyMutationService:
                 version_id=target_version_id,
                 status="error",
                 message=f"Version {target_version_id} not found",
+            )
+
+        # Gate 1: Ensure valid artifacts before touching live files
+        try:
+            artifacts = self.resolve_effective_artifacts(target_version_id)
+            if not isinstance(artifacts.get("code_snapshot"), str) or not artifacts.get("code_snapshot", "").strip():
+                raise ValueError(f"Version {target_version_id} does not resolve to a valid code snapshot")
+        except Exception as exc:
+            return MutationResult(
+                version_id=target_version_id,
+                status="error",
+                message=f"Rollback to {target_version_id} failed - invalid artifacts: {exc}",
             )
 
         try:

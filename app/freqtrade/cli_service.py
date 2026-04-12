@@ -104,6 +104,19 @@ class FreqtradeCliService:
         }
 
     def _materialize_version_workspace(self, payload: dict[str, Any], base_config_path: str) -> dict[str, Any]:
+        """
+        Create run-scoped temporary workspace for backtest execution.
+        
+        IMPORTANT CONTRACT:
+        - Writes ONLY to data/backtest_runs/{run_id}/workspace/ (NEVER to live user_data paths)
+        - Each run gets independent isolated copy of strategy code and config
+        - Workspace is temporary, implementation detail of this run
+        - Engine runs with workspace paths, NOT live paths
+        - Does NOT modify user_data/strategies/ or user_data/config/ in any way
+        
+        This path is NON-INVASIVE to live files. All live writes go through
+        mutation_service.accept_version() or mutation_service.rollback_version().
+        """
         version_id = payload.get("version_id")
         strategy = payload.get("strategy", "") or "unknown"
         if not version_id:
@@ -136,16 +149,34 @@ class FreqtradeCliService:
         workspace_paths = self._workspace_paths(str(payload.get("run_id") or ""), strategy)
         os.makedirs(workspace_paths["strategies_dir"], exist_ok=True)
 
-        with open(workspace_paths["strategy_file"], "w", encoding="utf-8") as handle:
-            handle.write(code_snapshot)
+        # Mark workspace as in-progress (for error cleanup)
+        from pathlib import Path
+        import shutil
+        workspace_dir_path = Path(workspace_paths["workspace_dir"])
+        partial_marker = workspace_dir_path / ".materializing"
 
-        config_overlay_path = None
-        config_paths = [base_config_path]
-        if parameters_snapshot:
-            with open(workspace_paths["config_overlay_path"], "w", encoding="utf-8") as handle:
-                json.dump(parameters_snapshot, handle, indent=2)
-            config_overlay_path = workspace_paths["config_overlay_path"]
-            config_paths.append(config_overlay_path)
+        try:
+            partial_marker.touch()  # Signal: materialization started
+
+            with open(workspace_paths["strategy_file"], "w", encoding="utf-8") as handle:
+                handle.write(code_snapshot)
+
+            config_overlay_path = None
+            config_paths = [base_config_path]
+            if parameters_snapshot:
+                with open(workspace_paths["config_overlay_path"], "w", encoding="utf-8") as handle:
+                    json.dump(parameters_snapshot, handle, indent=2)
+                config_overlay_path = workspace_paths["config_overlay_path"]
+                config_paths.append(config_overlay_path)
+
+            partial_marker.unlink()  # Signal: materialization complete
+
+        except Exception as e:
+            # ONLY clean if marker still exists (proving failure mid-process)
+            if partial_marker.exists():
+                shutil.rmtree(workspace_dir_path, ignore_errors=True)
+                logger.info(f"Cleaned partial workspace {workspace_dir_path} after materialization error: {e}")
+            raise
 
         return {
             "config_paths": config_paths,
