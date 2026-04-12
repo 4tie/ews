@@ -9,6 +9,24 @@ from app.routers import web_ui_routes, backtest, optimizer, settings, ai_chat, e
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(BASE_DIR, "web")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+USER_DATA_DIR = os.path.join(BASE_DIR, "user_data")
+
+
+def _dev_reload_dirs() -> list[str]:
+    return [
+        os.path.join(BASE_DIR, "app"),
+        os.path.join(BASE_DIR, "web"),
+    ]
+
+
+def _dev_reload_excludes() -> list[str]:
+    return [
+        os.path.join(DATA_DIR, "backtest_runs", "*", "workspace"),
+        os.path.join(DATA_DIR, "backtest_runs", "*", "workspace", "*"),
+        os.path.join(USER_DATA_DIR, "backtest_results", "*"),
+        os.path.join(DATA_DIR, "versions", "*", "*.json"),
+    ]
 
 app = FastAPI(title="4tie Control Panel", docs_url="/api/docs")
 
@@ -31,4 +49,11 @@ async def root():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=5000, reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=5000,
+        reload=True,
+        reload_dirs=_dev_reload_dirs(),
+        reload_excludes=_dev_reload_excludes(),
+    )
