@@ -189,7 +189,12 @@ def test_decision_renderer_exposes_diff_pair_and_diagnosis_sections():
     assert "Decision Metrics" in source
     assert "Pair Delta" in source
     assert "Diagnosis Delta" in source
+    assert "Action Type:" in source
+    assert "Rule:" in source
+    assert "Improved Pairs:" in source
+    assert "Regressed Pairs:" in source
     assert "compare-diff-table" in source
     assert "compare-pairs-table" in source
     assert "compare-diagnosis-grid" in source
+    assert "compare-cell-note" in source
     assert "decision-badge--" in source
