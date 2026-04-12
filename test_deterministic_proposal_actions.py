@@ -18,7 +18,7 @@ def _version(version_id: str, change_type: ChangeType) -> StrategyVersion:
     )
 
 
-def test_deterministic_action_creates_parameter_candidate(monkeypatch):
+def test_deterministic_action_creates_parameter_candidate_and_records_provenance(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
@@ -59,7 +59,11 @@ def test_deterministic_action_creates_parameter_candidate(monkeypatch):
             summary_metrics={},
             diagnosis={
                 "proposal_actions": [
-                    {"action_type": "tighten_stoploss", "label": "Tighten Stoploss"}
+                    {
+                        "action_type": "tighten_stoploss",
+                        "label": "Tighten Stoploss",
+                        "matched_rules": ["high_drawdown"],
+                    }
                 ]
             },
             ai_payload={},
@@ -72,14 +76,23 @@ def test_deterministic_action_creates_parameter_candidate(monkeypatch):
     assert result.success is True
     assert result.source_title == "Tighten Stoploss"
     assert result.ai_mode is None
+    assert result.candidate_status == "candidate"
     request = captured["request"]
     assert request.parent_version_id == "v-linked"
+    assert request.source_ref == "backtest_run:bt-1"
+    assert request.source_kind == "deterministic_action"
+    assert request.source_context == {
+        "run_id": "bt-1",
+        "action_type": "tighten_stoploss",
+        "matched_rules": ["high_drawdown"],
+        "flag_rule": "high_drawdown",
+    }
     assert request.parameters["stoploss"] == -0.15
     assert request.parameters["trailing_stop"] is True
     assert request.parameters["trailing_stop_positive"] == 0.01
 
 
-def test_ranked_issue_maps_to_review_exit_timing(monkeypatch):
+def test_ranked_issue_maps_to_review_exit_timing_and_records_rule_provenance(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
@@ -137,7 +150,16 @@ def test_ranked_issue_maps_to_review_exit_timing(monkeypatch):
     assert result.success is True
     assert result.source_title == "Review Exit Timing"
     assert result.ai_mode is None
+    assert result.candidate_status == "candidate"
     request = captured["request"]
+    assert request.source_ref == "backtest_run:bt-2"
+    assert request.source_kind == "ranked_issue"
+    assert request.source_context == {
+        "run_id": "bt-2",
+        "action_type": "review_exit_timing",
+        "rule": "high_drawdown",
+        "flag_rule": "high_drawdown",
+    }
     assert request.parameters["minimal_roi"] == {"0": 0.05, "30": 0.02}
     assert request.parameters["trailing_stop_positive"] == 0.014
 
@@ -205,6 +227,14 @@ def test_ai_parameter_suggestion_returns_source_metadata(monkeypatch):
     request = captured["request"]
     assert request.parent_version_id == "v-linked"
     assert request.parameters == {"stoploss": -0.12}
+    assert request.source_ref == "backtest_run:bt-3"
+    assert request.source_kind == "ai_parameter_suggestion"
+    assert request.source_context == {
+        "run_id": "bt-3",
+        "candidate_mode": "parameter_only",
+        "source_index": 0,
+        "title": "stoploss = -0.12: Cut losses sooner.",
+    }
 
 
 def test_ai_chat_draft_parameter_candidate_uses_stage_backtest_candidate(monkeypatch):
@@ -249,6 +279,9 @@ def test_ai_chat_draft_parameter_candidate_uses_stage_backtest_candidate(monkeyp
     assert request.parent_version_id == "v-linked"
     assert request.parameters == {"stoploss": -0.11}
     assert request.code is None
+    assert request.source_ref == "backtest_run:bt-4"
+    assert request.source_kind == "ai_chat_draft"
+    assert request.source_context == {"run_id": "bt-4", "candidate_mode": "parameter_only"}
 
 
 def test_ai_chat_draft_code_candidate_uses_stage_backtest_candidate(monkeypatch):
@@ -293,3 +326,6 @@ def test_ai_chat_draft_code_candidate_uses_stage_backtest_candidate(monkeypatch)
     assert request.parent_version_id == "v-linked"
     assert request.code == "class TestStrat:\n    pass\n"
     assert request.parameters is None
+    assert request.source_ref == "backtest_run:bt-5"
+    assert request.source_kind == "ai_chat_draft"
+    assert request.source_context == {"run_id": "bt-5", "candidate_mode": "code_patch"}

@@ -33,6 +33,7 @@ class ProposalCandidateResult:
     ai_mode: str | None = None
     error: str | None = None
 
+
 _VALID_SOURCE_KINDS = {
     "ranked_issue",
     "parameter_hint",
@@ -89,6 +90,7 @@ def _build_source_context(
             context[key] = value
 
     return context
+
 
 async def apply_strategy_recommendations(
     strategy_name: str,
@@ -217,120 +219,6 @@ def _stage_candidate_mutation(
     )
 
 
-def stage_backtest_candidate(
-    *,
-    strategy_name: str,
-    linked_version: Any | None,
-    summary: str,
-    created_by: str,
-    parameters: dict[str, Any] | None = None,
-    code: str | None = None,
-    source_ref: str | None = None,
-    source_title: str | None = None,
-    source_kind: str | None = None,
-    candidate_mode: str = "auto",
-    ai_mode: str | None = None,
-) -> ProposalCandidateResult:
-    """
-    Stage a backtest candidate through the single business-level contract.
-
-    All backtest candidate creation must pass through this function.
-    No wrapper/service in backtest flows may call mutation_service.create_mutation() directly.
-    """
-    if not isinstance(parameters, dict):
-        parameters = None
-    if not isinstance(code, str) or not code.strip():
-        code = None
-
-    has_parameters = parameters is not None and bool(parameters)
-    has_code = code is not None
-    if not has_parameters and not has_code:
-        return ProposalCandidateResult(
-            success=False,
-            message="Candidate payload is empty.",
-            error="At least one of parameters or code must be provided.",
-            source_title=source_title,
-            ai_mode=ai_mode,
-        )
-
-    if candidate_mode not in _VALID_CANDIDATE_MODES:
-        return ProposalCandidateResult(
-            success=False,
-            message="Invalid candidate mode.",
-            error=f"Unsupported candidate_mode: {candidate_mode}",
-            source_title=source_title,
-            ai_mode=ai_mode,
-        )
-
-    if source_kind == "ai_chat_draft" and has_parameters == has_code:
-        return ProposalCandidateResult(
-            success=False,
-            message="AI chat draft must contain exactly one candidate payload.",
-            error="Provide either parameters or code for ai_chat_draft.",
-            source_title=source_title,
-            ai_mode=ai_mode,
-        )
-
-    effective_mode = candidate_mode
-    if effective_mode == "auto":
-        effective_mode = "code_patch" if has_code else "parameter_only"
-    resolved_ai_mode = ai_mode or (effective_mode if source_kind in {"ai_chat_draft", "ai_parameter_suggestion"} else None)
-
-    if effective_mode == "parameter_only" and (not has_parameters or has_code):
-        return ProposalCandidateResult(
-            success=False,
-            message="Parameter-only candidate payload is invalid.",
-            error="parameter_only mode requires parameters and forbids code.",
-            source_title=source_title,
-            ai_mode=resolved_ai_mode,
-        )
-    if effective_mode == "code_patch" and (not has_code or has_parameters):
-        return ProposalCandidateResult(
-            success=False,
-            message="Code candidate payload is invalid.",
-            error="code_patch mode requires code and forbids parameters.",
-            source_title=source_title,
-            ai_mode=resolved_ai_mode,
-        )
-
-    change_type = ChangeType.CODE_CHANGE if has_code else ChangeType.PARAMETER_CHANGE
-    parent_version_id = getattr(linked_version, "version_id", None)
-    mutation_result = mutation_service.create_mutation(
-        MutationRequest(
-            strategy_name=strategy_name,
-            change_type=change_type,
-            summary=summary,
-            created_by=created_by,
-            code=code,
-            parameters=parameters,
-            parent_version_id=parent_version_id,
-            source_ref=source_ref,
-            source_kind=source_kind,
-            source_context=dict(source_context or {}),
-        )
-    )
-    if not mutation_result.version_id:
-        return ProposalCandidateResult(
-            success=False,
-            message="Candidate version could not be staged.",
-            error=mutation_result.message or "Mutation service error.",
-            source_title=source_title,
-            ai_mode=resolved_ai_mode,
-        )
-
-    version = mutation_service.get_version_by_id(mutation_result.version_id)
-    return ProposalCandidateResult(
-        success=True,
-        message=mutation_result.message or f"Candidate version {mutation_result.version_id} created.",
-        version_id=mutation_result.version_id,
-        candidate_change_type=getattr(getattr(version, "change_type", None), "value", None),
-        candidate_status=getattr(getattr(version, "status", None), "value", None),
-        source_title=source_title,
-        ai_mode=resolved_ai_mode,
-        error=None,
-    )
-
-
 def _resolve_effective_artifacts(strategy_name: str, linked_version: Any | None) -> dict[str, Any]:
     version_id = getattr(linked_version, "version_id", None)
     if version_id:
@@ -374,6 +262,8 @@ async def _apply_tighten_entries_action(
     parameters_snapshot: dict[str, Any] | None,
     run_id: str,
     linked_version: Any | None,
+    source_kind: str,
+    source_context: dict[str, Any] | None = None,
 ) -> ProposalCandidateResult:
     if not parameters_snapshot:
         return ProposalCandidateResult(
@@ -402,16 +292,16 @@ async def _apply_tighten_entries_action(
             error="Strategy parameters do not contain supported entry threshold keys.",
         )
 
-    return stage_backtest_candidate(
+    return _stage_candidate_mutation(
         strategy_name=strategy_name,
         linked_version=linked_version,
         summary=f"Deterministic action: tighten entries (from diagnosis run {run_id})",
         created_by="deterministic_proposal",
         parameters=modified_params,
         source_ref=f"backtest_run:{run_id}",
+        source_kind=source_kind,
+        source_context=source_context,
         source_title="Tighten Entries",
-        source_kind="deterministic_action",
-        candidate_mode="parameter_only",
     )
 
 
@@ -421,6 +311,8 @@ async def _apply_reduce_weak_pairs_action(
     diagnosis: dict[str, Any] | None,
     run_id: str,
     linked_version: Any | None,
+    source_kind: str,
+    source_context: dict[str, Any] | None = None,
 ) -> ProposalCandidateResult:
     if not parameters_snapshot:
         return ProposalCandidateResult(
@@ -452,16 +344,16 @@ async def _apply_reduce_weak_pairs_action(
     else:
         modified_params["excluded_pairs"] = [worst_pair]
 
-    return stage_backtest_candidate(
+    return _stage_candidate_mutation(
         strategy_name=strategy_name,
         linked_version=linked_version,
         summary=f"Deterministic action: reduce weak pairs by excluding {worst_pair} (from diagnosis run {run_id})",
         created_by="deterministic_proposal",
         parameters=modified_params,
         source_ref=f"backtest_run:{run_id}",
+        source_kind=source_kind,
+        source_context=source_context,
         source_title="Reduce Weak Pairs",
-        source_kind="deterministic_action",
-        candidate_mode="parameter_only",
     )
 
 
@@ -470,6 +362,8 @@ async def _apply_tighten_stoploss_action(
     parameters_snapshot: dict[str, Any] | None,
     run_id: str,
     linked_version: Any | None,
+    source_kind: str,
+    source_context: dict[str, Any] | None = None,
 ) -> ProposalCandidateResult:
     if not parameters_snapshot:
         return ProposalCandidateResult(
@@ -503,16 +397,16 @@ async def _apply_tighten_stoploss_action(
             error="Could not identify modifiable stoploss controls.",
         )
 
-    return stage_backtest_candidate(
+    return _stage_candidate_mutation(
         strategy_name=strategy_name,
         linked_version=linked_version,
         summary=f"Deterministic action: tighten stoploss (from diagnosis run {run_id})",
         created_by="deterministic_proposal",
         parameters=modified_params,
         source_ref=f"backtest_run:{run_id}",
+        source_kind=source_kind,
+        source_context=source_context,
         source_title="Tighten Stoploss",
-        source_kind="deterministic_action",
-        candidate_mode="parameter_only",
     )
 
 
@@ -521,6 +415,8 @@ async def _apply_review_exit_timing_action(
     parameters_snapshot: dict[str, Any] | None,
     run_id: str,
     linked_version: Any | None,
+    source_kind: str,
+    source_context: dict[str, Any] | None = None,
 ) -> ProposalCandidateResult:
     if not parameters_snapshot:
         return ProposalCandidateResult(
@@ -557,16 +453,16 @@ async def _apply_review_exit_timing_action(
             error="Could not identify modifiable exit timing controls.",
         )
 
-    return stage_backtest_candidate(
+    return _stage_candidate_mutation(
         strategy_name=strategy_name,
         linked_version=linked_version,
         summary=f"Deterministic action: review exit timing (from diagnosis run {run_id})",
         created_by="deterministic_proposal",
         parameters=modified_params,
         source_ref=f"backtest_run:{run_id}",
+        source_kind=source_kind,
+        source_context=source_context,
         source_title="Review Exit Timing",
-        source_kind="deterministic_action",
-        candidate_mode="parameter_only",
     )
 
 
@@ -701,7 +597,7 @@ async def create_proposal_candidate_from_diagnosis(
             )
 
         draft_summary = (candidate_summary or "").strip() or f"AI chat candidate from run {run_id}"
-        return stage_backtest_candidate(
+        return _stage_candidate_mutation(
             strategy_name=strategy_name,
             linked_version=linked_version,
             summary=draft_summary,
@@ -709,31 +605,29 @@ async def create_proposal_candidate_from_diagnosis(
             parameters=candidate_parameters if has_parameters else None,
             code=candidate_code if has_code else None,
             source_ref=f"backtest_run:{run_id}",
+            source_kind=source_kind,
+            source_context=_build_source_context(
+                run_id=run_id,
+                source_kind=source_kind,
+                extra={"candidate_mode": effective_mode},
+            ),
             source_title="AI Chat Draft",
-            source_kind="ai_chat_draft",
-            candidate_mode=effective_mode,
             ai_mode=effective_mode,
+        )
+
+    source_item = _resolve_source_item(source_kind, source_index, diagnosis, ai_payload)
+    if source_item is None:
+        return ProposalCandidateResult(
+            success=False,
+            message="Proposal source could not be resolved.",
+            error=f"No {source_kind} found at index {source_index}",
         )
 
     normalized_action_type = _normalize_action_type(action_type)
     if source_kind == "deterministic_action" and not normalized_action_type:
-        source_item = _resolve_source_item(source_kind, source_index, diagnosis, ai_payload)
-        if source_item is None:
-            return ProposalCandidateResult(
-                success=False,
-                message="Proposal source could not be resolved.",
-                error=f"No {source_kind} found at index {source_index}",
-            )
         normalized_action_type = _normalize_action_type(str(source_item.get("action_type") or ""))
 
     if source_kind in {"ranked_issue", "parameter_hint"} and not normalized_action_type:
-        source_item = _resolve_source_item(source_kind, source_index, diagnosis, ai_payload)
-        if source_item is None:
-            return ProposalCandidateResult(
-                success=False,
-                message="Proposal source could not be resolved.",
-                error=f"No {source_kind} found at index {source_index}",
-            )
         normalized_action_type = _find_action_type_for_rule(diagnosis, str(source_item.get("rule") or ""))
         if not normalized_action_type:
             return ProposalCandidateResult(
@@ -742,24 +636,51 @@ async def create_proposal_candidate_from_diagnosis(
                 error="Diagnosis did not produce a proposal action for this source.",
             )
 
-    if normalized_action_type == "tighten_entries":
-        return await _apply_tighten_entries_action(strategy_name, parameters_snapshot, run_id, linked_version)
-    if normalized_action_type == "reduce_weak_pairs":
-        return await _apply_reduce_weak_pairs_action(strategy_name, parameters_snapshot, diagnosis, run_id, linked_version)
-    if normalized_action_type == "tighten_stoploss":
-        return await _apply_tighten_stoploss_action(strategy_name, parameters_snapshot, run_id, linked_version)
-    if normalized_action_type == "review_exit_timing":
-        return await _apply_review_exit_timing_action(strategy_name, parameters_snapshot, run_id, linked_version)
+    if normalized_action_type in {"tighten_entries", "reduce_weak_pairs", "tighten_stoploss", "review_exit_timing"}:
+        source_context = _build_source_context(
+            run_id=run_id,
+            source_kind=source_kind,
+            action_type=normalized_action_type,
+            source_item=source_item,
+        )
+        if normalized_action_type == "tighten_entries":
+            return await _apply_tighten_entries_action(
+                strategy_name,
+                parameters_snapshot,
+                run_id,
+                linked_version,
+                source_kind,
+                source_context,
+            )
+        if normalized_action_type == "reduce_weak_pairs":
+            return await _apply_reduce_weak_pairs_action(
+                strategy_name,
+                parameters_snapshot,
+                diagnosis,
+                run_id,
+                linked_version,
+                source_kind,
+                source_context,
+            )
+        if normalized_action_type == "tighten_stoploss":
+            return await _apply_tighten_stoploss_action(
+                strategy_name,
+                parameters_snapshot,
+                run_id,
+                linked_version,
+                source_kind,
+                source_context,
+            )
+        return await _apply_review_exit_timing_action(
+            strategy_name,
+            parameters_snapshot,
+            run_id,
+            linked_version,
+            source_kind,
+            source_context,
+        )
 
     if source_kind == "ai_parameter_suggestion":
-        source_item = _resolve_source_item(source_kind, source_index, diagnosis, ai_payload)
-        if source_item is None:
-            return ProposalCandidateResult(
-                success=False,
-                message="Proposal source could not be resolved.",
-                error=f"No {source_kind} found at index {source_index}",
-            )
-
         strategy_code = _resolve_strategy_code(strategy_name, linked_version)
         effective_mode = candidate_mode
         if effective_mode == "code_patch" and not strategy_code:
@@ -855,7 +776,7 @@ async def create_proposal_candidate_from_diagnosis(
             f" ({source_title})"
         )
         ai_mode = "parameter_only" if loop_result.final_parameters else "code_patch"
-        return stage_backtest_candidate(
+        return _stage_candidate_mutation(
             strategy_name=strategy_name,
             linked_version=linked_version,
             summary=candidate_summary,
@@ -863,9 +784,17 @@ async def create_proposal_candidate_from_diagnosis(
             parameters=loop_result.final_parameters,
             code=loop_result.final_code,
             source_ref=f"backtest_run:{run_id}",
-            source_title=source_title,
             source_kind=source_kind,
-            candidate_mode=ai_mode,
+            source_context=_build_source_context(
+                run_id=run_id,
+                source_kind=source_kind,
+                extra={
+                    "candidate_mode": ai_mode,
+                    "source_index": source_index,
+                    "title": source_title,
+                },
+            ),
+            source_title=source_title,
             ai_mode=ai_mode,
         )
 
@@ -937,13 +866,5 @@ __all__ = [
     "ApplyIntelligenceResult",
     "ProposalCandidateResult",
     "apply_strategy_recommendations",
-    "stage_backtest_candidate",
     "create_proposal_candidate_from_diagnosis",
 ]
-
-
-
-
-
-
-

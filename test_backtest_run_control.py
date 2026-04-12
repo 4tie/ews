@@ -1,7 +1,15 @@
 import asyncio
+import json
+from types import SimpleNamespace
 
 from app.freqtrade import runtime
-from app.models.backtest_models import BacktestRunRecord, BacktestRunStatus, BacktestTriggerSource
+from app.models.backtest_models import (
+    BacktestRunRecord,
+    BacktestRunRequest,
+    BacktestRunStatus,
+    BacktestTriggerSource,
+)
+from app.services import persistence_service as persistence_module
 
 
 def make_run(
@@ -147,3 +155,80 @@ def test_watch_backtest_process_marks_stop_requested_run_stopped(tmp_path, monke
 
     assert calls["exit_code"] == 1
     assert "stopped_by_user" in calls["reason"]
+
+
+def test_run_backtest_persists_run_meta_with_version_and_request_snapshot(tmp_path, monkeypatch):
+    base_config_path = tmp_path / "base.config.json"
+    base_config_path.write_text("{}", encoding="utf-8")
+    captured = {}
+
+    class FakeEngine:
+        engine_id = "freqtrade"
+
+        def prepare_backtest_run(self, launch_payload):
+            captured["launch_payload"] = dict(launch_payload)
+            return {
+                "run_id": launch_payload["run_id"],
+                "cmd": ["freqtrade", "backtesting"],
+                "command": "freqtrade backtesting",
+                "config_path": str(base_config_path),
+                "request_config_path": str(base_config_path),
+                "raw_result_path": None,
+                "log_file": str(tmp_path / "run.log"),
+                "artifact_path": str(tmp_path / "run.log"),
+            }
+
+        def run_backtest(self, payload, prepared=None):
+            return {
+                "command": prepared["command"],
+                "status": "running",
+                "pid": 321,
+                "log_file": prepared["log_file"],
+                "raw_result_path": prepared["raw_result_path"],
+                "process": None,
+            }
+
+    monkeypatch.setattr(persistence_module, "backtest_runs_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(runtime, "_resolve_version_for_launch", lambda payload: SimpleNamespace(version_id="v-resolved", strategy_name=payload.strategy))
+    monkeypatch.setattr(runtime, "_resolve_engine", lambda: FakeEngine())
+    monkeypatch.setattr(runtime.mutation_service, "link_backtest", lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime.uuid, "uuid4", lambda: SimpleNamespace(hex="12345678abcdef00"))
+
+    response = asyncio.run(
+        runtime.run_backtest(
+            BacktestRunRequest(
+                strategy="TestStrat",
+                timeframe="5m",
+                timerange="20240101-20240201",
+                pairs=["BTC/USDT"],
+                exchange="binance",
+                max_open_trades=2,
+                dry_run_wallet=250.0,
+                config_path=str(base_config_path),
+                extra_flags=["--cache", "none"],
+                trigger_source=BacktestTriggerSource.AI_APPLY,
+            )
+        )
+    )
+
+    run_id = response["run_id"]
+    meta_path = tmp_path / run_id / "run_meta.json"
+    persisted = json.loads(meta_path.read_text(encoding="utf-8"))
+
+    assert run_id == "bt-12345678"
+    assert captured["launch_payload"]["version_id"] == "v-resolved"
+    assert persisted["run_id"] == run_id
+    assert persisted["version_id"] == "v-resolved"
+    assert persisted["request_snapshot"] == {
+        "strategy": "TestStrat",
+        "timeframe": "5m",
+        "timerange": "20240101-20240201",
+        "pairs": ["BTC/USDT"],
+        "exchange": "binance",
+        "max_open_trades": 2,
+        "dry_run_wallet": 250.0,
+        "extra_flags": ["--cache", "none"],
+        "trigger_source": "ai_apply",
+        "config_path": str(base_config_path),
+        "engine": "freqtrade",
+    }
