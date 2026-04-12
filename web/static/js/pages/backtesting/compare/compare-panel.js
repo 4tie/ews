@@ -1,9 +1,18 @@
 /**
- * compare-panel.js - Compares persisted backtest runs via the backend compare read.
+ * compare-panel.js - Baseline-versus-candidate compare in workflow mode, generic two-run compare otherwise.
  */
 
 import api from "../../../core/api.js";
-import { el, formatDate, formatNum, formatPct } from "../../../core/utils.js";
+import { on as onEvent, EVENTS } from "../../../core/events.js";
+import { getState, on as onState } from "../../../core/state.js";
+import { el, formatDate } from "../../../core/utils.js";
+import {
+  ensureSelectedCandidateVersion,
+  getSelectedCandidateVersionId,
+  getWorkflowCandidateVersions,
+  setSelectedCandidateVersionId,
+} from "./candidate-selection-state.js";
+import { escapeHtml, labelize, renderDecisionReadyCompare } from "./decision-ready-renderer.js";
 import {
   initPersistedRunsStore,
   subscribePersistedRuns,
@@ -11,7 +20,9 @@ import {
 
 const compareArea = document.getElementById("compare-area");
 let persistedRunsState = { status: "idle", strategy: "", runs: [], error: null };
+let versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
 let comparableRuns = [];
+let latestResultsPayload = null;
 let selectedLeftRunId = "";
 let selectedRightRunId = "";
 let lastComparison = null;
@@ -19,12 +30,125 @@ let lastComparedPairKey = "";
 let compareError = null;
 let compareLoading = false;
 let compareRequestId = 0;
+let versionsRequestId = 0;
 
 export function initComparePanel() {
   if (!compareArea) return;
 
   initPersistedRunsStore();
   subscribePersistedRuns(handleRunsSnapshot);
+  onEvent(EVENTS.RESULTS_LOADED, handleResultsLoaded);
+  onState("backtest.selectedCandidateVersionId", () => {
+    renderComparePanel();
+    void maybeLoadComparison();
+  });
+}
+
+function workflowModeActive() {
+  return Boolean(
+    latestResultsPayload?.diagnosis_status === "ready"
+      && latestResultsPayload?.summary_available
+      && latestResultsPayload?.run_id
+  );
+}
+
+function workflowBaselineRunId() {
+  return workflowModeActive() ? latestResultsPayload?.run_id || "" : "";
+}
+
+function workflowCandidateVersions() {
+  return getWorkflowCandidateVersions(versionsState.versions, workflowBaselineRunId());
+}
+
+function workflowCandidateVersion() {
+  const selected = getSelectedCandidateVersionId();
+  return workflowCandidateVersions().find((version) => version?.version_id === selected) || workflowCandidateVersions()[0] || null;
+}
+
+function workflowCandidateRun() {
+  const versionId = workflowCandidateVersion()?.version_id;
+  if (!versionId) return null;
+  return (persistedRunsState.runs || [])
+    .filter((run) => run?.version_id === versionId && run?.status === "completed" && run?.summary_available)
+    .slice()
+    .sort((left, right) => String(right?.completed_at || right?.created_at || "").localeCompare(String(left?.completed_at || left?.created_at || "")))[0] || null;
+}
+
+function formatRunOption(run) {
+  const versionId = run?.version_id || "no version";
+  return `${run.run_id} | ${run.strategy || "Unknown"} | ${labelize(run.status)} | ${versionId} | ${formatDate(run?.completed_at || run?.created_at)}`;
+}
+
+function formatWorkflowCandidateOption(version) {
+  const sourceTitle = version?.source_context?.title || version?.summary || version?.source_ref || "Candidate";
+  return `${version?.version_id || "-"} | ${labelize(version?.change_type)} | ${sourceTitle} | ${formatDate(version?.created_at)}`;
+}
+
+function pickRetainedRunId(currentRunId, fallbackIndex) {
+  if (currentRunId && comparableRuns.some((run) => run.run_id === currentRunId)) {
+    return currentRunId;
+  }
+  return comparableRuns[fallbackIndex]?.run_id || "";
+}
+
+function pickDifferentRunId(excludedRunId) {
+  return comparableRuns.find((run) => run.run_id !== excludedRunId)?.run_id || "";
+}
+
+function pickRetainedRightRunId(leftRunId, currentRunId) {
+  if (currentRunId && currentRunId !== leftRunId && comparableRuns.some((run) => run.run_id === currentRunId)) {
+    return currentRunId;
+  }
+  return pickDifferentRunId(leftRunId);
+}
+
+async function loadVersions(strategy) {
+  if (!strategy) {
+    versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
+    setSelectedCandidateVersionId(null);
+    renderComparePanel();
+    return;
+  }
+
+  const requestId = ++versionsRequestId;
+  versionsState = { ...versionsState, status: "loading", strategy, error: null };
+  renderComparePanel();
+
+  try {
+    const response = await api.versions.listVersions(strategy, true);
+    if (requestId !== versionsRequestId) return;
+    versionsState = {
+      status: "ready",
+      strategy,
+      versions: Array.isArray(response?.versions) ? response.versions : [],
+      activeVersionId: response?.active_version_id || null,
+      error: null,
+    };
+    ensureSelectedCandidateVersion(versionsState.versions, workflowBaselineRunId());
+    renderComparePanel();
+    void maybeLoadComparison();
+  } catch (error) {
+    if (requestId !== versionsRequestId) return;
+    versionsState = {
+      status: "error",
+      strategy,
+      versions: [],
+      activeVersionId: null,
+      error: error?.message || String(error),
+    };
+    renderComparePanel();
+  }
+}
+
+function handleResultsLoaded(payload) {
+  latestResultsPayload = payload || null;
+  if (!workflowModeActive()) {
+    setSelectedCandidateVersionId(null);
+  }
+  const strategy = getState("backtest.strategy") || latestResultsPayload?.strategy || persistedRunsState.strategy || "";
+  void loadVersions(strategy);
+  renderComparePanel();
+  void maybeLoadComparison();
 }
 
 function handleRunsSnapshot(snapshot) {
@@ -33,42 +157,53 @@ function handleRunsSnapshot(snapshot) {
   selectedLeftRunId = pickRetainedRunId(selectedLeftRunId, 0);
   selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
 
+  if (workflowModeActive()) {
+    ensureSelectedCandidateVersion(versionsState.versions, workflowBaselineRunId());
+    renderComparePanel();
+    void maybeLoadComparison();
+    return;
+  }
+
   if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
     lastComparison = null;
     lastComparedPairKey = "";
     compareLoading = false;
+    compareError = null;
     renderComparePanel();
     return;
   }
 
   const pairKey = `${selectedLeftRunId}:${selectedRightRunId}`;
   if (snapshot.status === "ready" && pairKey !== lastComparedPairKey && !compareLoading) {
-    loadComparison();
+    void maybeLoadComparison();
     return;
   }
 
   renderComparePanel();
 }
 
-async function loadComparison() {
-  if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
+async function loadComparisonForRuns(leftRunId, rightRunId) {
+  if (!leftRunId || !rightRunId || leftRunId === rightRunId) {
     lastComparison = null;
     lastComparedPairKey = "";
     compareLoading = false;
+    compareError = null;
     renderComparePanel();
     return;
   }
 
   const requestId = ++compareRequestId;
+  lastComparison = null;
+  lastComparedPairKey = "";
   compareLoading = true;
   compareError = null;
   renderComparePanel();
 
   try {
-    const comparison = await api.backtest.compareRuns(selectedLeftRunId, selectedRightRunId);
+    const comparison = await api.backtest.compareRuns(leftRunId, rightRunId);
     if (requestId !== compareRequestId) return;
     lastComparison = comparison;
-    lastComparedPairKey = `${selectedLeftRunId}:${selectedRightRunId}`;
+    lastComparedPairKey = `${leftRunId}:${rightRunId}`;
     compareLoading = false;
     compareError = null;
     renderComparePanel();
@@ -82,249 +217,242 @@ async function loadComparison() {
   }
 }
 
-function renderComparePanel() {
-  if (!compareArea) return;
+async function maybeLoadComparison() {
+  if (workflowModeActive()) {
+    const candidateRun = workflowCandidateRun();
+    if (!candidateRun) {
+      lastComparison = null;
+      lastComparedPairKey = "";
+      compareLoading = false;
+      compareError = null;
+      renderComparePanel();
+      return;
+    }
 
-  compareArea.innerHTML = "";
-
-  const layout = el("div", { class: "compare-layout" });
-  layout.appendChild(buildToolbar());
-
-  if (persistedRunsState.status === "loading" && !persistedRunsState.runs.length) {
-    layout.appendChild(el("div", { class: "info-empty" }, "Loading persisted backtest runs for compare..."));
-    compareArea.appendChild(layout);
-    return;
-  }
-
-  if (persistedRunsState.status === "error") {
-    layout.appendChild(el("div", { class: "info-empty" }, `Failed to load persisted compare runs: ${persistedRunsState.error}`));
-    compareArea.appendChild(layout);
-    return;
-  }
-
-  if (!comparableRuns.length) {
-    layout.appendChild(el("div", { class: "info-empty" }, "No persisted completed runs with saved summary artifacts are available to compare yet."));
-    compareArea.appendChild(layout);
+    const key = `${workflowBaselineRunId()}:${candidateRun.run_id}`;
+    if (key === lastComparedPairKey && (compareLoading || lastComparison)) {
+      return;
+    }
+    await loadComparisonForRuns(workflowBaselineRunId(), candidateRun.run_id);
     return;
   }
 
   if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
-    layout.appendChild(el("div", { class: "info-empty" }, "Select two different persisted runs to compare."));
-    compareArea.appendChild(layout);
+    lastComparison = null;
+    lastComparedPairKey = "";
+    compareLoading = false;
+    compareError = null;
+    renderComparePanel();
     return;
   }
 
-  if (compareLoading) {
-    layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted comparison..."));
-  }
-
-  if (compareError) {
-    layout.appendChild(el("div", { class: "info-empty" }, `Unable to compare the selected runs: ${compareError}`));
-    compareArea.appendChild(layout);
+  const key = `${selectedLeftRunId}:${selectedRightRunId}`;
+  if (key === lastComparedPairKey && (compareLoading || lastComparison)) {
     return;
   }
-
-  if (!lastComparison) {
-    layout.appendChild(el("div", { class: "compare-note" }, "Choose the two saved runs you want to compare. The latest successful pair loads automatically."));
-    compareArea.appendChild(layout);
-    return;
-  }
-
-  layout.appendChild(buildContextGrid(lastComparison));
-  layout.appendChild(buildMetricsTable(lastComparison));
-  layout.appendChild(el("div", { class: "compare-note" }, "Compare rows are computed from the persisted run-linked summary artifacts. Delta is right minus left."));
-  compareArea.appendChild(layout);
+  await loadComparisonForRuns(selectedLeftRunId, selectedRightRunId);
 }
 
-function buildToolbar() {
-  const toolbar = el("div", { class: "compare-toolbar" });
-  toolbar.appendChild(buildSelectField({
-    label: "Left run",
-    id: "compare-left-run",
-    value: selectedLeftRunId,
-    onChange: (value) => {
-      selectedLeftRunId = value;
-      if (selectedLeftRunId === selectedRightRunId) {
-        selectedRightRunId = pickAlternateRunId(selectedLeftRunId);
-      }
-      lastComparison = null;
-      lastComparedPairKey = "";
-      compareError = null;
-      loadComparison();
-    },
-  }));
-  toolbar.appendChild(buildSelectField({
-    label: "Right run",
-    id: "compare-right-run",
-    value: selectedRightRunId,
-    onChange: (value) => {
-      selectedRightRunId = value;
-      if (selectedRightRunId === selectedLeftRunId) {
-        selectedLeftRunId = pickAlternateRunId(selectedRightRunId);
-      }
-      lastComparison = null;
-      lastComparedPairKey = "";
-      compareError = null;
-      loadComparison();
-    },
-  }));
-  return toolbar;
-}
-
-function buildSelectField({ label, id, value, onChange }) {
+function buildSelectField({ label, id, value, options, onChange, disabled = false }) {
   const wrapper = el("label", { class: "setup-field compare-toolbar__field" });
   wrapper.appendChild(el("span", { class: "form-label" }, label));
 
   const select = el("select", { class: "form-select", id });
-  select.disabled = comparableRuns.length < 2 || persistedRunsState.status === "loading";
-  comparableRuns.forEach((run) => {
-    const option = el("option", { value: run.run_id }, formatRunOption(run));
-    if (run.run_id === value) option.selected = true;
-    select.appendChild(option);
+  select.disabled = disabled;
+  options.forEach((option) => {
+    const optionNode = el("option", { value: option.value }, option.label);
+    if (option.value === value) optionNode.selected = true;
+    select.appendChild(optionNode);
   });
   select.addEventListener("change", (event) => onChange(event.target.value));
   wrapper.appendChild(select);
   return wrapper;
 }
 
-function buildContextGrid(comparison) {
+function buildGenericToolbar() {
+  const toolbar = el("div", { class: "compare-toolbar" });
+  toolbar.appendChild(buildSelectField({
+    label: "Left run",
+    id: "compare-left-run",
+    value: selectedLeftRunId,
+    disabled: comparableRuns.length < 2 || persistedRunsState.status === "loading",
+    options: comparableRuns.map((run) => ({ value: run.run_id, label: formatRunOption(run) })),
+    onChange: (value) => {
+      selectedLeftRunId = value;
+      if (selectedLeftRunId === selectedRightRunId) {
+        selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
+      }
+      lastComparison = null;
+      lastComparedPairKey = "";
+      compareError = null;
+      void maybeLoadComparison();
+    },
+  }));
+  toolbar.appendChild(buildSelectField({
+    label: "Right run",
+    id: "compare-right-run",
+    value: selectedRightRunId,
+    disabled: comparableRuns.length < 2 || persistedRunsState.status === "loading",
+    options: comparableRuns.map((run) => ({ value: run.run_id, label: formatRunOption(run) })),
+    onChange: (value) => {
+      selectedRightRunId = value;
+      if (selectedRightRunId === selectedLeftRunId) {
+        selectedLeftRunId = pickDifferentRunId(selectedRightRunId);
+      }
+      lastComparison = null;
+      lastComparedPairKey = "";
+      compareError = null;
+      void maybeLoadComparison();
+    },
+  }));
+  return toolbar;
+}
+
+function buildWorkflowToolbar() {
+  const toolbar = el("div", { class: "compare-toolbar" });
+  toolbar.appendChild(buildSelectField({
+    label: "Baseline",
+    id: "compare-baseline-run",
+    value: workflowBaselineRunId(),
+    disabled: true,
+    options: [{
+      value: workflowBaselineRunId() || "",
+      label: workflowBaselineRunId()
+        ? `${workflowBaselineRunId()} | ${latestResultsPayload?.version_id || 'no version'} | ${formatDate(latestResultsPayload?.summary_metrics?.trade_end || latestResultsPayload?.summary_metrics?.trade_start || '')}`
+        : "No baseline run",
+    }],
+    onChange: () => {},
+  }));
+  toolbar.appendChild(buildSelectField({
+    label: "Selected Candidate",
+    id: "compare-selected-candidate",
+    value: getSelectedCandidateVersionId(),
+    disabled: versionsState.status === "loading" || !workflowCandidateVersions().length,
+    options: workflowCandidateVersions().map((version) => ({ value: version.version_id, label: formatWorkflowCandidateOption(version) })),
+    onChange: (value) => {
+      setSelectedCandidateVersionId(value || null);
+    },
+  }));
+  return toolbar;
+}
+
+function buildContextGrid(comparison, { leftTitle = "Left run", rightTitle = "Right run" } = {}) {
   const grid = el("div", { class: "compare-context-grid" });
-  grid.appendChild(buildRunContext(comparison.left, "Left run"));
-  grid.appendChild(buildRunContext(comparison.right, "Right run"));
+  grid.appendChild(buildRunContext(comparison?.left, leftTitle));
+  grid.appendChild(buildRunContext(comparison?.right, rightTitle));
   return grid;
 }
 
 function buildRunContext(run, title) {
   const metrics = run?.summary_metrics || {};
-  const profit = metrics.profit_total_pct == null ? "-" : formatPct(metrics.profit_total_pct);
-  const tradeRange = formatTradeRange(metrics);
   const section = el("section", { class: "results-context" });
   section.innerHTML = `
-    <div class="results-context__title">${title}</div>
+    <div class="results-context__title">${escapeHtml(title)}</div>
     <div class="results-context__meta">
-      <span><strong>Run ID:</strong> ${run?.run_id || "-"}</span>
-      <span><strong>Strategy:</strong> ${metrics.strategy || run?.strategy || "-"}</span>
-      <span><strong>Created:</strong> ${formatDate(run?.created_at)}</span>
-      <span><strong>Status:</strong> ${labelize(run?.status)}</span>
-      <span><strong>Total Profit:</strong> ${profit}</span>
-      <span><strong>Trades:</strong> ${formatCount(metrics.total_trades)}</span>
-      <span><strong>Pairs:</strong> ${formatCount(metrics.pair_count)}</span>
-      <span><strong>Range:</strong> ${tradeRange}</span>
+      <span><strong>Run ID:</strong> ${escapeHtml(run?.run_id || "-")}</span>
+      <span><strong>Strategy:</strong> ${escapeHtml(metrics.strategy || run?.strategy || "-")}</span>
+      <span><strong>Version:</strong> ${escapeHtml(run?.version_id || "-")}</span>
+      <span><strong>Status:</strong> ${escapeHtml(labelize(run?.status))}</span>
+      <span><strong>Created:</strong> ${escapeHtml(formatDate(run?.completed_at || run?.created_at))}</span>
     </div>
   `;
   return section;
 }
 
-function buildMetricsTable(comparison) {
-  const table = el("table", { class: "data-table compare-table" });
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Metric</th>
-        <th>Left</th>
-        <th>Right</th>
-        <th>Delta</th>
-      </tr>
-    </thead>
-  `;
+function renderWorkflowCompare(layout) {
+  layout.appendChild(buildWorkflowToolbar());
 
-  const tbody = el("tbody");
-  const leftCurrency = comparison?.left?.summary_metrics?.stake_currency || "";
-  const rightCurrency = comparison?.right?.summary_metrics?.stake_currency || leftCurrency;
-  comparison?.metrics?.forEach((metric) => {
-    const row = el("tr");
-    const deltaClass = classifyDelta(metric.key, metric.delta);
-    row.innerHTML = `
-      <td>${metric.label}</td>
-      <td>${formatMetricValue(metric.format, metric.left, leftCurrency)}</td>
-      <td>${formatMetricValue(metric.format, metric.right, rightCurrency)}</td>
-      <td class="${deltaClass}">${formatMetricValue(metric.format, metric.delta, rightCurrency, { signed: true })}</td>
-    `;
-    tbody.appendChild(row);
+  if (versionsState.status === "loading") {
+    layout.appendChild(el("div", { class: "compare-note" }, "Loading workflow-linked candidate versions..."));
+    return;
+  }
+  if (versionsState.status === "error") {
+    layout.appendChild(el("div", { class: "info-empty" }, `Failed to load workflow candidates: ${versionsState.error}`));
+    return;
+  }
+  if (!workflowCandidateVersions().length) {
+    layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet."));
+    return;
+  }
+
+  const candidateRun = workflowCandidateRun();
+  if (!candidateRun) {
+    layout.appendChild(el("div", { class: "info-empty" }, "Re-run the selected candidate to compare it against the baseline run."));
+    return;
+  }
+
+  if (compareLoading) {
+    layout.appendChild(el("div", { class: "compare-note" }, "Loading baseline versus selected candidate compare..."));
+  }
+  if (compareError) {
+    layout.appendChild(el("div", { class: "info-empty" }, `Unable to compare the baseline run and selected candidate: ${compareError}`));
+    return;
+  }
+  if (!lastComparison) {
+    layout.appendChild(el("div", { class: "compare-note" }, "Select a candidate version to load its persisted compare evidence against the current baseline run."));
+    return;
+  }
+
+  layout.appendChild(buildContextGrid(lastComparison, { leftTitle: "Baseline", rightTitle: "Selected Candidate" }));
+  const evidence = el("div", { class: "compare-evidence" });
+  evidence.innerHTML = renderDecisionReadyCompare(lastComparison, {
+    baselineLabel: "Baseline",
+    candidateLabel: "Selected Candidate",
   });
-
-  table.appendChild(tbody);
-  return table;
+  layout.appendChild(evidence);
+  layout.appendChild(el("div", { class: "compare-note" }, "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only."));
 }
 
-function pickRetainedRunId(currentRunId, fallbackIndex) {
-  if (currentRunId && comparableRuns.some((run) => run.run_id === currentRunId)) {
-    return currentRunId;
+function renderGenericCompare(layout) {
+  layout.appendChild(buildGenericToolbar());
+
+  if (persistedRunsState.status === "loading" && !persistedRunsState.runs.length) {
+    layout.appendChild(el("div", { class: "info-empty" }, "Loading persisted backtest runs for compare..."));
+    return;
   }
-  return comparableRuns[fallbackIndex]?.run_id || "";
-}
-
-function pickRetainedRightRunId(leftRunId, currentRunId) {
-  if (currentRunId && currentRunId !== leftRunId && comparableRuns.some((run) => run.run_id === currentRunId)) {
-    return currentRunId;
+  if (persistedRunsState.status === "error") {
+    layout.appendChild(el("div", { class: "info-empty" }, `Failed to load persisted compare runs: ${persistedRunsState.error}`));
+    return;
   }
-  return pickAlternateRunId(leftRunId);
-}
-
-function pickAlternateRunId(runId) {
-  return comparableRuns.find((run) => run.run_id !== runId)?.run_id || "";
-}
-
-function formatRunOption(run) {
-  const profit = run?.summary_metrics?.profit_total_pct;
-  const profitLabel = profit == null ? "no profit metric" : formatPct(profit);
-  const when = run?.completed_at || run?.created_at;
-  return `${run.run_id} | ${run.strategy || "Unknown"} | ${labelize(run.status)} | ${profitLabel} | ${formatDate(when)}`;
-}
-
-function formatMetricValue(valueFormat, value, currency = "", options = {}) {
-  if (value == null || value === "") return "-";
-  if (valueFormat === "pct") return formatPct(value);
-  if (valueFormat === "count") return formatCount(value);
-  if (valueFormat === "money") {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return String(value);
-    const prefix = options.signed && number > 0 ? "+" : "";
-    return `${prefix}${formatNum(number, 2)}${currency ? ` ${currency}` : ""}`;
+  if (!comparableRuns.length) {
+    layout.appendChild(el("div", { class: "info-empty" }, "No persisted completed runs with saved summary artifacts are available to compare yet."));
+    return;
   }
-  const number = Number(value);
-  if (Number.isFinite(number)) {
-    const prefix = options.signed && number > 0 ? "+" : "";
-    return `${prefix}${formatNum(number, 3)}`;
+  if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
+    layout.appendChild(el("div", { class: "info-empty" }, "Select two different persisted runs to compare."));
+    return;
   }
-  return String(value);
+  if (compareLoading) {
+    layout.appendChild(el("div", { class: "compare-note" }, "Loading persisted comparison..."));
+  }
+  if (compareError) {
+    layout.appendChild(el("div", { class: "info-empty" }, `Unable to compare the selected runs: ${compareError}`));
+    return;
+  }
+  if (!lastComparison) {
+    layout.appendChild(el("div", { class: "compare-note" }, "Choose the two saved runs you want to compare. The latest successful pair loads automatically."));
+    return;
+  }
+
+  layout.appendChild(buildContextGrid(lastComparison));
+  const evidence = el("div", { class: "compare-evidence" });
+  evidence.innerHTML = renderDecisionReadyCompare(lastComparison, {
+    baselineLabel: "Left run",
+    candidateLabel: "Right run",
+  });
+  layout.appendChild(evidence);
+  layout.appendChild(el("div", { class: "compare-note" }, "Compare rows are computed from persisted run-linked summary artifacts. Delta is right minus left."));
 }
 
-function formatCount(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? `${Math.round(number)}` : "-";
-}
+function renderComparePanel() {
+  if (!compareArea) return;
+  compareArea.innerHTML = "";
 
-function formatTradeRange(metrics) {
-  if (metrics?.trade_start || metrics?.trade_end) {
-    return `${formatDate(metrics.trade_start)} -> ${formatDate(metrics.trade_end)}`;
+  const layout = el("div", { class: "compare-layout" });
+  if (workflowModeActive()) {
+    renderWorkflowCompare(layout);
+  } else {
+    renderGenericCompare(layout);
   }
-  if (metrics?.timerange) {
-    return formatTimerange(metrics.timerange);
-  }
-  return "No persisted trade range";
-}
-
-function formatTimerange(timerange) {
-  const value = String(timerange || "");
-  const parts = value.split("-");
-  if (parts.length === 2 && parts[0].length === 8 && parts[1].length === 8) {
-    return `${parts[0].slice(0, 4)}-${parts[0].slice(4, 6)}-${parts[0].slice(6, 8)} -> ${parts[1].slice(0, 4)}-${parts[1].slice(4, 6)}-${parts[1].slice(6, 8)}`;
-  }
-  return value || "No persisted trade range";
-}
-
-function classifyDelta(key, delta) {
-  const number = Number(delta);
-  if (!Number.isFinite(number) || number === 0) return "";
-  if (key === "max_drawdown_pct") {
-    return number < 0 ? "positive" : "negative";
-  }
-  return number > 0 ? "positive" : "negative";
-}
-
-function labelize(value) {
-  return String(value || "-")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  compareArea.appendChild(layout);
 }

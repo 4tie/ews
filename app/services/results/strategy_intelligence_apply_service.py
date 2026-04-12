@@ -65,11 +65,20 @@ def _build_source_context(
     source_kind: str,
     action_type: str | None = None,
     source_item: dict[str, Any] | None = None,
+    source_index: int | None = None,
+    source_title: str | None = None,
+    candidate_mode: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context: dict[str, Any] = {"run_id": run_id}
+    if source_index is not None:
+        context["source_index"] = source_index
     if action_type:
         context["action_type"] = action_type
+    if source_title:
+        context["title"] = str(source_title).strip()
+    if candidate_mode:
+        context["candidate_mode"] = str(candidate_mode).strip()
 
     source_item = source_item or {}
     rule = str(source_item.get("rule") or "").strip()
@@ -183,6 +192,11 @@ def _stage_candidate_mutation(
 
     change_type = ChangeType.CODE_CHANGE if code is not None else ChangeType.PARAMETER_CHANGE
     parent_version_id = getattr(linked_version, "version_id", None)
+    normalized_source_context = dict(source_context or {})
+    if source_title and not normalized_source_context.get("title"):
+        normalized_source_context["title"] = str(source_title).strip()
+    if ai_mode and not normalized_source_context.get("candidate_mode"):
+        normalized_source_context["candidate_mode"] = str(ai_mode).strip()
     mutation_result = mutation_service.create_mutation(
         MutationRequest(
             strategy_name=strategy_name,
@@ -194,7 +208,7 @@ def _stage_candidate_mutation(
             parent_version_id=parent_version_id,
             source_ref=source_ref,
             source_kind=source_kind,
-            source_context=dict(source_context or {}),
+            source_context=normalized_source_context,
         )
     )
     if not mutation_result.version_id:
@@ -612,6 +626,9 @@ async def create_proposal_candidate_from_diagnosis(
             source_context=_build_source_context(
                 run_id=run_id,
                 source_kind=source_kind,
+                source_index=source_index,
+                source_title="AI Chat Draft",
+                candidate_mode=effective_mode,
                 extra=extra_context,
             ),
             source_title="AI Chat Draft",
@@ -645,6 +662,9 @@ async def create_proposal_candidate_from_diagnosis(
             source_kind=source_kind,
             action_type=normalized_action_type,
             source_item=source_item,
+            source_index=source_index,
+            source_title=_summarize_source_item(source_kind, source_item),
+            candidate_mode="parameter_only",
         )
         if normalized_action_type == "tighten_entries":
             return await _apply_tighten_entries_action(
@@ -791,11 +811,10 @@ async def create_proposal_candidate_from_diagnosis(
             source_context=_build_source_context(
                 run_id=run_id,
                 source_kind=source_kind,
-                extra={
-                    "candidate_mode": ai_mode,
-                    "source_index": source_index,
-                    "title": source_title,
-                },
+                source_index=source_index,
+                source_title=source_title,
+                candidate_mode=ai_mode,
+                extra=None,
             ),
             source_title=source_title,
             ai_mode=ai_mode,

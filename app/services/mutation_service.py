@@ -10,6 +10,7 @@ Parameter-only quick actions) MUST go through this service to ensure:
 """
 from __future__ import annotations
 
+import difflib
 import os
 import uuid
 from dataclasses import dataclass
@@ -151,6 +152,214 @@ class StrategyMutationService:
             else:
                 merged[key] = value
         return merged
+
+    @staticmethod
+    def _normalize_diff_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): StrategyMutationService._normalize_diff_value(value[key])
+                for key in sorted(value.keys(), key=lambda item: str(item))
+            }
+        if isinstance(value, list):
+            return [StrategyMutationService._normalize_diff_value(item) for item in value]
+        if isinstance(value, tuple):
+            return [StrategyMutationService._normalize_diff_value(item) for item in value]
+        if isinstance(value, float):
+            return round(value, 12)
+        return value
+
+    @staticmethod
+    def _collect_parameter_diff_rows(before: Any, after: Any, path: str, rows: list[dict[str, Any]]) -> None:
+        before_value = StrategyMutationService._normalize_diff_value(before)
+        after_value = StrategyMutationService._normalize_diff_value(after)
+
+        if before_value == after_value:
+            return
+
+        if isinstance(before_value, dict) or isinstance(after_value, dict):
+            left_dict = before_value if isinstance(before_value, dict) else {}
+            right_dict = after_value if isinstance(after_value, dict) else {}
+            keys = sorted(set(left_dict) | set(right_dict), key=lambda item: str(item))
+            for key in keys:
+                next_path = f"{path}.{key}" if path else str(key)
+                StrategyMutationService._collect_parameter_diff_rows(
+                    left_dict.get(key),
+                    right_dict.get(key),
+                    next_path,
+                    rows,
+                )
+            return
+
+        if isinstance(before_value, list) or isinstance(after_value, list):
+            left_list = before_value if isinstance(before_value, list) else []
+            right_list = after_value if isinstance(after_value, list) else []
+            for index in range(max(len(left_list), len(right_list))):
+                next_path = f"{path}[{index}]" if path else f"[{index}]"
+                StrategyMutationService._collect_parameter_diff_rows(
+                    left_list[index] if index < len(left_list) else None,
+                    right_list[index] if index < len(right_list) else None,
+                    next_path,
+                    rows,
+                )
+            return
+
+        rows.append(
+            {
+                "path": path or "$",
+                "before": before_value,
+                "after": after_value,
+            }
+        )
+
+    @staticmethod
+    def _count_code_diff_lines(before_code: str, after_code: str) -> tuple[int, int]:
+        added_lines = 0
+        removed_lines = 0
+        for line in difflib.ndiff(before_code.splitlines(), after_code.splitlines()):
+            if line.startswith("+ "):
+                added_lines += 1
+            elif line.startswith("- "):
+                removed_lines += 1
+        return added_lines, removed_lines
+
+    def normalize_source_metadata(self, version: StrategyVersion | None) -> dict[str, Any]:
+        if version is None:
+            return {
+                "source_kind": None,
+                "source_title": None,
+                "candidate_mode": None,
+                "source_index": None,
+                "action_type": None,
+                "rule": None,
+                "matched_rules": [],
+            }
+
+        source_context = dict(getattr(version, "source_context", None) or {})
+        matched_rules = source_context.get("matched_rules")
+        if not isinstance(matched_rules, list):
+            matched_rules = []
+
+        source_title = str(source_context.get("title") or source_context.get("chat_summary") or "").strip() or None
+        candidate_mode = str(source_context.get("candidate_mode") or "").strip() or None
+        action_type = str(source_context.get("action_type") or "").strip() or None
+        rule = str(source_context.get("rule") or source_context.get("flag_rule") or "").strip() or None
+        source_index = source_context.get("source_index")
+
+        return {
+            "source_kind": getattr(version, "source_kind", None),
+            "source_title": source_title,
+            "candidate_mode": candidate_mode,
+            "source_index": source_index,
+            "action_type": action_type,
+            "rule": rule,
+            "matched_rules": [str(item).strip() for item in matched_rules if str(item).strip()],
+        }
+
+    def resolve_compare_versions(self, left_version_id: str | None, right_version_id: str | None) -> dict[str, Any]:
+        baseline_version = self.get_version_by_id(left_version_id) if left_version_id else None
+        candidate_version = self.get_version_by_id(right_version_id) if right_version_id else None
+        baseline_source = "run" if baseline_version is not None else None
+
+        if baseline_version is None and candidate_version is not None and candidate_version.parent_version_id:
+            fallback_version = self.get_version_by_id(candidate_version.parent_version_id)
+            if fallback_version is not None:
+                baseline_version = fallback_version
+                baseline_source = "candidate_parent"
+
+        return {
+            "baseline_version": baseline_version,
+            "candidate_version": candidate_version,
+            "baseline_version_source": baseline_source,
+        }
+
+    def build_parameter_diff_rows(
+        self,
+        baseline_version: StrategyVersion | None,
+        candidate_version: StrategyVersion | None,
+    ) -> list[dict[str, Any]]:
+        baseline_parameters = None
+        candidate_parameters = None
+
+        if baseline_version is not None:
+            baseline_parameters = self.resolve_effective_artifacts(baseline_version.version_id).get("parameters_snapshot")
+        if candidate_version is not None:
+            candidate_parameters = self.resolve_effective_artifacts(candidate_version.version_id).get("parameters_snapshot")
+
+        rows: list[dict[str, Any]] = []
+        self._collect_parameter_diff_rows(baseline_parameters, candidate_parameters, "", rows)
+        return rows
+
+    def summarize_code_diff(
+        self,
+        baseline_version: StrategyVersion | None,
+        candidate_version: StrategyVersion | None,
+    ) -> dict[str, Any]:
+        baseline_code = ""
+        candidate_code = ""
+        diff_ref = getattr(candidate_version, "diff_ref", None) if candidate_version is not None else None
+
+        if baseline_version is not None:
+            baseline_code = str(self.resolve_effective_artifacts(baseline_version.version_id).get("code_snapshot") or "")
+        if candidate_version is not None:
+            candidate_code = str(self.resolve_effective_artifacts(candidate_version.version_id).get("code_snapshot") or "")
+
+        if not baseline_code.strip() and not candidate_code.strip():
+            return {
+                "changed": False,
+                "added_lines": 0,
+                "removed_lines": 0,
+                "diff_ref": diff_ref,
+                "summary": "No persisted code snapshot is available for this compare.",
+            }
+
+        if baseline_code == candidate_code:
+            return {
+                "changed": False,
+                "added_lines": 0,
+                "removed_lines": 0,
+                "diff_ref": diff_ref,
+                "summary": "No persisted code changes were detected between baseline and candidate.",
+            }
+
+        added_lines, removed_lines = self._count_code_diff_lines(baseline_code, candidate_code)
+        return {
+            "changed": True,
+            "added_lines": added_lines,
+            "removed_lines": removed_lines,
+            "diff_ref": diff_ref,
+            "summary": f"Persisted code snapshot changed by {added_lines} added and {removed_lines} removed lines.",
+        }
+
+    def build_version_compare_payload(self, left_version_id: str | None, right_version_id: str | None) -> dict[str, Any]:
+        resolved_versions = self.resolve_compare_versions(left_version_id, right_version_id)
+        baseline_version = resolved_versions["baseline_version"]
+        candidate_version = resolved_versions["candidate_version"]
+        source_metadata = self.normalize_source_metadata(candidate_version)
+
+        versions = {
+            "baseline_version_id": getattr(baseline_version, "version_id", None),
+            "candidate_version_id": getattr(candidate_version, "version_id", None),
+            "candidate_parent_version_id": getattr(candidate_version, "parent_version_id", None),
+            "baseline_version_source": resolved_versions.get("baseline_version_source"),
+        }
+        version_diff = {
+            **versions,
+            "source_kind": source_metadata["source_kind"],
+            "source_title": source_metadata["source_title"],
+            "candidate_mode": source_metadata["candidate_mode"],
+            "change_type": getattr(getattr(candidate_version, "change_type", None), "value", None),
+            "summary": getattr(candidate_version, "summary", None),
+            "source_index": source_metadata["source_index"],
+            "action_type": source_metadata["action_type"],
+            "rule": source_metadata["rule"],
+            "matched_rules": source_metadata["matched_rules"],
+            "parameter_diff_rows": self.build_parameter_diff_rows(baseline_version, candidate_version),
+            "code_diff": self.summarize_code_diff(baseline_version, candidate_version),
+        }
+        return {
+            "versions": versions,
+            "version_diff": version_diff,
+        }
 
     def get_version_by_id(self, version_id: str) -> Optional[StrategyVersion]:
         """Get a version by ID without inferring ownership from the ID format."""

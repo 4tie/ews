@@ -83,6 +83,9 @@ def test_deterministic_action_creates_parameter_candidate_and_records_provenance
     assert request.source_kind == "deterministic_action"
     assert request.source_context == {
         "run_id": "bt-1",
+        "source_index": 0,
+        "title": "Tighten Stoploss",
+        "candidate_mode": "parameter_only",
         "action_type": "tighten_stoploss",
         "matched_rules": ["high_drawdown"],
         "flag_rule": "high_drawdown",
@@ -156,6 +159,9 @@ def test_ranked_issue_maps_to_review_exit_timing_and_records_rule_provenance(mon
     assert request.source_kind == "ranked_issue"
     assert request.source_context == {
         "run_id": "bt-2",
+        "source_index": 0,
+        "title": "high_drawdown [warning]: High drawdown",
+        "candidate_mode": "parameter_only",
         "action_type": "review_exit_timing",
         "rule": "high_drawdown",
         "flag_rule": "high_drawdown",
@@ -282,7 +288,13 @@ def test_ai_chat_draft_parameter_candidate_uses_stage_backtest_candidate(monkeyp
     assert request.source_ref == "backtest_run:bt-4"
     assert request.source_kind == "ai_chat_draft"
     assert request.summary == "AI chat candidate from run bt-4"
-    assert request.source_context == {"run_id": "bt-4", "candidate_mode": "parameter_only", "chat_summary": "AI chat candidate"}
+    assert request.source_context == {
+        "run_id": "bt-4",
+        "source_index": 0,
+        "title": "AI Chat Draft",
+        "candidate_mode": "parameter_only",
+        "chat_summary": "AI chat candidate",
+    }
 
 
 def test_ai_chat_draft_code_candidate_uses_stage_backtest_candidate(monkeypatch):
@@ -330,4 +342,10 @@ def test_ai_chat_draft_code_candidate_uses_stage_backtest_candidate(monkeypatch)
     assert request.source_ref == "backtest_run:bt-5"
     assert request.source_kind == "ai_chat_draft"
     assert request.summary == "AI chat candidate from run bt-5"
-    assert request.source_context == {"run_id": "bt-5", "candidate_mode": "code_patch", "chat_summary": "AI chat code candidate"}
+    assert request.source_context == {
+        "run_id": "bt-5",
+        "source_index": 0,
+        "title": "AI Chat Draft",
+        "candidate_mode": "code_patch",
+        "chat_summary": "AI chat code candidate",
+    }

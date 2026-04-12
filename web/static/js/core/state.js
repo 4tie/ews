@@ -15,6 +15,7 @@ const _state = {
     dry_run_wallet: "",
     maxOpenTrades: "",
     lastResult: null,
+    selectedCandidateVersionId: null,
   },
   optimizer: {
     isRunning: false,

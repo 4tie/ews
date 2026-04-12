@@ -3,11 +3,18 @@
  */
 
 import api from "../../../core/api.js";
-import { getState } from "../../../core/state.js";
+import { getState, on as onState } from "../../../core/state.js";
 import { on, EVENTS } from "../../../core/events.js";
 import { formatDate, formatNum, formatPct } from "../../../core/utils.js";
 import showToast from "../../../components/toast.js";
 import { startBacktestRun } from "../run/run-controller.js";
+import { renderDecisionReadyCompare } from "../compare/decision-ready-renderer.js";
+import {
+  ensureSelectedCandidateVersion,
+  getSelectedCandidateVersionId,
+  getWorkflowCandidateVersions,
+  setSelectedCandidateVersionId,
+} from "../compare/candidate-selection-state.js";
 import { initPersistedRunsStore, subscribePersistedRuns } from "./persisted-runs-store.js";
 
 const root = document.getElementById("summary-proposals");
@@ -61,16 +68,16 @@ function requiresExactBaselineVersion() {
 }
 
 function getWorkflowVersions() {
-  const baselineRunId = currentBaselineRunId();
-  if (!baselineRunId) return [];
-  const sourceRef = `backtest_run:${baselineRunId}`;
-  return Array.isArray(versionsState.versions)
-    ? versionsState.versions.filter((version) => version?.source_ref === sourceRef)
-    : [];
+  return getWorkflowCandidateVersions(versionsState.versions, currentBaselineRunId());
+}
+
+function syncWorkflowCandidateSelection() {
+  return ensureSelectedCandidateVersion(versionsState.versions, currentBaselineRunId());
 }
 
 function currentCandidateVersion() {
-  return getWorkflowVersions()[0] || null;
+  const selectedVersionId = getSelectedCandidateVersionId();
+  return getWorkflowVersions().find((version) => version?.version_id === selectedVersionId) || getWorkflowVersions()[0] || null;
 }
 
 function getCandidateRuns(candidateVersionId) {
@@ -88,6 +95,28 @@ function currentCandidateRun() {
 
 function currentComparableCandidateRun() {
   return getCandidateRuns(currentCandidateVersion()?.version_id).find((run) => run?.status === "completed" && run?.summary_available) || null;
+}
+
+function formatCandidateOption(version) {
+  const sourceTitle = version?.source_context?.title || version?.summary || version?.source_ref || "Candidate";
+  return `${version?.version_id || "-"} | ${labelize(version?.change_type)} | ${sourceTitle} | ${formatDate(version?.created_at)}`;
+}
+
+function renderCandidateSelector() {
+  const versions = getWorkflowVersions();
+  if (versions.length < 2) return "";
+
+  const selectedVersionId = getSelectedCandidateVersionId();
+  return `
+    <label class="setup-field compare-toolbar__field proposal-candidate-selector">
+      <span class="form-label">Selected Candidate</span>
+      <select class="form-select" data-role="selected-candidate">
+        ${versions.map((version) => `
+          <option value="${escapeHtml(version?.version_id || "")}"${version?.version_id === selectedVersionId ? " selected" : ""}>${escapeHtml(formatCandidateOption(version))}</option>
+        `).join("")}
+      </select>
+    </label>
+  `;
 }
 
 function renderEmptyState(message) {
@@ -247,19 +276,25 @@ function renderWorkflowState() {
     ? `${labelize(candidateRun.status)} | ${formatDate(candidateRun.completed_at || candidateRun.created_at)}`
     : "Not rerun yet";
   const exactBaselineNote = exactBaseline
-    ? "Accept and rollback stay enabled because this run already points to an exact version."
+    ? "Accept and rollback stay enabled because this baseline run already points to an exact version."
     : "Baseline run has no exact version_id. Candidate creation and rerun are available, but accept and rollback stay disabled to avoid promoting against an ambiguous baseline.";
+  const sourceTitle = candidate?.source_context?.title || candidate?.summary || candidate?.source_ref || "-";
+  const candidateMode = candidate?.source_context?.candidate_mode || "-";
 
   return `
     <section class="results-context results-context--table">
       <div class="results-context__title">Candidate State</div>
+      ${renderCandidateSelector()}
       <div class="results-context__meta proposal-state-grid">
         <span><strong>Baseline Run:</strong> ${escapeHtml(baselineRunId || "-")}</span>
         <span><strong>Baseline Version:</strong> ${escapeHtml(baselineVersionId)}</span>
-        <span><strong>Candidate Version:</strong> ${escapeHtml(candidate.version_id || "-")}</span>
+        <span><strong>Selected Candidate:</strong> ${escapeHtml(candidate.version_id || "-")}</span>
+        <span><strong>Candidate Parent:</strong> ${escapeHtml(candidate.parent_version_id || "-")}</span>
         <span><strong>Candidate Status:</strong> ${escapeHtml(labelize(candidate.status))}</span>
-        <span><strong>Candidate Type:</strong> ${escapeHtml(labelize(candidate.change_type))}</span>
-        <span><strong>Source:</strong> ${escapeHtml(candidate.summary || candidate.source_ref || "-")}</span>
+        <span><strong>Change Type:</strong> ${escapeHtml(labelize(candidate.change_type))}</span>
+        <span><strong>Source Kind:</strong> ${escapeHtml(labelize(candidate.source_kind || "-"))}</span>
+        <span><strong>Source Title:</strong> ${escapeHtml(sourceTitle)}</span>
+        <span><strong>Candidate Mode:</strong> ${escapeHtml(labelize(candidateMode))}</span>
         <span><strong>Candidate Run:</strong> ${escapeHtml(candidateRunLabel)}</span>
         <span><strong>Created:</strong> ${escapeHtml(formatDate(candidate.created_at))}</span>
       </div>
@@ -284,7 +319,7 @@ function renderCompareSection() {
     return `
       <section class="results-context results-context--table results-context--empty">
         <div class="results-context__title">Candidate Compare</div>
-        <div class="results-context__note">Run the current candidate to compare it against the baseline run inline.</div>
+        <div class="results-context__note">Run the selected candidate to compare it against the baseline run inline.</div>
       </section>
     `;
   }
@@ -292,7 +327,7 @@ function renderCompareSection() {
     return `
       <section class="results-context results-context--table results-context--empty">
         <div class="results-context__title">Candidate Compare</div>
-        <div class="results-context__note">Loading inline compare for baseline ${escapeHtml(currentBaselineRunId())} vs candidate run ${escapeHtml(candidateRun.run_id)}.</div>
+        <div class="results-context__note">Loading inline compare for baseline ${escapeHtml(currentBaselineRunId())} vs selected candidate run ${escapeHtml(candidateRun.run_id)}.</div>
       </section>
     `;
   }
@@ -308,40 +343,12 @@ function renderCompareSection() {
     return "";
   }
 
-  const rows = Array.isArray(compareState.data?.metrics) ? compareState.data.metrics : [];
-  const leftCurrency = compareState.data?.left?.summary_metrics?.stake_currency || "";
-  const rightCurrency = compareState.data?.right?.summary_metrics?.stake_currency || leftCurrency;
-
   return `
-    <section class="results-context results-context--table">
+    <section class="results-context">
       <div class="results-context__title">Candidate Compare</div>
-      <div class="results-context__note">Baseline run ${escapeHtml(currentBaselineRunId())} vs latest candidate run ${escapeHtml(candidateRun.run_id)}.</div>
-      <div class="results-context__table">
-        <table class="data-table compare-table proposal-compare-table">
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Baseline</th>
-              <th>Candidate</th>
-              <th>Delta</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((metric) => {
-              const deltaClass = classifyDelta(metric.key, metric.delta);
-              return `
-                <tr>
-                  <td>${escapeHtml(metric.label)}</td>
-                  <td>${escapeHtml(formatMetricValue(metric.format, metric.left, leftCurrency))}</td>
-                  <td>${escapeHtml(formatMetricValue(metric.format, metric.right, rightCurrency))}</td>
-                  <td class="${escapeHtml(deltaClass)}">${escapeHtml(formatMetricValue(metric.format, metric.delta, rightCurrency, { signed: true }))}</td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
+      <div class="results-context__note">Baseline run ${escapeHtml(currentBaselineRunId())} vs selected candidate run ${escapeHtml(candidateRun.run_id)}.</div>
     </section>
+    ${renderDecisionReadyCompare(compareState.data, { baselineLabel: "Baseline", candidateLabel: "Selected Candidate" })}
   `;
 }
 
@@ -418,6 +425,7 @@ function render() {
 async function loadVersions(strategy, options = {}) {
   if (!strategy) {
     versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
+    setSelectedCandidateVersionId(null);
     render();
     return;
   }
@@ -438,6 +446,7 @@ async function loadVersions(strategy, options = {}) {
       activeVersionId: response?.active_version_id || null,
       error: null,
     };
+    syncWorkflowCandidateSelection();
     render();
     void ensureCompareLoaded();
   } catch (error) {
@@ -508,6 +517,9 @@ async function handleCreateCandidate(sourceKind, sourceIndex, actionType) {
       payload.action_type = actionType;
     }
     const response = await api.backtest.createProposalCandidate(baselineRunId, payload);
+    if (response?.candidate_version_id) {
+      setSelectedCandidateVersionId(response.candidate_version_id);
+    }
     showToast(response?.candidate_version_id ? `Candidate ${response.candidate_version_id} created.` : "Candidate created.", "success");
     await loadVersions(resolveStrategy(), { silent: true });
     await ensureCompareLoaded();
@@ -641,6 +653,13 @@ async function handleRollbackBaseline() {
   }
 }
 
+function handleRootChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement)) return;
+  if (target.dataset.role !== "selected-candidate") return;
+  setSelectedCandidateVersionId(target.value || null);
+}
+
 function handleRootClick(event) {
   const button = event.target.closest("[data-action]");
   if (!button) return;
@@ -675,6 +694,7 @@ export function initProposalWorkflow() {
 
   initPersistedRunsStore();
   root.addEventListener("click", handleRootClick);
+  root.addEventListener("change", handleRootChange);
   subscribePersistedRuns((snapshot) => {
     runsSnapshot = snapshot || { status: "idle", strategy: "", runs: [], error: null };
     render();
@@ -683,8 +703,16 @@ export function initProposalWorkflow() {
 
   on(EVENTS.RESULTS_LOADED, (payload) => {
     latestPayload = payload || null;
+    if (!canShowWorkflow()) {
+      setSelectedCandidateVersionId(null);
+    }
     render();
     void loadVersions(resolveStrategy(), { silent: false });
+  });
+
+  onState("backtest.selectedCandidateVersionId", () => {
+    render();
+    void ensureCompareLoaded();
   });
 
   render();

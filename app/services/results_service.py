@@ -6,6 +6,8 @@ from typing import Any, Optional
 from app.engines.resolver import result_parser_from_id
 from app.models.backtest_models import BacktestRunRecord
 from app.freqtrade.paths import strategy_results_dir, user_data_results_dir
+from app.services.mutation_service import mutation_service
+from app.services.results.diagnosis_service import diagnosis_service
 from app.utils.json_io import read_json, write_json
 
 
@@ -261,21 +263,248 @@ class ResultsService:
         payload["progress"] = progress
         return payload
 
+    def _build_compare_run_context(self, run_record: BacktestRunRecord) -> dict[str, Any]:
+        summary_state = {"state": "missing", "summary": None, "error": None}
+        summary = None
+        summary_block = None
+        summary_metrics = None
+        if getattr(run_record, "engine", "freqtrade") == "freqtrade":
+            summary_state = self.load_run_summary_state(run_record)
+            if summary_state.get("state") == "ready":
+                summary = summary_state.get("summary")
+                summary_block = self.extract_run_summary_block(summary, run_record.strategy)
+                summary_metrics = self._normalize_summary_metrics(summary, run_record.strategy)
+
+        view = run_record.model_dump(mode="json")
+        view["summary_available"] = summary_state.get("state") == "ready"
+        view["summary_metrics"] = summary_metrics
+        view["progress"] = None
+        return {
+            "run": run_record,
+            "summary_state": summary_state,
+            "summary": summary,
+            "summary_block": summary_block,
+            "summary_metrics": summary_metrics,
+            "view": view,
+        }
+
+    def _build_compare_diagnosis(self, context: dict[str, Any]) -> dict[str, Any]:
+        run_record = context["run"]
+        summary_block = context.get("summary_block") if isinstance(context.get("summary_block"), dict) else {}
+        summary_metrics = context.get("summary_metrics") if isinstance(context.get("summary_metrics"), dict) else {}
+        trades = summary_block.get("trades") if isinstance(summary_block.get("trades"), list) else []
+        results_per_pair = summary_block.get("results_per_pair") if isinstance(summary_block.get("results_per_pair"), list) else []
+        linked_version = mutation_service.get_version_by_id(run_record.version_id) if run_record.version_id else None
+        return diagnosis_service.diagnose_run(
+            run_record=run_record,
+            summary_metrics=summary_metrics,
+            summary_block=summary_block,
+            trades=trades,
+            results_per_pair=results_per_pair,
+            request_snapshot=run_record.request_snapshot or {},
+            request_snapshot_schema_version=run_record.request_snapshot_schema_version,
+            linked_version=linked_version,
+        )
+
+    def _extract_rule_set(self, diagnosis: dict[str, Any] | None) -> set[str]:
+        rules: set[str] = set()
+        for item in (diagnosis or {}).get("ranked_issues") or []:
+            if not isinstance(item, dict):
+                continue
+            rule = str(item.get("rule") or "").strip()
+            if rule:
+                rules.add(rule)
+        return rules
+
+    def _classify_metric_delta(
+        self,
+        key: str,
+        delta: float | None,
+        left_rules: set[str],
+        right_rules: set[str],
+    ) -> str:
+        number = self._to_number(delta)
+        if number is None or number == 0:
+            return "neutral"
+
+        if key in {"profit_total_pct", "profit_total_abs", "win_rate", "sharpe", "sortino", "calmar"}:
+            return "improved" if number > 0 else "regressed"
+        if key == "max_drawdown_pct":
+            return "improved" if number < 0 else "regressed"
+        if key == "total_trades":
+            rules = set(left_rules) | set(right_rules)
+            if "low_sample_size" in rules:
+                return "improved" if number > 0 else "regressed"
+            if "overtrading" in rules:
+                return "improved" if number < 0 else "regressed"
+            return "changed"
+        return "changed"
+
+    def _normalize_pair_metrics(self, row: dict[str, Any]) -> dict[str, Any]:
+        profit_total_pct = self._to_number(row.get("profit_total_pct"))
+        if profit_total_pct is None:
+            profit_total = self._to_number(row.get("profit_total"))
+            profit_total_pct = profit_total * 100 if profit_total is not None else None
+
+        win_rate = self._to_number(row.get("winrate"))
+        if win_rate is not None:
+            win_rate *= 100
+        else:
+            wins = self._to_number(row.get("wins"))
+            trades = self._to_number(row.get("trades"))
+            if wins is not None and trades not in (None, 0):
+                win_rate = (wins / trades) * 100
+
+        trades = self._to_number(row.get("trades"))
+        return {
+            "profit_total_pct": profit_total_pct,
+            "win_rate": win_rate,
+            "trades": int(trades) if trades is not None else None,
+        }
+
+    def _build_pair_compare(
+        self,
+        left_block: dict[str, Any] | None,
+        right_block: dict[str, Any] | None,
+        left_diagnosis: dict[str, Any],
+        right_diagnosis: dict[str, Any],
+    ) -> dict[str, Any]:
+        def collect(block: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+            rows = block.get("results_per_pair") if isinstance(block, dict) and isinstance(block.get("results_per_pair"), list) else []
+            pairs: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                pair = str(row.get("key") or row.get("pair") or "").strip()
+                if not pair or pair == "TOTAL":
+                    continue
+                pairs[pair] = self._normalize_pair_metrics(row)
+            return pairs
+
+        left_pairs = collect(left_block)
+        right_pairs = collect(right_block)
+        rows: list[dict[str, Any]] = []
+        for pair in sorted(set(left_pairs) | set(right_pairs)):
+            left_metrics = left_pairs.get(pair, {})
+            right_metrics = right_pairs.get(pair, {})
+            profit_delta = None
+            left_profit = self._to_number(left_metrics.get("profit_total_pct"))
+            right_profit = self._to_number(right_metrics.get("profit_total_pct"))
+            if left_profit is not None and right_profit is not None:
+                profit_delta = right_profit - left_profit
+            win_rate_delta = None
+            left_win_rate = self._to_number(left_metrics.get("win_rate"))
+            right_win_rate = self._to_number(right_metrics.get("win_rate"))
+            if left_win_rate is not None and right_win_rate is not None:
+                win_rate_delta = right_win_rate - left_win_rate
+            trades_delta = None
+            left_trades = self._to_number(left_metrics.get("trades"))
+            right_trades = self._to_number(right_metrics.get("trades"))
+            if left_trades is not None and right_trades is not None:
+                trades_delta = right_trades - left_trades
+            rows.append(
+                {
+                    "pair": pair,
+                    "left": left_metrics,
+                    "right": right_metrics,
+                    "delta": {
+                        "profit_total_pct": profit_delta,
+                        "win_rate": win_rate_delta,
+                        "trades": trades_delta,
+                    },
+                    "classification": (
+                        "neutral"
+                        if profit_delta in (None, 0)
+                        else "improved" if profit_delta > 0 else "regressed"
+                    ),
+                }
+            )
+
+        scored_rows = [row for row in rows if self._to_number(row.get("delta", {}).get("profit_total_pct")) is not None]
+        top_improvements = sorted(
+            scored_rows,
+            key=lambda item: (-float(item["delta"]["profit_total_pct"]), item["pair"]),
+        )[:5]
+        top_regressions = sorted(
+            scored_rows,
+            key=lambda item: (float(item["delta"]["profit_total_pct"]), item["pair"]),
+        )[:5]
+
+        left_rules = self._extract_rule_set(left_diagnosis)
+        right_rules = self._extract_rule_set(right_diagnosis)
+        if "pair_dragger" in left_rules and "pair_dragger" not in right_rules:
+            pair_dragger_status = "resolved"
+        elif "pair_dragger" not in left_rules and "pair_dragger" in right_rules:
+            pair_dragger_status = "new"
+        elif "pair_dragger" in left_rules and "pair_dragger" in right_rules:
+            pair_dragger_status = "persistent"
+        else:
+            pair_dragger_status = "none"
+
+        return {
+            "rows": rows,
+            "top_improvements": top_improvements,
+            "top_regressions": top_regressions,
+            "worst_pair_change": {
+                "before": {
+                    "pair": left_diagnosis.get("facts", {}).get("worst_pair"),
+                    "profit_total_pct": left_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "trades": left_diagnosis.get("facts", {}).get("worst_pair_trades"),
+                },
+                "after": {
+                    "pair": right_diagnosis.get("facts", {}).get("worst_pair"),
+                    "profit_total_pct": right_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "trades": right_diagnosis.get("facts", {}).get("worst_pair_trades"),
+                },
+            },
+            "pair_dragger_evidence": {
+                "status": pair_dragger_status,
+                "before": {
+                    "pair": left_diagnosis.get("facts", {}).get("worst_pair"),
+                    "profit_total_pct": left_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "trades": left_diagnosis.get("facts", {}).get("worst_pair_trades"),
+                },
+                "after": {
+                    "pair": right_diagnosis.get("facts", {}).get("worst_pair"),
+                    "profit_total_pct": right_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "trades": right_diagnosis.get("facts", {}).get("worst_pair_trades"),
+                },
+            },
+        }
+
+    def _build_diagnosis_delta(self, left_diagnosis: dict[str, Any], right_diagnosis: dict[str, Any]) -> dict[str, Any]:
+        left_rules = self._extract_rule_set(left_diagnosis)
+        right_rules = self._extract_rule_set(right_diagnosis)
+        return {
+            "resolved_rules": sorted(left_rules - right_rules),
+            "new_rules": sorted(right_rules - left_rules),
+            "persistent_rules": sorted(left_rules & right_rules),
+            "worst_pair_before": left_diagnosis.get("facts", {}).get("worst_pair"),
+            "worst_pair_after": right_diagnosis.get("facts", {}).get("worst_pair"),
+        }
+
     def compare_backtest_runs(self, left_run: BacktestRunRecord, right_run: BacktestRunRecord) -> dict:
         if getattr(left_run, "engine", "freqtrade") != "freqtrade":
             raise ValueError(f"Run {left_run.run_id} is not a freqtrade backtest run")
         if getattr(right_run, "engine", "freqtrade") != "freqtrade":
             raise ValueError(f"Run {right_run.run_id} is not a freqtrade backtest run")
 
-        left_view = self.summarize_backtest_run(left_run)
-        right_view = self.summarize_backtest_run(right_run)
-        left_metrics = left_view.get("summary_metrics")
-        right_metrics = right_view.get("summary_metrics")
+        left_context = self._build_compare_run_context(left_run)
+        right_context = self._build_compare_run_context(right_run)
+        left_view = left_context["view"]
+        right_view = right_context["view"]
+        left_metrics = left_context.get("summary_metrics")
+        right_metrics = right_context.get("summary_metrics")
 
         if not left_metrics:
             raise ValueError(f"Run {left_run.run_id} does not have a persisted summary available for compare")
         if not right_metrics:
             raise ValueError(f"Run {right_run.run_id} does not have a persisted summary available for compare")
+
+        left_diagnosis = self._build_compare_diagnosis(left_context)
+        right_diagnosis = self._build_compare_diagnosis(right_context)
+        left_rules = self._extract_rule_set(left_diagnosis)
+        right_rules = self._extract_rule_set(right_diagnosis)
 
         metric_specs = [
             ("profit_total_pct", "Total Profit %", "pct"),
@@ -310,13 +539,26 @@ class ResultsService:
                     "left": left_value,
                     "right": right_value,
                     "delta": delta,
+                    "classification": self._classify_metric_delta(key, delta, left_rules, right_rules),
                 }
             )
+
+        version_compare = mutation_service.build_version_compare_payload(left_run.version_id, right_run.version_id)
+        pair_compare = self._build_pair_compare(
+            left_context.get("summary_block"),
+            right_context.get("summary_block"),
+            left_diagnosis,
+            right_diagnosis,
+        )
+        diagnosis_delta = self._build_diagnosis_delta(left_diagnosis, right_diagnosis)
 
         return {
             "left": left_view,
             "right": right_view,
             "metrics": rows,
+            **version_compare,
+            "pairs": pair_compare,
+            "diagnosis_delta": diagnosis_delta,
         }
 
     def ingest_backtest_run(self, run_record: BacktestRunRecord) -> dict:
