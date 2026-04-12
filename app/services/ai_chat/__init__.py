@@ -9,9 +9,6 @@ __all__ = [
     "LoopResult",
     "run_ai_loop",
     "analyze_with_two_mode",
-    "ApplyResult",
-    "apply_code_patch",
-    "apply_parameters",
     "PersistentAiChatService",
     "persistent_ai_chat_service",
 ]
@@ -20,9 +17,6 @@ __all__ = [
 def __getattr__(name: str):
     if name in {"LoopConfig", "LoopIteration", "LoopResult", "run_ai_loop", "analyze_with_two_mode"}:
         module = import_module("app.services.ai_chat.loop_service")
-        return getattr(module, name)
-    if name in {"ApplyResult", "apply_code_patch", "apply_parameters"}:
-        module = import_module("app.services.ai_chat.apply_code_service")
         return getattr(module, name)
     if name in {"PersistentAiChatService", "persistent_ai_chat_service"}:
         module = import_module("app.services.ai_chat.persistent_chat_service")

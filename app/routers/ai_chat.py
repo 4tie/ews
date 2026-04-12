@@ -12,7 +12,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.ai.output_format import parse_ai_response
-from app.services.ai_chat.apply_code_service import create_run_scoped_candidate
 from app.services.ai_chat.loop_service import LoopConfig, analyze_with_two_mode, run_ai_loop
 from app.services.ai_chat.persistent_chat_service import TERMINAL_JOB_STATUSES, persistent_ai_chat_service
 
@@ -34,20 +33,6 @@ class AnalyzeRequest(BaseModel):
     message: str
     context: str | None = None
     strategy_code: str | None = None
-
-
-class ApplyCodeRequest(BaseModel):
-    run_id: str
-    strategy_name: str
-    code: str
-    summary: str | None = None
-
-
-class ApplyParamsRequest(BaseModel):
-    run_id: str
-    strategy_name: str
-    parameters: dict[str, Any]
-    summary: str | None = None
 
 
 class PersistentThreadContext(BaseModel):
@@ -184,36 +169,6 @@ async def stream_ai_job(job_id: str, request: Request):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
-
-@router.post("/apply-code")
-async def apply_code(request: ApplyCodeRequest):
-    """Create a run-scoped code candidate through the unified proposal lifecycle."""
-    canonical_payload = await create_run_scoped_candidate(
-        run_id=request.run_id,
-        strategy_name=request.strategy_name,
-        code=request.code,
-        summary=request.summary,
-    )
-    return {
-        **canonical_payload,
-        "success": True,
-        "version_id": canonical_payload["candidate_version_id"],
-    }
-
-@router.post("/apply-parameters")
-async def apply_parameters_endpoint(request: ApplyParamsRequest):
-    """Create a run-scoped parameter candidate through the unified proposal lifecycle."""
-    canonical_payload = await create_run_scoped_candidate(
-        run_id=request.run_id,
-        strategy_name=request.strategy_name,
-        parameters=request.parameters,
-        summary=request.summary,
-    )
-    return {
-        **canonical_payload,
-        "success": True,
-        "version_id": canonical_payload["candidate_version_id"],
-    }
 
 @router.get("/validate-output")
 async def validate_output(text: str):

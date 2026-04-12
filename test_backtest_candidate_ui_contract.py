@@ -4,7 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SHARED_DRAWER = ROOT / "web" / "static" / "js" / "components" / "ai-chat-panel.js"
 LEGACY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "ai-chat-panel.js"
+API_CLIENT = ROOT / "web" / "static" / "js" / "core" / "api.js"
 STATE = ROOT / "web" / "static" / "js" / "core" / "state.js"
+BACKTESTING_INDEX = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "index.js"
 PROPOSAL_WORKFLOW = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "proposal-workflow.js"
 COMPARE_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "compare-panel.js"
 CANDIDATE_SELECTION_STATE = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "candidate-selection-state.js"
@@ -22,19 +24,40 @@ def test_shared_drawer_normalizes_candidate_overlays_with_canonical_precedence()
     assert 'rememberCandidateOverlay(strategy, messageId, response);' in source
 
 
-def test_legacy_results_panel_remains_frozen_from_canonical_wiring():
-    source = LEGACY_PANEL.read_text(encoding="utf-8")
-    assert "Legacy panel: frozen on purpose." in source
-    assert "The shared drawer under web/static/js/components/ai-chat-panel.js is the only UI surface" in source
-    for canonical_token in (
-        "baseline_run_id",
-        "baseline_version_id",
-        "baseline_run_version_id",
-        "baseline_version_source",
-        "candidate_ai_mode",
-        "normalizeCandidateOverlay",
+def test_legacy_results_panel_is_removed_from_active_workflow():
+    assert not LEGACY_PANEL.exists()
+
+    index_source = BACKTESTING_INDEX.read_text(encoding="utf-8")
+    assert "./results/ai-chat-panel.js" not in index_source
+    assert "initAiChatPanel" not in index_source
+
+
+def test_api_client_removed_deprecated_ai_chat_apply_methods():
+    source = API_CLIENT.read_text(encoding="utf-8")
+
+    for removed in (
+        "applyCode",
+        "applyParameters",
+        "/api/ai/chat/apply-code",
+        "/api/ai/chat/apply-parameters",
     ):
-        assert canonical_token not in source
+        assert removed not in source
+
+    assert 'createProposalCandidate: (runId, data) => api.post(`/api/backtest/runs/${encodeURIComponent(runId)}/proposal-candidates`, data),' in source
+    assert 'compareRuns: (leftRunId, rightRunId) => api.get(`/api/backtest/compare${toQuery({ left_run_id: leftRunId, right_run_id: rightRunId })}`),' in source
+
+
+def test_shared_drawer_and_workflow_use_canonical_candidate_and_compare_routes():
+    drawer_source = SHARED_DRAWER.read_text(encoding="utf-8")
+    workflow_source = PROPOSAL_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "api.backtest.createProposalCandidate" in drawer_source
+    assert "api.aiChat.apply" not in drawer_source
+    assert "/api/ai/chat/apply" not in drawer_source
+    assert "api.backtest.createProposalCandidate" in workflow_source
+    assert "api.backtest.compareRuns" in workflow_source
+    assert "api.aiChat.apply" not in workflow_source
+    assert "/api/ai/chat/apply" not in workflow_source
 
 
 def test_selected_candidate_state_is_shared_across_backtesting_surfaces():

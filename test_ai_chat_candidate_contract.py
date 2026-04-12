@@ -3,10 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
 from app.freqtrade import runtime
-from app.main import app
 from app.models.backtest_models import (
     BacktestRunRecord,
     BacktestRunStatus,
@@ -15,12 +13,8 @@ from app.models.backtest_models import (
     ProposalCandidateRequest,
     ProposalSourceKind,
 )
-from app.routers import ai_chat as ai_chat_router
-from app.services.ai_chat import apply_code_service as ai_apply_service
 from app.services.results import strategy_intelligence_apply_service as apply_service
 
-
-client = TestClient(app)
 
 
 def _run_record() -> BacktestRunRecord:
@@ -124,88 +118,3 @@ def test_backtest_proposal_candidate_keeps_run_version_linkage(monkeypatch):
     assert captured["candidate_mode"] == "parameter_only"
     assert captured["candidate_parameters"] == {"stoploss": -0.12}
     assert captured["candidate_code"] is None
-
-
-def test_create_run_scoped_candidate_delegates_to_runtime(monkeypatch):
-    captured = {}
-
-    monkeypatch.setattr(ai_apply_service, "_load_run_record", lambda run_id: _run_record())
-
-    async def _fake_create_backtest_run_proposal_candidate(run_id, payload):
-        captured["run_id"] = run_id
-        captured["payload"] = payload
-        return {
-            "baseline_run_id": "bt-1",
-            "baseline_version_id": "v-linked",
-            "baseline_run_version_id": "v-linked",
-            "baseline_version_source": "run",
-            "candidate_version_id": "v-candidate",
-            "candidate_change_type": "parameter_change",
-            "candidate_status": "candidate",
-            "source_kind": "ai_chat_draft",
-            "source_index": 0,
-            "source_title": "AI Chat Draft",
-            "candidate_ai_mode": "parameter_only",
-            "message": "Candidate version created.",
-        }
-
-    monkeypatch.setattr(ai_apply_service.runtime, "create_backtest_run_proposal_candidate", _fake_create_backtest_run_proposal_candidate)
-
-    response = asyncio.run(
-        ai_apply_service.create_run_scoped_candidate(
-            run_id="bt-1",
-            strategy_name="TestStrat",
-            parameters={"stoploss": -0.12},
-            summary="AI chat candidate",
-        )
-    )
-
-    assert response["candidate_version_id"] == "v-candidate"
-    assert captured["run_id"] == "bt-1"
-    assert isinstance(captured["payload"], ProposalCandidateRequest)
-    assert captured["payload"].source_kind == ProposalSourceKind.AI_CHAT_DRAFT
-    assert captured["payload"].candidate_mode == ProposalCandidateMode.PARAMETER_ONLY
-    assert captured["payload"].parameters == {"stoploss": -0.12}
-    assert captured["payload"].summary == "AI chat candidate"
-
-def test_ai_chat_apply_route_keeps_canonical_payload_and_only_adds_compat_alias(monkeypatch):
-    canonical_payload = {
-        "baseline_run_id": "bt-1",
-        "baseline_version_id": "v-linked",
-        "baseline_run_version_id": "v-linked",
-        "baseline_version_source": "run",
-        "candidate_version_id": "v-candidate",
-        "candidate_change_type": "parameter_change",
-        "candidate_status": "candidate",
-        "source_kind": "ai_chat_draft",
-        "source_index": 0,
-        "source_title": "AI Chat Draft",
-        "candidate_ai_mode": "parameter_only",
-        "message": "Candidate version created.",
-    }
-
-    async def _fake_create_run_scoped_candidate(**kwargs):
-        return canonical_payload
-
-    monkeypatch.setattr(ai_chat_router, "create_run_scoped_candidate", _fake_create_run_scoped_candidate)
-
-    payload = asyncio.run(
-        ai_chat_router.apply_parameters_endpoint(
-            ai_chat_router.ApplyParamsRequest(
-                run_id="bt-1",
-                strategy_name="TestStrat",
-                parameters={"stoploss": -0.12},
-                summary="AI chat candidate",
-            )
-        )
-    )
-
-    assert list(payload.keys())[: len(canonical_payload)] == list(canonical_payload.keys())
-    assert list(payload.keys())[-2:] == ["success", "version_id"]
-    assert set(payload.keys()) == set(canonical_payload.keys()) | {"success", "version_id"}
-    assert payload["success"] is True
-    assert payload["version_id"] == "v-candidate"
-    assert payload["candidate_version_id"] == "v-candidate"
-    assert payload["source_kind"] == "ai_chat_draft"
-    assert payload["source_title"] == "AI Chat Draft"
-    assert payload["candidate_ai_mode"] == "parameter_only"

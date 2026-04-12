@@ -1,6 +1,7 @@
 import json
 
-from app.models.optimizer_models import ChangeType, MutationRequest, StrategyVersion, VersionStatus
+from app.freqtrade import runtime
+from app.models.optimizer_models import ChangeType, MutationRequest, MutationResult, StrategyVersion, VersionStatus
 from app.services import mutation_service as mutation_module
 
 
@@ -202,3 +203,55 @@ def test_rollback_version_writes_target_live_artifacts_and_removes_overlay_when_
     assert rolled_back.promoted_from_version_id == current_active.version_id
     assert archived.status == VersionStatus.ARCHIVED
     assert active_ref["version_id"] == rollback_target.version_id
+
+def test_bootstrap_initial_version_promotes_through_accept_version(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(runtime.config_svc, "get_settings", lambda: {"user_data_path": "tmp-user-data"})
+    monkeypatch.setattr(runtime, "live_strategy_file", lambda strategy_name, user_data_path=None: f"{user_data_path}/strategies/{strategy_name}.py")
+    monkeypatch.setattr(
+        runtime,
+        "load_live_strategy_code",
+        lambda strategy_name, user_data_path=None, strict=False: "class TestStrat:\n    pass\n",
+    )
+    monkeypatch.setattr(
+        runtime,
+        "load_live_strategy_parameters",
+        lambda strategy_name, user_data_path=None, strict=False: {"stoploss": -0.2},
+    )
+
+    def _create_mutation(request):
+        captured["request"] = request
+        return MutationResult(version_id="v-bootstrap", status="created", message="created")
+
+    def _accept_version(version_id, notes=None):
+        captured["accepted"] = (version_id, notes)
+        return MutationResult(version_id=version_id, status="accepted", message="accepted")
+
+    def _get_version_by_id(version_id):
+        return StrategyVersion(
+            version_id=version_id,
+            parent_version_id=None,
+            strategy_name="TestStrat",
+            created_at="2026-01-01T00:00:00",
+            created_by="system",
+            change_type=ChangeType.INITIAL,
+            summary="Initial live strategy bootstrap",
+            status=VersionStatus.ACTIVE,
+            code_snapshot="class TestStrat:\n    pass\n",
+            parameters_snapshot={"stoploss": -0.2},
+        )
+
+    monkeypatch.setattr(runtime.mutation_service, "create_mutation", _create_mutation)
+    monkeypatch.setattr(runtime.mutation_service, "accept_version", _accept_version)
+    monkeypatch.setattr(runtime.mutation_service, "get_version_by_id", _get_version_by_id)
+
+    version = runtime._bootstrap_initial_version("TestStrat")
+
+    request = captured["request"]
+    assert request.change_type == ChangeType.INITIAL
+    assert request.code == "class TestStrat:\n    pass\n"
+    assert request.parameters == {"stoploss": -0.2}
+    assert request.source_ref == "tmp-user-data/strategies/TestStrat.py"
+    assert captured["accepted"] == ("v-bootstrap", "Accepted initial live strategy bootstrap")
+    assert version.version_id == "v-bootstrap"

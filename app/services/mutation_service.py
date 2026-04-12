@@ -1,7 +1,7 @@
 """
 Strategy Mutation Service - Core contract for version-controlled strategy mutations.
 
-All strategy changes (Strategy Lab save, AI apply-code, Evolution generation,
+All strategy changes (Strategy Lab save, AI proposal candidates, Evolution generation,
 Parameter-only quick actions) MUST go through this service to ensure:
 - Every mutation creates a new version (no in-place overwrites)
 - Full traceability (who, when, what)
