@@ -176,6 +176,10 @@ async def create_run_scoped_candidate(
         "candidate_version_id": result.version_id,
         "candidate_change_type": result.candidate_change_type,
         "candidate_status": result.candidate_status,
+        "source_kind": "ai_chat_draft",
+        "source_index": 0,
+        "source_title": result.source_title or "AI Chat Draft",
+        "candidate_ai_mode": result.ai_mode,
         "message": result.message,
     }
 

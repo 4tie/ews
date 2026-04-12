@@ -1,5 +1,10 @@
 /**
  * ai-chat-panel.js - Result-aware AI analysis and candidate creation for the backtesting page.
+ *
+ * Legacy panel: frozen on purpose.
+ * Do not add new candidate workflow behavior or canonical-field wiring here.
+ * The shared drawer under web/static/js/components/ai-chat-panel.js is the only UI surface
+ * that should evolve for new backtest candidate workflow behavior.
  */
 
 import api from "../../../core/api.js";

@@ -170,6 +170,8 @@ function mergedMessages() {
   const overlays = isObject(state.overlays?.[strategy]) ? state.overlays[strategy] : {};
   return safeArray(state.thread?.messages).map((message) => {
     const overlay = isObject(overlays?.[message?.id]) ? overlays[message.id] : {};
+    // candidate_version_id is the canonical field for new workflow code.
+    // Legacy/transitional aliases such as version_id are intentionally not used here.
     return {
       ...message,
       candidate_version_id: overlay.candidate_version_id || message?.candidate_version_id || null,

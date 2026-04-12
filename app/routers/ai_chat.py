@@ -194,6 +194,8 @@ async def apply_code(request: ApplyCodeRequest):
         code=request.code,
         summary=request.summary,
     )
+    # Legacy/transitional alias: keep version_id for older callers.
+    # New frontend code must use candidate_version_id as the canonical field.
     return {
         "success": True,
         "version_id": result["candidate_version_id"],
@@ -210,6 +212,8 @@ async def apply_parameters_endpoint(request: ApplyParamsRequest):
         parameters=request.parameters,
         summary=request.summary,
     )
+    # Legacy/transitional alias: keep version_id for older callers.
+    # New frontend code must use candidate_version_id as the canonical field.
     return {
         "success": True,
         "version_id": result["candidate_version_id"],
