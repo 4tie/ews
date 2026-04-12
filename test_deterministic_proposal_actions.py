@@ -239,6 +239,71 @@ class MultiMa:
     assert request.parameters["buy_rsi"] == 31
 
 
+def test_tighten_entries_supports_buy_ma_controls_from_code_snapshot(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        apply_service.mutation_service,
+        "resolve_effective_artifacts",
+        lambda version_id: {
+            "strategy_name": "MultiMa",
+            "code_snapshot": """
+class MultiMa:
+    buy_params = {"buy_ma_count": 5, "buy_ma_gap": 13}
+    count_max = 20
+    gap_max = 100
+    buy_ma_count = 5
+    buy_ma_gap = 13
+""",
+            "parameters_snapshot": None,
+        },
+    )
+
+    def _create_mutation(request):
+        captured["request"] = request
+        return MutationResult(
+            version_id="v-tighten",
+            status="created",
+            message="created",
+        )
+
+    monkeypatch.setattr(apply_service.mutation_service, "create_mutation", _create_mutation)
+    monkeypatch.setattr(
+        apply_service.mutation_service,
+        "get_version_by_id",
+        lambda version_id: _version(version_id, ChangeType.PARAMETER_CHANGE),
+    )
+
+    result = asyncio.run(
+        apply_service.create_proposal_candidate_from_diagnosis(
+            strategy_name="MultiMa",
+            run_id="bt-tighten",
+            linked_version=SimpleNamespace(version_id="v-linked"),
+            request_snapshot={},
+            summary_metrics={},
+            diagnosis={
+                "proposal_actions": [
+                    {
+                        "action_type": "tighten_entries",
+                        "label": "Tighten Entries",
+                        "matched_rules": ["low_win_rate"],
+                    }
+                ]
+            },
+            ai_payload={},
+            source_kind="deterministic_action",
+            source_index=0,
+            candidate_mode="auto",
+        )
+    )
+
+    assert result.success is True
+    request = captured["request"]
+    assert request.parameters["buy_ma_count"] == 6
+    assert request.parameters["buy_ma_gap"] == 14
+    assert request.parameters["buy_params"] == {"buy_ma_count": 6, "buy_ma_gap": 14}
+
+
 def test_ai_parameter_suggestion_returns_source_metadata(monkeypatch):
     captured = {}
 

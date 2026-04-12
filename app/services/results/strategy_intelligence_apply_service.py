@@ -447,15 +447,36 @@ async def _apply_tighten_entries_action(
     modified_params = copy.deepcopy(parameters_snapshot)
     changed = False
 
+    def _set_entry_value(key: str, value: Any) -> None:
+        modified_params[key] = value
+        buy_params = modified_params.get("buy_params")
+        if isinstance(buy_params, dict) and key in buy_params:
+            buy_params[key] = value
+
     for key in ("entry_trigger", "buy_rsi", "buy_threshold", "entry_threshold"):
-        if key not in modified_params or not isinstance(modified_params[key], (int, float)):
+        if key not in modified_params or not isinstance(modified_params[key], (int, float)) or isinstance(modified_params[key], bool):
             continue
         if "rsi" in key.lower():
-            modified_params[key] = min(float(modified_params[key]) + 5.0, 100.0)
+            _set_entry_value(key, min(float(modified_params[key]) + 5.0, 100.0))
             changed = True
         elif float(modified_params[key]) > 0:
-            modified_params[key] = float(modified_params[key]) * 1.1
+            _set_entry_value(key, float(modified_params[key]) * 1.1)
             changed = True
+
+    for key, ceiling_key in (("buy_ma_count", "count_max"), ("buy_ma_gap", "gap_max")):
+        if key not in modified_params or not isinstance(modified_params[key], (int, float)) or isinstance(modified_params[key], bool):
+            continue
+        current_value = float(modified_params[key])
+        if current_value <= 0:
+            continue
+        next_value = current_value + 1.0
+        ceiling = modified_params.get(ceiling_key)
+        if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool):
+            next_value = min(next_value, float(ceiling))
+        if next_value == current_value:
+            continue
+        _set_entry_value(key, int(next_value) if isinstance(modified_params[key], int) else next_value)
+        changed = True
 
     if not changed:
         return ProposalCandidateResult(
