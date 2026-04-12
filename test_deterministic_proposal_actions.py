@@ -349,3 +349,73 @@ def test_ai_chat_draft_code_candidate_uses_stage_backtest_candidate(monkeypatch)
         "candidate_mode": "code_patch",
         "chat_summary": "AI chat code candidate",
     }
+
+def test_stage_backtest_candidate_returns_additive_canonical_response(monkeypatch):
+    monkeypatch.setattr(
+        apply_service.mutation_service,
+        "create_mutation",
+        lambda request: MutationResult(version_id="v-stage", status="created", message="created"),
+    )
+    monkeypatch.setattr(
+        apply_service.mutation_service,
+        "get_version_by_id",
+        lambda version_id: _version(version_id, ChangeType.PARAMETER_CHANGE),
+    )
+
+    result = apply_service.stage_backtest_candidate(
+        strategy_name="TestStrat",
+        linked_version=SimpleNamespace(version_id="v-linked"),
+        summary="AI chat candidate from run bt-stage",
+        created_by="ai_apply",
+        parameters={"stoploss": -0.11},
+        source_ref="backtest_run:bt-stage",
+        source_kind="ai_chat_draft",
+        source_context={"run_id": "bt-stage", "source_index": 0, "title": "AI Chat Draft"},
+        source_title="AI Chat Draft",
+        ai_mode="parameter_only",
+    )
+
+    payload = result.to_response_payload()
+    assert payload["baseline_run_id"] == "bt-stage"
+    assert payload["baseline_version_id"] == "v-linked"
+    assert payload["baseline_run_version_id"] == "v-linked"
+    assert payload["version_id"] == "v-stage"
+    assert payload["candidate_version_id"] == "v-stage"
+    assert payload["change_type"] == "parameter_change"
+    assert payload["candidate_change_type"] == "parameter_change"
+    assert payload["status"] == "candidate"
+    assert payload["candidate_status"] == "candidate"
+    assert payload["source_kind"] == "ai_chat_draft"
+    assert payload["source_index"] == 0
+    assert payload["source_title"] == "AI Chat Draft"
+    assert payload["ai_mode"] == "parameter_only"
+    assert payload["candidate_ai_mode"] == "parameter_only"
+
+
+def test_apply_strategy_recommendations_uses_stage_backtest_candidate(monkeypatch):
+    calls = []
+
+    def _stage(**kwargs):
+        calls.append(kwargs)
+        return apply_service.ProposalCandidateResult(success=True, message="created", version_id="v-stage")
+
+    monkeypatch.setattr(apply_service, "stage_backtest_candidate", _stage)
+    monkeypatch.setattr(apply_service.mutation_service, "get_active_version", lambda strategy_name: SimpleNamespace(version_id="v-live"))
+
+    result = asyncio.run(
+        apply_service.apply_strategy_recommendations(
+            strategy_name="TestStrat",
+            parameters={"stoploss": -0.11},
+        )
+    )
+
+    assert result.success is True
+    assert calls == [
+        {
+            "strategy_name": "TestStrat",
+            "linked_version": SimpleNamespace(version_id="v-live"),
+            "summary": "AI parameter recommendation for TestStrat",
+            "created_by": "ai_apply",
+            "parameters": {"stoploss": -0.11},
+        }
+    ]

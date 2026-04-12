@@ -1192,6 +1192,71 @@ async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
     }
 
 
+def _build_proposal_candidate_response(
+    result: Any,
+    *,
+    run_record: BacktestRunRecord,
+    linked_version: Any | None,
+    linked_source: str,
+    source_kind: str,
+    source_index: int,
+) -> dict[str, Any]:
+    response_payload = {}
+    to_payload = getattr(result, "to_response_payload", None)
+    if callable(to_payload):
+        raw_payload = to_payload()
+        if isinstance(raw_payload, dict):
+            response_payload = dict(raw_payload)
+
+    candidate_version_id = (
+        response_payload.get("candidate_version_id")
+        or response_payload.get("version_id")
+        or getattr(result, "version_id", None)
+    )
+    candidate_change_type = (
+        response_payload.get("candidate_change_type")
+        or response_payload.get("change_type")
+        or getattr(result, "candidate_change_type", None)
+    )
+    candidate_status = (
+        response_payload.get("candidate_status")
+        or response_payload.get("status")
+        or getattr(result, "candidate_status", None)
+    )
+    candidate_ai_mode = (
+        response_payload.get("candidate_ai_mode")
+        or response_payload.get("ai_mode")
+        or getattr(result, "ai_mode", None)
+    )
+
+    response_payload["baseline_run_id"] = run_record.run_id
+    response_payload["baseline_version_id"] = (
+        response_payload.get("baseline_version_id")
+        or getattr(linked_version, "version_id", None)
+    )
+    response_payload["baseline_run_version_id"] = run_record.version_id
+    response_payload["baseline_version_source"] = linked_source
+    response_payload["source_kind"] = response_payload.get("source_kind") or source_kind
+    response_payload["source_index"] = response_payload.get("source_index", source_index)
+    response_payload["source_title"] = response_payload.get("source_title") or getattr(result, "source_title", None)
+    response_payload["message"] = response_payload.get("message") or getattr(result, "message", "Candidate version created.")
+
+    if candidate_version_id is not None:
+        response_payload["version_id"] = candidate_version_id
+        response_payload["candidate_version_id"] = candidate_version_id
+    if candidate_change_type is not None:
+        response_payload["change_type"] = candidate_change_type
+        response_payload["candidate_change_type"] = candidate_change_type
+    if candidate_status is not None:
+        response_payload["status"] = candidate_status
+        response_payload["candidate_status"] = candidate_status
+    if candidate_ai_mode is not None:
+        response_payload["ai_mode"] = candidate_ai_mode
+        response_payload["candidate_ai_mode"] = candidate_ai_mode
+
+    return response_payload
+
+
 async def create_backtest_run_proposal_candidate(run_id: str, payload: ProposalCandidateRequest):
     run = _load_run_record(run_id)
     if run is None or str(getattr(run, "engine", "freqtrade")) != "freqtrade":
@@ -1273,20 +1338,14 @@ async def create_backtest_run_proposal_candidate(run_id: str, payload: ProposalC
     if not result.success:
         raise HTTPException(status_code=400, detail=result.error or result.message)
 
-    return {
-        "baseline_run_id": run.run_id,
-        "baseline_version_id": getattr(linked_version, "version_id", None),
-        "baseline_run_version_id": run.version_id,
-        "baseline_version_source": linked_source,
-        "candidate_version_id": result.version_id,
-        "candidate_change_type": result.candidate_change_type,
-        "candidate_status": result.candidate_status,
-        "source_kind": payload.source_kind.value,
-        "source_index": payload.source_index,
-        "source_title": result.source_title,
-        "candidate_ai_mode": result.ai_mode,
-        "message": result.message,
-    }
+    return _build_proposal_candidate_response(
+        result,
+        run_record=run,
+        linked_version=linked_version,
+        linked_source=linked_source,
+        source_kind=payload.source_kind.value,
+        source_index=payload.source_index,
+    )
 
 
 async def compare_backtest_runs(left_run_id: str, right_run_id: str):
