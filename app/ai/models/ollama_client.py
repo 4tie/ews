@@ -185,7 +185,7 @@ class OllamaClient:
             "quantization_level": str(details.get("quantization_level") or "").strip(),
             "raw_capabilities": normalized_capabilities,
             "tool_calling_supported_by_model": "tools" in capability_set,
-            "tool_calling_enabled_in_app": True,
+            "tool_calling_enabled_in_app": False,
             "app_recommended_for": recommended_for,
             "app_not_recommended_for": not_recommended_for,
             "modified_at": entry.get("modified_at"),

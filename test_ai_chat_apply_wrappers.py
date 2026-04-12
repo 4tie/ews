@@ -134,6 +134,8 @@ def test_ai_chat_draft_keeps_chat_summary_supplemental(monkeypatch):
     assert request.summary == "AI chat candidate from run bt-5"
     assert request.source_context == {
         "run_id": "bt-5",
+        "source_index": 0,
+        "title": "AI Chat Draft",
         "candidate_mode": "code_patch",
         "chat_summary": "Tighten entries after pullback",
     }
