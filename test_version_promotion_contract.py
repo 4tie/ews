@@ -534,3 +534,80 @@ def test_rollback_version_rejects_candidate_targets(monkeypatch, tmp_path):
     assert service.get_version_by_id(active.version_id).status == VersionStatus.ACTIVE
     assert not paths["strategy_file"].exists()
     assert not paths["config_file"].exists()
+
+
+def test_promote_as_new_strategy_creates_independent_live_strategy_and_lineage(monkeypatch, tmp_path):
+    _configure_storage(monkeypatch, tmp_path)
+    service = mutation_module.StrategyMutationService()
+
+    active = _version(
+        "v-active",
+        status=VersionStatus.ACTIVE,
+        code_snapshot="class TestStrat:\n    active = True\n",
+        parameters_snapshot={"stoploss": -0.2},
+    )
+    candidate = _version(
+        "v-candidate",
+        status=VersionStatus.CANDIDATE,
+        parent_version_id=active.version_id,
+        code_snapshot="class TestStrat:\n    promoted = True\n",
+        parameters_snapshot={"stoploss": -0.1, "max_open_trades": 2},
+    )
+
+    service._save_version(active)
+    service._save_version(candidate)
+    service._set_active_version(active)
+
+    result = service.promote_as_new_strategy(candidate.version_id, new_strategy_name="TestStrat_v2", notes="ship as new strategy")
+
+    assert result.status == "promoted_as_new_strategy"
+    assert service.get_active_version("TestStrat").version_id == active.version_id
+
+    new_active = service.get_active_version("TestStrat_v2")
+    assert new_active is not None
+    assert new_active.strategy_name == "TestStrat_v2"
+    assert new_active.status == VersionStatus.ACTIVE
+    assert new_active.parent_version_id is None
+    assert new_active.source_kind == "promoted_strategy"
+    assert new_active.source_context["promoted_as_new_strategy"] is True
+    assert new_active.source_context["source_strategy_name"] == "TestStrat"
+    assert new_active.source_context["source_version_id"] == candidate.version_id
+    assert new_active.source_context["new_strategy_name"] == "TestStrat_v2"
+
+    promoted_strategy_file = tmp_path / "user_data" / "strategies" / "TestStrat_v2.py"
+    promoted_config_file = tmp_path / "user_data" / "config" / "config_TestStrat_v2.json"
+    assert promoted_strategy_file.read_text(encoding="utf-8") == "class TestStrat_v2:\n    promoted = True\n"
+    assert json.loads(promoted_config_file.read_text(encoding="utf-8")) == {"stoploss": -0.1, "max_open_trades": 2}
+
+    original_strategy_file = tmp_path / "user_data" / "strategies" / "TestStrat.py"
+    assert not original_strategy_file.exists()
+
+    source_candidate = service.get_version_by_id(candidate.version_id)
+    assert source_candidate.status == VersionStatus.CANDIDATE
+    assert source_candidate.audit_events[-1].event_type == "promoted_as_new_strategy"
+    assert "TestStrat_v2" in (source_candidate.audit_events[-1].note or "")
+
+
+def test_promote_as_new_strategy_rejects_invalid_or_colliding_names(monkeypatch, tmp_path):
+    _configure_storage(monkeypatch, tmp_path)
+    service = mutation_module.StrategyMutationService()
+
+    candidate = _version(
+        "v-candidate",
+        status=VersionStatus.CANDIDATE,
+        code_snapshot="class TestStrat:\n    promoted = True\n",
+        parameters_snapshot={"stoploss": -0.1},
+    )
+    service._save_version(candidate)
+
+    invalid = service.promote_as_new_strategy(candidate.version_id, new_strategy_name="bad-name", notes=None)
+    assert invalid.status == "error"
+    assert "valid Python identifier" in invalid.message
+
+    collision_file = tmp_path / "user_data" / "strategies" / "TestStrat_v2.py"
+    collision_file.parent.mkdir(parents=True, exist_ok=True)
+    collision_file.write_text("class TestStrat_v2:\n    pass\n", encoding="utf-8")
+
+    collision = service.promote_as_new_strategy(candidate.version_id, new_strategy_name="TestStrat_v2", notes=None)
+    assert collision.status == "error"
+    assert "already exists" in collision.message

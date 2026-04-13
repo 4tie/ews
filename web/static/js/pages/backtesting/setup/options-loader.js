@@ -22,6 +22,7 @@ export async function loadOptions() {
         opt.value = s; opt.textContent = s;
         strategySelect.appendChild(opt);
       });
+      setState("backtest.availableStrategies", Array.isArray(strategies) ? [...strategies] : []);
     }
 
     if (timeframeSelect) {

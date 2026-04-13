@@ -157,6 +157,13 @@ def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_deci
     assert 'import {' in source and 'subscribePersistedVersions,' in source
     assert "openDecisionNoteDialog" in source
     assert "Optional note" in source
+    assert "Promotion Mode" in source
+    assert "Accept as current" in source
+    assert "Promote as new strategy" in source
+    assert "New strategy name" in source
+    assert "promotion_mode" in source
+    assert "new_strategy_name" in source
+    assert "loadOptions();" in source
     assert "Optional reason" in source
     assert "proposal-audit-note" in source
     assert 'data-role="selected-candidate"' in source
@@ -232,6 +239,7 @@ def test_history_panel_is_hybrid_and_uses_shared_versions_store():
     assert "initPersistedVersionsStore" in source
     assert "subscribePersistedVersions" in source
     assert "latestAuditNote" in source
+    assert "promoted_as_new_strategy" in source
 
     assert "activeVersionId" in store_source
     assert "api.versions.listVersions(strategy, true)" in store_source

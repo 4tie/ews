@@ -68,6 +68,24 @@ async def accept_version(
     """Accept (promote) a candidate version to active."""
     _require_owned_version(strategy_name, request.version_id)
 
+    if request.promotion_mode.value == "promote_new_strategy":
+        result = mutation_service.promote_as_new_strategy(
+            request.version_id,
+            new_strategy_name=request.new_strategy_name,
+            notes=request.notes,
+        )
+        if result.status == "error":
+            raise HTTPException(status_code=400, detail=result.message)
+
+        return {
+            "version_id": result.version_id,
+            "status": result.status,
+            "message": result.message,
+            "promotion_mode": request.promotion_mode.value,
+            "new_strategy_name": request.new_strategy_name,
+            "source_version_id": request.version_id,
+        }
+
     result = mutation_service.accept_version(request.version_id, request.notes)
     if result.status == "error":
         raise HTTPException(status_code=400, detail=result.message)
@@ -76,6 +94,7 @@ async def accept_version(
         "version_id": result.version_id,
         "status": result.status,
         "message": result.message,
+        "promotion_mode": request.promotion_mode.value,
     }
 
 

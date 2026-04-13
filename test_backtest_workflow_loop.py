@@ -413,6 +413,77 @@ def test_backtest_workflow_loop_from_diagnosis_to_rollback(monkeypatch, tmp_path
     assert rollback_event.note == "Rollback to baseline from workflow loop test"
     assert rollback_event.from_version_id == candidate_version_id
 
+def test_backtest_workflow_promote_as_new_strategy_keeps_original_live_baseline_intact(monkeypatch, tmp_path):
+    paths = _configure_storage(monkeypatch, tmp_path)
+    _seed_active_baseline(paths)
+    _patch_diagnosis(monkeypatch)
+
+    fake_engine = FakeBacktestEngine(paths["results_dir"])
+    monkeypatch.setattr(backtest_router, "_resolve_engine", lambda: fake_engine)
+
+    baseline_summary = paths["results_dir"] / "bt-baseline.summary.json"
+    baseline_summary.write_text(json.dumps(_summary_payload(1.0, 100.0, 8, 5)), encoding="utf-8")
+    _save_completed_run("bt-baseline", "v-baseline", baseline_summary)
+
+    baseline_live_code = paths["strategy_file"].read_text(encoding="utf-8")
+    baseline_live_config = json.loads(paths["config_file"].read_text(encoding="utf-8"))
+
+    candidate_response = client.post(
+        "/api/backtest/runs/bt-baseline/proposal-candidates",
+        json={
+            "source_kind": "deterministic_action",
+            "source_index": 0,
+            "candidate_mode": "auto",
+            "action_type": "tighten_stoploss",
+        },
+    )
+    assert candidate_response.status_code == 200
+    candidate_version_id = candidate_response.json()["candidate_version_id"]
+
+    accept_response = client.post(
+        "/api/versions/TestStrat/accept",
+        json={
+            "version_id": candidate_version_id,
+            "notes": "Promote as independent strategy from workflow loop test",
+            "promotion_mode": "promote_new_strategy",
+            "new_strategy_name": "TestStrat_v2",
+        },
+    )
+    assert accept_response.status_code == 200
+    payload = accept_response.json()
+    assert payload["status"] == "promoted_as_new_strategy"
+    assert payload["promotion_mode"] == "promote_new_strategy"
+    assert payload["new_strategy_name"] == "TestStrat_v2"
+    assert payload["source_version_id"] == candidate_version_id
+
+    assert mutation_module.mutation_service.get_active_version("TestStrat").version_id == "v-baseline"
+    assert paths["strategy_file"].read_text(encoding="utf-8") == baseline_live_code
+    assert json.loads(paths["config_file"].read_text(encoding="utf-8")) == baseline_live_config
+
+    new_active = mutation_module.mutation_service.get_active_version("TestStrat_v2")
+    assert new_active is not None
+    assert new_active.strategy_name == "TestStrat_v2"
+    assert new_active.status == VersionStatus.ACTIVE
+    assert new_active.parent_version_id is None
+    assert new_active.source_kind == "promoted_strategy"
+    assert new_active.source_context["promoted_as_new_strategy"] is True
+    assert new_active.source_context["source_strategy_name"] == "TestStrat"
+    assert new_active.source_context["source_version_id"] == candidate_version_id
+
+    promoted_strategy_file = tmp_path / "user_data" / "strategies" / "TestStrat_v2.py"
+    promoted_config_file = tmp_path / "user_data" / "config" / "config_TestStrat_v2.json"
+    assert promoted_strategy_file.read_text(encoding="utf-8") == "class TestStrat_v2:\n    stoploss = -0.2\n"
+    promoted_config = json.loads(promoted_config_file.read_text(encoding="utf-8"))
+    assert promoted_config["stoploss"] == -0.15
+    assert promoted_config["trailing_stop"] is True
+
+    source_candidate = mutation_module.mutation_service.get_version_by_id(candidate_version_id)
+    assert source_candidate.status == VersionStatus.CANDIDATE
+    assert source_candidate.audit_events[-1].event_type == "promoted_as_new_strategy"
+    assert "TestStrat_v2" in (source_candidate.audit_events[-1].note or "")
+
+
+
 def test_backtest_workflow_reject_keeps_live_baseline_intact(monkeypatch, tmp_path):
     paths = _configure_storage(monkeypatch, tmp_path)
     _seed_active_baseline(paths)

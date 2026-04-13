@@ -1169,6 +1169,26 @@
   resize: vertical;
 }
 
+.proposal-note-dialog__mode-group {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+}
+
+.proposal-note-dialog__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+}
+
+.proposal-note-dialog__choice input {
+  margin: 0;
+}
+
 .compare-snapshot-section {
   gap: var(--space-3);
 }
@@ -1470,7 +1490,8 @@
 
 .history-decision-chip--active,
 .history-audit-row__badge--accepted,
-.history-audit-row__badge--created {
+.history-audit-row__badge--created,
+.history-audit-row__badge--promoted_as_new_strategy {
   color: #2dd4bf;
   border-color: color-mix(in srgb, #2dd4bf 38%, var(--color-border));
   background: color-mix(in srgb, #2dd4bf 14%, transparent);

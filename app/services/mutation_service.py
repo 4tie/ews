@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from app.freqtrade.paths import live_strategy_file, strategy_config_file
 from app.models.optimizer_models import (
+    ChangeType,
     MutationRequest,
     MutationResult,
     StrategyVersion,
@@ -271,6 +273,51 @@ class StrategyMutationService:
             )
         )
         version.audit_events = audit_events
+
+    @staticmethod
+    def _validate_new_strategy_name(strategy_name: str, current_strategy_name: str | None = None) -> str:
+        normalized = str(strategy_name or "").strip()
+        if not normalized:
+            raise ValueError("New strategy name is required")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", normalized):
+            raise ValueError("New strategy name must be a valid Python identifier")
+        if current_strategy_name and normalized == str(current_strategy_name).strip():
+            raise ValueError("New strategy name must be different from the current strategy")
+        return normalized
+
+    def _ensure_new_strategy_targets_available(self, strategy_name: str) -> None:
+        paths = self._live_artifact_paths(strategy_name)
+        collisions: list[str] = []
+        if os.path.exists(paths["strategy_file"]):
+            collisions.append(paths["strategy_file"])
+        if os.path.exists(paths["config_file"]):
+            collisions.append(paths["config_file"])
+        version_dir = strategy_versions_dir(strategy_name)
+        if os.path.exists(version_dir):
+            collisions.append(version_dir)
+        if collisions:
+            raise ValueError(f"New strategy target already exists: {', '.join(collisions)}")
+
+    @staticmethod
+    def _rename_strategy_class(code_snapshot: str, source_strategy_name: str, new_strategy_name: str) -> str:
+        if not isinstance(code_snapshot, str) or not code_snapshot.strip():
+            raise ValueError("Resolved strategy code snapshot is empty")
+
+        class_pattern = re.compile(r"(^\s*class\s+)([A-Za-z_][A-Za-z0-9_]*)(\s*(?:\(|:))", re.MULTILINE)
+        matches = list(class_pattern.finditer(code_snapshot))
+        if not matches:
+            raise ValueError("Could not locate a strategy class definition in the resolved code snapshot")
+
+        target_match = None
+        for match in matches:
+            if match.group(2) == source_strategy_name:
+                target_match = match
+                break
+        if target_match is None:
+            target_match = matches[0]
+
+        start, end = target_match.span(2)
+        return f"{code_snapshot[:start]}{new_strategy_name}{code_snapshot[end:]}"
 
     @staticmethod
     def _build_code_diff_preview(
@@ -619,6 +666,99 @@ class StrategyMutationService:
             version_id=version_id,
             status="created",
             message=f"New candidate version {version_id} created from {request.change_type}",
+        )
+
+    def promote_as_new_strategy(
+        self,
+        version_id: str,
+        *,
+        new_strategy_name: str | None,
+        notes: Optional[str] = None,
+    ) -> MutationResult:
+        source_version = self.get_version_by_id(version_id)
+        if not source_version:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} not found",
+            )
+
+        if source_version.status != VersionStatus.CANDIDATE:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} is not a candidate (status: {source_version.status})",
+            )
+
+        try:
+            normalized_strategy_name = self._validate_new_strategy_name(new_strategy_name or "", source_version.strategy_name)
+            self._ensure_new_strategy_targets_available(normalized_strategy_name)
+            artifacts = self.resolve_effective_artifacts(version_id)
+            code_snapshot = self._rename_strategy_class(
+                str(artifacts.get("code_snapshot") or ""),
+                source_version.strategy_name,
+                normalized_strategy_name,
+            )
+            parameters_snapshot = artifacts.get("parameters_snapshot")
+            if parameters_snapshot is not None and not isinstance(parameters_snapshot, dict):
+                raise ValueError("Resolved parameters snapshot is invalid")
+        except Exception as exc:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} could not be promoted as a new strategy: {exc}",
+            )
+
+        source_title = (
+            str((getattr(source_version, "source_context", None) or {}).get("title") or "").strip()
+            or str(getattr(source_version, "summary", None) or "").strip()
+            or f"Promoted from {source_version.strategy_name}:{source_version.version_id}"
+        )
+        mutation_result = self.create_mutation(
+            MutationRequest(
+                strategy_name=normalized_strategy_name,
+                change_type=getattr(source_version, "change_type", ChangeType.MANUAL),
+                summary=f"Promoted from {source_version.strategy_name}:{source_version.version_id}",
+                created_by="promote_as_new_strategy",
+                code=code_snapshot,
+                parameters=parameters_snapshot if isinstance(parameters_snapshot, dict) else None,
+                parent_version_id=None,
+                source_ref=f"strategy_version:{source_version.strategy_name}:{source_version.version_id}",
+                source_kind="promoted_strategy",
+                source_context={
+                    "title": source_title,
+                    "promoted_as_new_strategy": True,
+                    "source_strategy_name": source_version.strategy_name,
+                    "source_version_id": source_version.version_id,
+                    "new_strategy_name": normalized_strategy_name,
+                    "candidate_mode": (getattr(source_version, "source_context", None) or {}).get("candidate_mode"),
+                },
+            )
+        )
+        if mutation_result.status == "error":
+            return mutation_result
+
+        accept_result = self.accept_version(mutation_result.version_id, notes)
+        if accept_result.status == "error":
+            return accept_result
+
+        promoted_note = str(notes or "").strip()
+        if promoted_note:
+            promoted_note = f"Promoted as new strategy {normalized_strategy_name}. {promoted_note}"
+        else:
+            promoted_note = f"Promoted as new strategy {normalized_strategy_name}."
+        self._append_audit_event(
+            source_version,
+            "promoted_as_new_strategy",
+            actor="promote_as_new_strategy",
+            note=promoted_note,
+        )
+        self._save_version(source_version)
+
+        return MutationResult(
+            version_id=accept_result.version_id,
+            status="promoted_as_new_strategy",
+            message=f"Version {version_id} promoted as new strategy {normalized_strategy_name}",
         )
 
     def accept_version(self, version_id: str, notes: Optional[str] = None) -> MutationResult:

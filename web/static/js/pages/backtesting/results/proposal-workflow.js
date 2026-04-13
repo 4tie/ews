@@ -9,6 +9,7 @@ import { formatDate, formatNum, formatPct } from "../../../core/utils.js";
 import { closeModal, openModal } from "../../../components/modal.js";
 import showToast from "../../../components/toast.js";
 import { startBacktestRun } from "../run/run-controller.js";
+import { loadOptions } from "../setup/options-loader.js";
 import { renderDecisionReadyCompare } from "../compare/decision-ready-renderer.js";
 import {
   ensureSelectedCandidateVersion,
@@ -172,6 +173,138 @@ function openDecisionNoteDialog({ title, label, confirmLabel, placeholder }) {
       settle(String(input?.value || "").trim());
     });
     input?.focus();
+  });
+}
+
+function openAcceptDecisionDialog() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const suggestion = `${resolveStrategy() || 'Strategy'}_v2`;
+    const dialogBody = `
+      <form id="proposal-accept-form" class="proposal-note-dialog">
+        <fieldset class="proposal-note-dialog__mode-group">
+          <legend class="form-label">Promotion Mode</legend>
+          <label class="proposal-note-dialog__choice">
+            <input type="radio" name="proposal-accept-mode" value="accept_current" checked />
+            <span>Accept as current</span>
+          </label>
+          <label class="proposal-note-dialog__choice">
+            <input type="radio" name="proposal-accept-mode" value="promote_new_strategy" />
+            <span>Promote as new strategy</span>
+          </label>
+        </fieldset>
+        <label class="setup-field proposal-note-dialog__field">
+          <span class="form-label">Optional note</span>
+          <textarea id="proposal-note-input" class="form-input proposal-note-dialog__textarea" rows="5" placeholder="Why this candidate should become active."></textarea>
+        </label>
+        <label class="setup-field proposal-note-dialog__field" id="proposal-new-strategy-field" hidden>
+          <span class="form-label">New strategy name</span>
+          <input id="proposal-new-strategy-input" class="form-input" type="text" value="${escapeHtml(suggestion)}" placeholder="MultiMa_v2" pattern="[A-Za-z_][A-Za-z0-9_]*" spellcheck="false" autocapitalize="off" autocomplete="off" />
+          <span class="field-hint">File: <code id="proposal-new-strategy-file">user_data/strategies/${escapeHtml(suggestion)}.py</code></span>
+          <span class="field-hint">Class: <code id="proposal-new-strategy-class">${escapeHtml(suggestion)}</code></span>
+          <span class="field-hint">Config: <code id="proposal-new-strategy-config">user_data/config/config_${escapeHtml(suggestion)}.json</code></span>
+        </label>
+      </form>
+    `;
+    const dialogFooter = `
+      <button type="button" class="btn btn--ghost btn--sm" id="proposal-accept-cancel">Cancel</button>
+      <button type="button" class="btn btn--secondary btn--sm" id="proposal-accept-confirm">Accept Candidate</button>
+    `;
+
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      closeModal();
+      resolve(value);
+    };
+
+    openModal({
+      title: "Accept Candidate",
+      body: dialogBody,
+      footer: dialogFooter,
+      onClose: () => {
+        if (!settled) {
+          settled = true;
+          resolve(null);
+        }
+      },
+    });
+
+    const form = document.getElementById("proposal-accept-form");
+    const noteInput = document.getElementById("proposal-note-input");
+    const modeInputs = Array.from(document.querySelectorAll('input[name="proposal-accept-mode"]'));
+    const strategyField = document.getElementById("proposal-new-strategy-field");
+    const strategyInput = document.getElementById("proposal-new-strategy-input");
+    const filePreview = document.getElementById("proposal-new-strategy-file");
+    const classPreview = document.getElementById("proposal-new-strategy-class");
+    const configPreview = document.getElementById("proposal-new-strategy-config");
+
+    const selectedMode = () => modeInputs.find((input) => input.checked)?.value || "accept_current";
+    const clearStrategyValidation = () => strategyInput?.setCustomValidity("");
+    const syncMode = () => {
+      const promoteNew = selectedMode() === "promote_new_strategy";
+      if (strategyField) strategyField.hidden = !promoteNew;
+      if (strategyInput) {
+        strategyInput.disabled = !promoteNew;
+        strategyInput.required = promoteNew;
+        if (!promoteNew) {
+          clearStrategyValidation();
+        }
+      }
+    };
+    const syncPreviews = () => {
+      const name = String(strategyInput?.value || "").trim() || suggestion;
+      if (filePreview) filePreview.textContent = `user_data/strategies/${name}.py`;
+      if (classPreview) classPreview.textContent = name;
+      if (configPreview) configPreview.textContent = `user_data/config/config_${name}.json`;
+    };
+
+    const submit = () => {
+      const mode = selectedMode();
+      const newStrategyName = mode === "promote_new_strategy" ? String(strategyInput?.value || "").trim() : "";
+      if (mode === "promote_new_strategy") {
+        if (!newStrategyName) {
+          strategyInput?.setCustomValidity("New strategy name is required.");
+          strategyInput?.reportValidity();
+          strategyInput?.focus();
+          return;
+        }
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(newStrategyName)) {
+          strategyInput?.setCustomValidity("Use a valid Python identifier.");
+          strategyInput?.reportValidity();
+          strategyInput?.focus();
+          return;
+        }
+        if (newStrategyName === resolveStrategy()) {
+          strategyInput?.setCustomValidity("New strategy name must be different from the current strategy.");
+          strategyInput?.reportValidity();
+          strategyInput?.focus();
+          return;
+        }
+      }
+      clearStrategyValidation();
+      settle({
+        note: String(noteInput?.value || "").trim(),
+        promotionMode: mode,
+        newStrategyName,
+      });
+    };
+
+    document.getElementById("proposal-accept-cancel")?.addEventListener("click", () => settle(null));
+    document.getElementById("proposal-accept-confirm")?.addEventListener("click", submit);
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submit();
+    });
+    modeInputs.forEach((input) => input.addEventListener("change", syncMode));
+    strategyInput?.addEventListener("input", () => {
+      clearStrategyValidation();
+      syncPreviews();
+    });
+
+    syncMode();
+    syncPreviews();
+    noteInput?.focus();
   });
 }
 
@@ -650,13 +783,8 @@ async function handleAcceptCandidate() {
     return;
   }
 
-  const note = await openDecisionNoteDialog({
-    title: "Accept Candidate",
-    label: "Optional note",
-    confirmLabel: "Accept Candidate",
-    placeholder: "Why this candidate should become active.",
-  });
-  if (note === null) return;
+  const decision = await openAcceptDecisionDialog();
+  if (decision === null) return;
 
   busyAction = "accept-candidate";
   render();
@@ -664,9 +792,16 @@ async function handleAcceptCandidate() {
   try {
     const response = await api.versions.accept(strategy, {
       version_id: candidate.version_id,
-      notes: note || undefined,
+      notes: decision.note || undefined,
+      promotion_mode: decision.promotionMode || "accept_current",
+      new_strategy_name: decision.newStrategyName || undefined,
     });
-    showToast(response?.message || `Accepted ${candidate.version_id}.`, "success");
+    if (response?.promotion_mode === "promote_new_strategy" && response?.new_strategy_name) {
+      await loadOptions();
+      showToast(response?.message || `Promoted ${candidate.version_id} as new strategy ${response.new_strategy_name}.`, "success");
+    } else {
+      showToast(response?.message || `Accepted ${candidate.version_id}.`, "success");
+    }
     await refreshPersistedVersions(strategy, { silent: true });
   } catch (error) {
     showToast(`Failed to accept candidate: ${error?.message || String(error)}`, "error");

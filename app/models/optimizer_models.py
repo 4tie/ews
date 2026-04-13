@@ -21,8 +21,13 @@ class ChangeType(str, Enum):
     ROLLBACK = "rollback"
 
 
+class AcceptPromotionMode(str, Enum):
+    ACCEPT_CURRENT = "accept_current"
+    PROMOTE_NEW_STRATEGY = "promote_new_strategy"
+
+
 class VersionAuditEvent(BaseModel):
-    event_type: Literal["created", "accepted", "rejected", "rolled_back"]
+    event_type: Literal["created", "accepted", "rejected", "rolled_back", "promoted_as_new_strategy"]
     created_at: str
     actor: str
     note: Optional[str] = None
@@ -79,6 +84,8 @@ class MutationResult(BaseModel):
 class AcceptRequest(BaseModel):
     version_id: str
     notes: Optional[str] = None
+    promotion_mode: AcceptPromotionMode = AcceptPromotionMode.ACCEPT_CURRENT
+    new_strategy_name: Optional[str] = None
 
 
 class RollbackRequest(BaseModel):

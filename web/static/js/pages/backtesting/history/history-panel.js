@@ -1,4 +1,4 @@
-﻿/**
+/**
  * history-panel.js - Hybrid persisted run and version audit history surface.
  */
 
@@ -179,7 +179,7 @@ function buildDecisionCardHtml(version) {
     ? auditEvents.map((event) => `
         <div class="history-audit-row">
           <div class="history-audit-row__header">
-            <span class="history-audit-row__badge history-audit-row__badge--${escapeAttr(event?.event_type || 'created')}">${escapeHtml(labelize(event?.event_type || 'created'))}</span>
+            <span class="history-audit-row__badge history-audit-row__badge--${escapeAttr(event?.event_type || 'created')}">${escapeHtml(formatAuditEventLabel(event?.event_type || 'created'))}</span>
             <span class="history-audit-row__time">${escapeHtml(formatDate(event?.created_at))}</span>
           </div>
           <div class="history-audit-row__meta">
@@ -209,7 +209,7 @@ function buildDecisionCardHtml(version) {
       <div><span class="history-card__label">Linked Backtest</span><strong>${escapeHtml(version?.backtest_run_id || '-')}</strong></div>
       <div><span class="history-card__label">Backtest Profit</span><strong>${escapeHtml(backtestProfit)}</strong></div>
       <div><span class="history-card__label">Promoted</span><strong>${escapeHtml(formatDate(version?.promoted_at || ''))}</strong></div>
-      <div><span class="history-card__label">Latest Audit</span><strong>${escapeHtml(latestAudit ? labelize(latestAudit.event_type) : '-')}</strong></div>
+      <div><span class="history-card__label">Latest Audit</span><strong>${escapeHtml(latestAudit ? formatAuditEventLabel(latestAudit.event_type) : '-')}</strong></div>
     </div>
     <div class="history-decision-card__note">${escapeHtml(latestNote ? truncateText(latestNote.note) : 'No audit note saved for this version.')}</div>
     <div class="history-audit-timeline">
@@ -230,6 +230,13 @@ function latestAuditEvent(version) {
 
 function latestAuditNote(version) {
   return getAuditEvents(version).find((event) => String(event?.note || "").trim()) || null;
+}
+
+function formatAuditEventLabel(value) {
+  if (String(value || "") === "promoted_as_new_strategy") {
+    return "Promoted As New Strategy";
+  }
+  return labelize(value);
 }
 
 function truncateText(value, maxLength = 160) {
