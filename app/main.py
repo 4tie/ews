@@ -1,32 +1,36 @@
+import os
+import sys
+
+import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
-import uvicorn
-import os
 
-from app.routers import web_ui_routes, backtest, optimizer, settings, ai_chat, evolution, versions
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(CURRENT_DIR)
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from app.routers import ai_chat, backtest, evolution, optimizer, settings, versions, web_ui_routes
+
 WEB_DIR = os.path.join(BASE_DIR, "web")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 USER_DATA_DIR = os.path.join(BASE_DIR, "user_data")
 
 
 def _dev_reload_dirs() -> list[str]:
-    return [
-        os.path.join(BASE_DIR, "app"),
-        os.path.join(BASE_DIR, "web"),
-    ]
+    return ["app", "web"]
 
 
 def _dev_reload_excludes() -> list[str]:
     return [
-        os.path.join(DATA_DIR, "backtest_runs", "*", "workspace"),
-        os.path.join(DATA_DIR, "backtest_runs", "*", "workspace", "*"),
-        os.path.join(USER_DATA_DIR, "backtest_results", "*"),
-        os.path.join(DATA_DIR, "versions", "*", "*.json"),
+        os.path.join("data", "backtest_runs", "*", "workspace"),
+        os.path.join("data", "backtest_runs", "*", "workspace", "*"),
+        os.path.join("user_data", "backtest_results", "*"),
+        os.path.join("data", "versions", "*", "*.json"),
     ]
+
 
 app = FastAPI(title="4tie Control Panel", docs_url="/api/docs")
 
@@ -48,12 +52,17 @@ async def root():
     return RedirectResponse(url="/backtesting")
 
 
-if __name__ == "__main__":
+def main() -> None:
+    os.chdir(BASE_DIR)
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host="0.0.0.0",
         port=5000,
         reload=True,
         reload_dirs=_dev_reload_dirs(),
         reload_excludes=_dev_reload_excludes(),
     )
+
+
+if __name__ == "__main__":
+    main()
