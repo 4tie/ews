@@ -4,6 +4,12 @@
 
 This project is a controlled AI-assisted Freqtrade strategy improvement workbench.
 
+## Local Startup
+
+- Start the app with `python app\main.py`.
+- Do not use raw `uvicorn --reload` as the documented workflow.
+- `app/main.py` owns the repo-scoped reload policy and excludes workflow write paths under `data/backtest_runs/*/workspace`, `user_data/backtest_results/*`, and `data/versions/*/*.json`.
+
 The product goal is NOT:
 - autonomous AI code mutation
 - random strategy rewrites
