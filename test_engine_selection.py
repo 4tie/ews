@@ -74,6 +74,21 @@ def test_validate_path_route_preserves_plain_filesystem_validation(monkeypatch):
     }
 
 
+def test_save_settings_route_canonicalizes_resolved_freqtrade_path(monkeypatch):
+    requested_path = r"T:\Optimizer\.venv\Scripts\freqtrade"
+    resolved_path = r"T:\Optimizer\.venv\Scripts\freqtrade.exe"
+    captured = {}
+
+    monkeypatch.setattr(settings_router, "resolve_freqtrade_executable", lambda path: resolved_path)
+    monkeypatch.setattr(settings_router.config_svc, "save_settings", lambda data: captured.update(data))
+
+    response = client.post("/api/settings", json={"freqtrade_path": requested_path})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "saved"}
+    assert captured["freqtrade_path"] == resolved_path
+
+
 def test_runtime_settings_backfill_ai_defaults():
     payload = get_freqtrade_runtime_settings({"freqtrade_path": "T:/freqtrade"})
 

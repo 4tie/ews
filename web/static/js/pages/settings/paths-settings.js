@@ -1,4 +1,4 @@
-﻿/**
+/**
  * paths-settings.js - Handles path auto-population and validation.
  */
 
@@ -92,6 +92,10 @@ async function validatePath(inputId, statusId, kind = "path") {
     });
     const { valid, error, resolved_path: resolvedPath } = await res.json();
     if (valid && kind === "freqtrade" && resolvedPath) {
+      if (input) {
+        input.value = resolvedPath;
+      }
+      autofillDerived(resolvedPath);
       setValidationStatus(statusId, `Resolved executable: ${resolvedPath}`, "success");
     } else if (valid) {
       setValidationStatus(statusId, "Path exists", "success");
@@ -141,3 +145,6 @@ function autofillDerived(base) {
     }
   });
 }
+
+
+

@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.ai.models.ollama_client import OllamaClient
+from app.freqtrade.executable import resolve_freqtrade_executable
 from app.models.settings_models import AppSettings
 from app.services.config_service import ConfigService
 from app.services.validation_service import ValidationService
@@ -37,6 +38,11 @@ async def save_settings(payload: AppSettings):
     for key in ["freqtrade_path", "user_data_path", "config_path", "results_base_path"]:
         if data.get(key):
             data[key] = os.path.normpath(str(data[key]))
+    if data.get("freqtrade_path"):
+        try:
+            data["freqtrade_path"] = resolve_freqtrade_executable(data["freqtrade_path"])
+        except ValueError:
+            pass
     config_svc.save_settings(data)
     return {"status": "saved"}
 
