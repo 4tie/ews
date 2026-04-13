@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -17,6 +15,7 @@ validation_svc = ValidationService()
 
 class PathValidateRequest(BaseModel):
     path: str
+    kind: str | None = None
 
 
 class OllamaDiscoverRequest(BaseModel):
@@ -38,8 +37,19 @@ async def save_settings(payload: AppSettings):
 
 @router.post("/validate-path")
 async def validate_path(payload: PathValidateRequest):
-    """Check if a filesystem path exists."""
-    valid = os.path.exists(payload.path)
+    """Validate a settings path, with Freqtrade-aware executable resolution when requested."""
+    kind = (payload.kind or "").strip().lower()
+
+    if kind == "freqtrade":
+        result = validation_svc.validate_freqtrade_path(payload.path)
+        response = {"valid": bool(result.get("valid")), "path": payload.path}
+        if result.get("valid"):
+            response["resolved_path"] = result.get("resolved_path")
+        else:
+            response["error"] = result.get("error")
+        return response
+
+    valid = validation_svc.validate_path(payload.path)
     return {"valid": valid, "path": payload.path}
 
 

@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 from fastapi.testclient import TestClient
 
 from app.engines.resolver import resolve_engine, resolve_engine_id
@@ -34,6 +34,45 @@ def test_settings_route_returns_freqtrade_runtime_defaults(monkeypatch):
     assert payload["freqtrade_path"] == "T:/freqtrade"
     assert "config_path" in payload
     assert "results_base_path" in payload
+
+
+def test_validate_path_route_uses_freqtrade_aware_validation(monkeypatch):
+    requested_path = r"T:\Optimizer/.venv/Scripts/freqtrade"
+    resolved_path = r"T:\Optimizer\.venv\Scripts\freqtrade.exe"
+
+    def _validate_freqtrade_path(path):
+        assert path == requested_path
+        return {"valid": True, "resolved_path": resolved_path}
+
+    monkeypatch.setattr(settings_router.validation_svc, "validate_freqtrade_path", _validate_freqtrade_path)
+
+    response = client.post("/api/settings/validate-path", json={"path": requested_path, "kind": "freqtrade"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "path": requested_path,
+        "resolved_path": resolved_path,
+    }
+
+
+def test_validate_path_route_preserves_plain_filesystem_validation(monkeypatch):
+    requested_path = r"T:\Optimizer\user_data\config.json"
+
+    def _validate_path(path):
+        assert path == requested_path
+        return False
+
+    monkeypatch.setattr(settings_router.validation_svc, "validate_path", _validate_path)
+
+    response = client.post("/api/settings/validate-path", json={"path": requested_path})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": False,
+        "path": requested_path,
+    }
+
 
 def test_runtime_settings_backfill_ai_defaults():
     payload = get_freqtrade_runtime_settings({"freqtrade_path": "T:/freqtrade"})
