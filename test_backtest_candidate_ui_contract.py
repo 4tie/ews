@@ -16,6 +16,7 @@ DECISION_RENDERER = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "
 HISTORY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "history" / "history-panel.js"
 PERSISTED_VERSIONS_STORE = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "persisted-versions-store.js"
 MODAL_COMPONENT = ROOT / "web" / "static" / "js" / "components" / "modal.js"
+STRATEGY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "setup" / "strategy-panel.js"
 
 
 def test_shared_drawer_normalizes_candidate_overlays_with_canonical_precedence():
@@ -164,6 +165,8 @@ def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_deci
     assert "promotion_mode" in source
     assert "new_strategy_name" in source
     assert "loadOptions();" in source
+    assert "switchBacktestStrategy" in source
+    assert "switchBacktestStrategy(response.new_strategy_name)" in source
     assert "Optional reason" in source
     assert "proposal-audit-note" in source
     assert 'data-role="selected-candidate"' in source
@@ -222,6 +225,16 @@ def test_decision_renderer_exposes_summary_first_diff_pair_and_diagnosis_section
     assert "compare-diagnosis-grid" in source
     assert "compare-cell-note" in source
     assert "decision-badge--" in source
+
+
+def test_strategy_panel_owns_programmatic_strategy_switching():
+    source = STRATEGY_PANEL.read_text(encoding="utf-8")
+
+    assert "function applyStrategySelection(strategyName)" in source
+    assert "export function switchBacktestStrategy(strategyName)" in source
+    assert 'setState("backtest.strategy", next);' in source
+    assert 'persistBacktestConfig?.((prev) => ({ ...prev, strategy: next }));' in source
+    assert 'Array.from(select.options).some((option) => option.value === next)' in source
 
 
 def test_history_panel_is_hybrid_and_uses_shared_versions_store():

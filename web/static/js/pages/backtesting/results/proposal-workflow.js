@@ -10,6 +10,7 @@ import { closeModal, openModal } from "../../../components/modal.js";
 import showToast from "../../../components/toast.js";
 import { startBacktestRun } from "../run/run-controller.js";
 import { loadOptions } from "../setup/options-loader.js";
+import { switchBacktestStrategy } from "../setup/strategy-panel.js";
 import { renderDecisionReadyCompare } from "../compare/decision-ready-renderer.js";
 import {
   ensureSelectedCandidateVersion,
@@ -798,11 +799,16 @@ async function handleAcceptCandidate() {
     });
     if (response?.promotion_mode === "promote_new_strategy" && response?.new_strategy_name) {
       await loadOptions();
-      showToast(response?.message || `Promoted ${candidate.version_id} as new strategy ${response.new_strategy_name}.`, "success");
+      if (switchBacktestStrategy(response.new_strategy_name)) {
+        showToast(response?.message || `Promoted ${candidate.version_id} as new strategy ${response.new_strategy_name}. Switched to the new strategy.`, "success");
+      } else {
+        showToast(`Promoted ${candidate.version_id} as ${response.new_strategy_name}, but the strategy selector could not switch automatically.`, "warning");
+        await refreshPersistedVersions(strategy, { silent: true });
+      }
     } else {
       showToast(response?.message || `Accepted ${candidate.version_id}.`, "success");
+      await refreshPersistedVersions(strategy, { silent: true });
     }
-    await refreshPersistedVersions(strategy, { silent: true });
   } catch (error) {
     showToast(`Failed to accept candidate: ${error?.message || String(error)}`, "error");
   } finally {
