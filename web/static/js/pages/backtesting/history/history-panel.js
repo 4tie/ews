@@ -68,7 +68,7 @@ function renderHistory(runs, versions, strategy) {
 
   if (!runs.length && !versions.length) {
     const scope = strategy ? ` for ${escapeHtml(strategy)}` : "";
-    historyList.innerHTML = `<div class="info-empty">No persisted run or version history is available${scope}.</div>`;
+    historyList.innerHTML = `<div class="info-empty">No persisted run or version history is available${scope}. Run a baseline backtest, then create or decide a version to start the audit trail.</div>`;
     return;
   }
 
@@ -120,7 +120,7 @@ function buildDecisionSection(versions) {
   const wrapper = el("section", { class: "results-context history-section history-section--decisions" });
   wrapper.innerHTML = `
     <div class="results-context__title">Version Decisions</div>
-    <div class="results-context__note">Active version stays pinned first. Each card shows version metadata, linked run evidence, and persisted audit events.</div>
+    <div class="results-context__note">Active version stays pinned first. Each card shows version metadata, the latest note snippet, linked run evidence, and the persisted audit timeline.</div>
   `;
 
   if (versionsState.status === "error") {
@@ -134,7 +134,7 @@ function buildDecisionSection(versions) {
   }
 
   if (!versions.length) {
-    wrapper.appendChild(el("div", { class: "results-context__note" }, "No persisted strategy versions are available yet."));
+    wrapper.appendChild(el("div", { class: "results-context__note" }, "No persisted strategy versions are available yet. Create and decide a version first to populate audit history."));
     return wrapper;
   }
 
@@ -249,7 +249,7 @@ function buildRunsSection(runs, strategy) {
   const wrapper = el("section", { class: "results-context history-section history-section--runs" });
   wrapper.innerHTML = `
     <div class="results-context__title">Persisted Runs</div>
-    <div class="results-context__note">${escapeHtml(strategy ? `Showing ${runs.length} persisted freqtrade run(s) for ${strategy}.` : `Showing ${runs.length} persisted freqtrade run(s).`)}</div>
+    <div class="results-context__note">${escapeHtml(strategy ? `Use this section to verify baseline runs, candidate reruns, and execution evidence for ${strategy}. Showing ${runs.length} persisted freqtrade run(s).` : `Use this section to verify baseline runs, candidate reruns, and execution evidence. Showing ${runs.length} persisted freqtrade run(s).`)}</div>
   `;
 
   if (runsState.status === "error") {
@@ -263,7 +263,7 @@ function buildRunsSection(runs, strategy) {
   }
 
   if (!runs.length) {
-    wrapper.appendChild(el("div", { class: "results-context__note" }, "No persisted backtest runs are available yet."));
+    wrapper.appendChild(el("div", { class: "results-context__note" }, "No persisted backtest runs are available yet. Run a baseline backtest or candidate rerun first."));
     return wrapper;
   }
 

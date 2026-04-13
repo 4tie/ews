@@ -371,13 +371,13 @@ function renderWorkflowCompare(layout) {
     return;
   }
   if (!workflowCandidateVersions().length) {
-    layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet."));
+    layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first."));
     return;
   }
 
   const candidateRun = workflowCandidateRun();
   if (!candidateRun) {
-    layout.appendChild(el("div", { class: "info-empty" }, `Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run. Current selection: ${candidateVersion?.version_id || '-'} | ${candidateSourceTitle}.`));
+    layout.appendChild(el("div", { class: "info-empty" }, `Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run. Review the compare evidence here before any version decision. Current selection: ${candidateVersion?.version_id || '-'} | ${candidateSourceTitle}.`));
     return;
   }
 
@@ -391,7 +391,7 @@ function renderWorkflowCompare(layout) {
     return;
   }
   if (!lastComparison) {
-    layout.appendChild(el("div", { class: "compare-note" }, "Select a candidate version to load its persisted compare evidence against the current baseline run."));
+    layout.appendChild(el("div", { class: "compare-note" }, "Select a candidate version to load decision-ready compare evidence against the current baseline run."));
     return;
   }
 
@@ -402,7 +402,7 @@ function renderWorkflowCompare(layout) {
     candidateLabel: "Selected Candidate",
   });
   layout.appendChild(evidence);
-  layout.appendChild(el("div", { class: "compare-note" }, "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only."));
+  layout.appendChild(el("div", { class: "compare-note" }, "Use Compare after rerun and before any version decision. Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Review it before choosing Accept as current strategy or Promote as new strategy variant."));
 }
 
 function renderGenericCompare(layout) {
@@ -417,7 +417,7 @@ function renderGenericCompare(layout) {
     return;
   }
   if (!comparableRuns.length) {
-    layout.appendChild(el("div", { class: "info-empty" }, "No persisted completed runs with saved summary artifacts are available to compare yet."));
+    layout.appendChild(el("div", { class: "info-empty" }, "No persisted completed runs with saved summary artifacts are available to compare yet. Run a baseline backtest or candidate rerun first."));
     return;
   }
   if (!selectedLeftRunId || !selectedRightRunId || selectedLeftRunId === selectedRightRunId) {
@@ -443,7 +443,7 @@ function renderGenericCompare(layout) {
     candidateLabel: "Right run",
   });
   layout.appendChild(evidence);
-  layout.appendChild(el("div", { class: "compare-note" }, "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Delta is right minus left."));
+  layout.appendChild(el("div", { class: "compare-note" }, "Use Compare after rerun and before any version decision. Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Delta is right minus left."));
 }
 
 function renderComparePanel() {

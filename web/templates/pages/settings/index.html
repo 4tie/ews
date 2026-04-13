@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 {% block page_css %}
 <link rel="stylesheet" href="/static/css/pages/settings.css" />
@@ -13,9 +13,9 @@
       </div>
       <div class="panel__body">
         <div class="form-group">
-          <label class="form-label" for="set-ft-path">Freqtrade Directory</label>
+          <label class="form-label" for="set-ft-path">Freqtrade Path</label>
           <div class="input-with-action">
-            <input class="form-input" type="text" id="set-ft-path" name="freqtrade_path" placeholder="/home/user/freqtrade" />
+            <input class="form-input" type="text" id="set-ft-path" name="freqtrade_path" placeholder="/home/user/freqtrade or /home/user/freqtrade/.venv/bin/freqtrade" />
             <button class="btn btn--ghost btn--sm" id="btn-validate-ft-path">Validate</button>
           </div>
           <div class="field-hint" id="ft-path-status"></div>
@@ -274,4 +274,5 @@
 <script type="module" src="/static/js/pages/settings/theme-settings.js"></script>
 <script type="module" src="/static/js/pages/settings/index.js"></script>
 {% endblock %}
+
 

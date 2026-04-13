@@ -23,7 +23,23 @@ import { initHeaderConfigButtons } from "./configs/header-config-buttons.js";
 import { getState, setState } from "../../core/state.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
-  await loadOptions();
+  const optionsResult = await loadOptions({ persistBacktestSelections: true });
+
+  setState("backtest.availableStrategies", Array.isArray(optionsResult.strategies) ? [...optionsResult.strategies] : []);
+  setState("backtest.strategy", optionsResult.selected.strategy || "");
+  setState("backtest.timeframe", optionsResult.selected.timeframe || "");
+  setState("backtest.exchange", optionsResult.selected.exchange || "");
+
+  if (optionsResult.defaults.startDate || optionsResult.defaults.endDate) {
+    setState("backtest.startDate", optionsResult.defaults.startDate || "");
+    setState("backtest.endDate", optionsResult.defaults.endDate || "");
+  }
+  if (optionsResult.defaults.dryRunWallet !== null) {
+    setState("backtest.dry_run_wallet", optionsResult.defaults.dryRunWallet);
+  }
+  if (optionsResult.defaults.maxOpenTrades !== null) {
+    setState("backtest.maxOpenTrades", optionsResult.defaults.maxOpenTrades);
+  }
 
   const walletInput = document.getElementById("input-dry-run-wallet");
   const walletVal = getState("backtest.dry_run_wallet");
@@ -58,6 +74,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const tfSelect = document.getElementById("select-timeframe");
   tfSelect?.addEventListener("change", () => {
     setState("backtest.timeframe", tfSelect.value);
+  });
+
+  const exchangeSelect = document.getElementById("select-exchange");
+  exchangeSelect?.addEventListener("change", () => {
+    setState("backtest.exchange", exchangeSelect.value);
   });
 
   walletInput?.addEventListener("change", () => {

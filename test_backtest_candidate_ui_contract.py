@@ -1,4 +1,4 @@
-import re
+﻿import re
 from pathlib import Path
 
 
@@ -9,6 +9,9 @@ LEGACY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "resul
 API_CLIENT = ROOT / "web" / "static" / "js" / "core" / "api.js"
 STATE = ROOT / "web" / "static" / "js" / "core" / "state.js"
 BACKTESTING_INDEX = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "index.js"
+BACKTESTING_HTML = ROOT / "web" / "templates" / "pages" / "backtesting" / "backtesting.html"
+BACKTESTING_WORKFLOW_DOC = ROOT / "BACKTESTING_WORKFLOW.md"
+BROWSER_SMOKE_DOC = ROOT / "BROWSER_SMOKE.md"
 PROPOSAL_WORKFLOW = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "proposal-workflow.js"
 COMPARE_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "compare-panel.js"
 RESULTS_CONTROLLER = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "results-controller.js"
@@ -18,6 +21,10 @@ HISTORY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "hist
 PERSISTED_VERSIONS_STORE = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "persisted-versions-store.js"
 MODAL_COMPONENT = ROOT / "web" / "static" / "js" / "components" / "modal.js"
 STRATEGY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "setup" / "strategy-panel.js"
+OPTIONS_LOADER = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "setup" / "options-loader.js"
+OPTIMIZER_INDEX = ROOT / "web" / "static" / "js" / "pages" / "optimizer" / "index.js"
+PATHS_SETTINGS = ROOT / "web" / "static" / "js" / "pages" / "settings" / "paths-settings.js"
+SETTINGS_TEMPLATE = ROOT / "web" / "templates" / "pages" / "settings" / "index.html"
 
 
 def test_shared_drawer_normalizes_candidate_overlays_with_canonical_precedence():
@@ -69,6 +76,7 @@ def test_shared_drawer_action_policy_and_soft_failure_copy_are_explicit():
     assert "Candidate staging unavailable for this message until a completed run diagnosis is loaded." in source
     assert "Candidate creation requires a completed diagnosed run." in source
     assert "describeCandidateCreationState" in source
+    assert "Use this drawer to explain diagnosed runs, regenerate replies, copy returned parameters or code, and create a versioned candidate from those payloads once run context is ready." in source
     assert "Redo unavailable because no source user prompt was found." in source
     assert "Nothing to copy for this message." in source
     assert "Nothing to copy for this payload." in source
@@ -184,10 +192,14 @@ def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_deci
     assert 'onState("backtest.selectedCandidateVersionId", () => {' in source
     assert "ensureSelectedCandidateVersion(versionsState.versions, currentBaselineRunId())" in source
     assert "Candidate Compare" in source
+    assert "Proposal Workflow" in source
+    assert "Start here after reviewing diagnosis." in source
+    assert "Actionable now" in source
+    assert "Diagnostic-only items explain the run but do not stage a candidate path by themselves." in source
     assert "Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run inline." in source
     assert "Loading persisted compare evidence for baseline" in source
     assert "Persisted compare evidence is unavailable:" in source
-    assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only." in source
+    assert "Use this evidence before choosing Accept as current strategy or Promote as new strategy variant." in source
 
 
 def test_compare_panel_is_workflow_aware_and_uses_shared_versions_store():
@@ -203,11 +215,14 @@ def test_compare_panel_is_workflow_aware_and_uses_shared_versions_store():
     assert 'onState("backtest.selectedCandidateVersionId", () => {' in source
     assert "Left run" in source
     assert "Right run" in source
+    assert "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first." in source
     assert "Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run." in source
     assert "Loading persisted compare evidence for the baseline run and selected candidate..." in source
     assert "Persisted compare evidence is unavailable for the baseline run and selected candidate:" in source
+    assert "Use Compare after rerun and before any version decision." in source
     assert "Loading persisted compare evidence for the selected runs..." in source
     assert "Persisted compare evidence is unavailable for the selected runs:" in source
+    assert "No persisted completed runs with saved summary artifacts are available to compare yet. Run a baseline backtest or candidate rerun first." in source
     assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Delta is right minus left." in source
 
 
@@ -263,6 +278,8 @@ def test_history_panel_is_hybrid_and_uses_shared_versions_store():
     assert "promoted_as_new_strategy" in source
     assert "Current Live Target" in source
     assert "Pinned active version is the current live target." in source
+    assert "latest note snippet" in source
+    assert "Run a baseline backtest or candidate rerun first." in source
 
     assert "activeVersionId" in store_source
     assert "api.versions.listVersions(strategy, true)" in store_source
@@ -275,11 +292,39 @@ def test_history_panel_is_hybrid_and_uses_shared_versions_store():
 def test_results_controller_surfaces_overlay_fields_and_primary_issue_copy() -> None:
     source = RESULTS_CONTROLLER.read_text(encoding="utf-8")
 
-    assert "Primary Issues" in source
-    assert "Recommended next step" in source
-    assert "Confidence" in source
-    assert "Code change summary" in source
-    assert "Advisory only. Deterministic diagnosis remains the source of truth for version decisions." in source
+    for token in (
+        "Workflow Guide",
+        "Configure Strategy",
+        "Run Backtest",
+        "Review Diagnosis",
+        "Create Candidate",
+        "Re-run & Compare",
+        "Decide Version",
+        "Actionable now",
+        "Diagnostic only",
+        "Promote as new strategy",
+        "open-compare",
+        "open-history",
+        "Primary Issues",
+        "Recommended next step",
+        "Confidence",
+        "Code change summary",
+        "Advisory only. Deterministic diagnosis remains the source of truth for version decisions.",
+    ):
+        assert token in source
+
+
+def test_summary_workflow_shell_and_docs_exist() -> None:
+    html = BACKTESTING_HTML.read_text(encoding="utf-8")
+    workflow_doc = BACKTESTING_WORKFLOW_DOC.read_text(encoding="utf-8")
+    smoke_doc = BROWSER_SMOKE_DOC.read_text(encoding="utf-8")
+
+    assert 'id="summary-workflow-guide"' in html
+    assert "Workflow Guide" in workflow_doc
+    assert "Promote as new strategy variant" in workflow_doc
+    assert "Playwright CLI" in smoke_doc
+    assert "output/playwright/" in smoke_doc
+    assert "Promote as new strategy variant" in smoke_doc
 
 
 def test_shared_drawer_explicitly_selects_the_created_candidate_version():
@@ -308,3 +353,45 @@ def test_ai_apply_reruns_keep_the_workflow_pinned_to_the_baseline_diagnosis():
     assert 'triggerSource === "ai_apply"' in results_controller
     assert "function shouldPreserveWorkflowBaseline(event)" in results_controller
     assert "if (shouldPreserveWorkflowBaseline(event))" in results_controller
+
+
+def test_options_loader_normalizes_and_resolves_dropdown_defaults():
+    source = OPTIONS_LOADER.read_text(encoding="utf-8")
+
+    assert "Promise.allSettled" in source
+    assert "persistBacktestSelections" in source
+    assert "applyResolvedSelection" in source
+    assert "persistBacktestSelectionRepairs" in source
+    assert "No strategies found" in source
+    assert "No timeframes available" in source
+    assert "result.settings.default_timeframe" in source
+
+
+def test_backtesting_and_optimizer_share_the_same_dropdown_loader_contract():
+    backtesting_source = BACKTESTING_INDEX.read_text(encoding="utf-8")
+    optimizer_source = OPTIMIZER_INDEX.read_text(encoding="utf-8")
+
+    assert 'const optionsResult = await loadOptions({ persistBacktestSelections: true });' in backtesting_source
+    assert 'setState("backtest.timeframe", optionsResult.selected.timeframe || "");' in backtesting_source
+    assert 'setState("backtest.exchange", optionsResult.selected.exchange || "");' in backtesting_source
+    assert 'document.getElementById("select-exchange")' in backtesting_source
+
+    assert 'import { loadOptions } from "../backtesting/setup/options-loader.js";' in optimizer_source
+    assert 'exchangeSelectId: null,' in optimizer_source
+    assert "api.backtest.options" not in optimizer_source
+
+
+def test_settings_path_ux_accepts_explicit_freqtrade_paths_without_bad_derivations():
+    source = PATHS_SETTINGS.read_text(encoding="utf-8")
+    template = SETTINGS_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "function inferFreqtradeRoot(rawPath)" in source
+    assert "freqtrade(?:\\.exe)?" in source
+    assert 'tail === "scripts" || tail === "bin"' in source
+    assert 'tail === ".venv" || tail === "venv"' in source
+    assert 'Resolved executable: ${resolvedPath}' in source
+    assert 'joinDerivedPath(inferredRoot, parts)' in source
+    assert 'if (el && !el.value.trim())' in source
+
+    assert "Freqtrade Path" in template
+    assert "/home/user/freqtrade or /home/user/freqtrade/.venv/bin/freqtrade" in template

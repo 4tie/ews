@@ -721,6 +721,7 @@ function renderStatusMessage() {
         <strong>${escapeHtml(candidateCreationState.headline)}</strong>
         <span>${escapeHtml(candidateCreationState.reason)}</span>
       </div>
+      <div class="ai-chat-message__note">Use this drawer to explain diagnosed runs, regenerate replies, copy returned parameters or code, and create a versioned candidate from those payloads once run context is ready.</div>
     </article>
   `;
 }
@@ -802,7 +803,7 @@ function renderTranscript() {
   if (messages.length) {
     parts.push(messages.map(renderMessage).join(""));
   } else {
-    parts.push('<div class="chat-panel__empty">No conversation yet. Ask the assistant to analyze the grounded strategy context or generate a candidate.</div>');
+    parts.push('<div class="chat-panel__empty">No conversation yet. Ask the assistant to explain the grounded run, regenerate a reply, copy payloads, or generate a candidate.</div>');
   }
 
   messagesEl.innerHTML = parts.filter(Boolean).join("");
