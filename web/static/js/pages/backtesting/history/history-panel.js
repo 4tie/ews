@@ -167,9 +167,13 @@ function buildDecisionCardHtml(version) {
   const latestNote = latestAuditNote(version);
   const auditEvents = getAuditEvents(version);
   const backtestProfit = version?.backtest_profit_pct == null ? "-" : formatPct(version.backtest_profit_pct);
-  const activeChip = version?.version_id === versionsState.activeVersionId
+  const isActiveVersion = version?.version_id === versionsState.activeVersionId;
+  const activeChip = isActiveVersion
     ? '<span class="history-decision-chip history-decision-chip--active">Active</span>'
     : "";
+  const statusChip = isActiveVersion && String(version?.status || '').toLowerCase() === 'active'
+    ? ''
+    : `<span class="history-decision-chip history-decision-chip--status-${escapeAttr(version?.status || 'draft')}">${escapeHtml(labelize(version?.status || 'draft'))}</span>`;
 
   const timeline = auditEvents.length
     ? auditEvents.map((event) => `
@@ -195,7 +199,7 @@ function buildDecisionCardHtml(version) {
       </div>
       <div class="history-decision-card__chips">
         ${activeChip}
-        <span class="history-decision-chip history-decision-chip--status-${escapeAttr(version?.status || 'draft')}">${escapeHtml(labelize(version?.status || 'draft'))}</span>
+        ${statusChip}
         <span class="history-decision-chip history-decision-chip--change">${escapeHtml(labelize(version?.change_type || '-'))}</span>
       </div>
     </div>
