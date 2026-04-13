@@ -13,6 +13,9 @@ PROPOSAL_WORKFLOW = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "
 COMPARE_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "compare-panel.js"
 CANDIDATE_SELECTION_STATE = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "candidate-selection-state.js"
 DECISION_RENDERER = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "decision-ready-renderer.js"
+HISTORY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "history" / "history-panel.js"
+PERSISTED_VERSIONS_STORE = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "persisted-versions-store.js"
+MODAL_COMPONENT = ROOT / "web" / "static" / "js" / "components" / "modal.js"
 
 
 def test_shared_drawer_normalizes_candidate_overlays_with_canonical_precedence():
@@ -147,9 +150,15 @@ def test_selected_candidate_state_is_shared_across_backtesting_surfaces():
     assert "backtest_run:" in selection_source
 
 
-def test_proposal_workflow_uses_selected_candidate_state_and_decision_ready_compare():
+def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_decision_ready_compare():
     source = PROPOSAL_WORKFLOW.read_text(encoding="utf-8")
 
+    assert 'import { closeModal, openModal } from "../../../components/modal.js";' in source
+    assert 'import {' in source and 'subscribePersistedVersions,' in source
+    assert "openDecisionNoteDialog" in source
+    assert "Optional note" in source
+    assert "Optional reason" in source
+    assert "proposal-audit-note" in source
     assert 'data-role="selected-candidate"' in source
     assert "Selected Candidate" in source
     assert "renderDecisionReadyCompare(compareState.data" in source
@@ -163,7 +172,7 @@ def test_proposal_workflow_uses_selected_candidate_state_and_decision_ready_comp
     assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only." in source
 
 
-def test_compare_panel_is_workflow_aware_and_preserves_generic_fallback():
+def test_compare_panel_is_workflow_aware_and_uses_shared_versions_store():
     source = COMPARE_PANEL.read_text(encoding="utf-8")
 
     assert "workflowModeActive" in source
@@ -171,6 +180,8 @@ def test_compare_panel_is_workflow_aware_and_preserves_generic_fallback():
     assert "Selected Candidate" in source
     assert "renderDecisionReadyCompare(lastComparison" in source
     assert "getWorkflowCandidateVersions(versionsState.versions, workflowBaselineRunId())" in source
+    assert "initPersistedVersionsStore" in source
+    assert "subscribePersistedVersions(handleVersionsSnapshot)" in source
     assert 'onState("backtest.selectedCandidateVersionId", () => {' in source
     assert "Left run" in source
     assert "Right run" in source
@@ -182,9 +193,16 @@ def test_compare_panel_is_workflow_aware_and_preserves_generic_fallback():
     assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Delta is right minus left." in source
 
 
-def test_decision_renderer_exposes_diff_pair_and_diagnosis_sections():
+def test_decision_renderer_exposes_summary_first_diff_pair_and_diagnosis_sections():
     source = DECISION_RENDERER.read_text(encoding="utf-8")
 
+    assert "Decision Snapshot" in source
+    assert "compare-snapshot-grid" in source
+    assert "compare-section-details" in source
+    assert "compare-version-diff-grid" in source
+    assert "compare-param-groups" in source
+    assert "compare-code-preview" in source
+    assert "preview_truncated" in source
     assert "Version Diff" in source
     assert "Decision Metrics" in source
     assert "Pair Delta" in source
@@ -193,11 +211,34 @@ def test_decision_renderer_exposes_diff_pair_and_diagnosis_sections():
     assert "Rule:" in source
     assert "Improved Pairs:" in source
     assert "Regressed Pairs:" in source
-    assert "compare-diff-table" in source
     assert "compare-pairs-table" in source
     assert "compare-diagnosis-grid" in source
     assert "compare-cell-note" in source
     assert "decision-badge--" in source
+
+
+def test_history_panel_is_hybrid_and_uses_shared_versions_store():
+    source = HISTORY_PANEL.read_text(encoding="utf-8")
+    store_source = PERSISTED_VERSIONS_STORE.read_text(encoding="utf-8")
+    modal_source = MODAL_COMPONENT.read_text(encoding="utf-8")
+
+    assert "History Overview" in source
+    assert "Version Decisions" in source
+    assert '["all", "All"]' in source
+    assert '["runs", "Runs"]' in source
+    assert '["decisions", "Decisions"]' in source
+    assert "history-decision-card" in source
+    assert "history-audit-row" in source
+    assert "initPersistedVersionsStore" in source
+    assert "subscribePersistedVersions" in source
+    assert "latestAuditNote" in source
+
+    assert "activeVersionId" in store_source
+    assert "api.versions.listVersions(strategy, true)" in store_source
+    assert "export async function refreshPersistedVersions" in store_source
+
+    assert "onClose" in modal_source
+    assert "activeOnClose" in modal_source
 
 
 def test_shared_drawer_explicitly_selects_the_created_candidate_version():

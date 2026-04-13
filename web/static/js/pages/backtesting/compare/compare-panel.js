@@ -17,6 +17,11 @@ import {
   initPersistedRunsStore,
   subscribePersistedRuns,
 } from "../results/persisted-runs-store.js";
+import {
+  initPersistedVersionsStore,
+  refreshPersistedVersions,
+  subscribePersistedVersions,
+} from "../results/persisted-versions-store.js";
 
 const compareArea = document.getElementById("compare-area");
 let persistedRunsState = { status: "idle", strategy: "", runs: [], error: null };
@@ -30,13 +35,14 @@ let lastComparedPairKey = "";
 let compareError = null;
 let compareLoading = false;
 let compareRequestId = 0;
-let versionsRequestId = 0;
 
 export function initComparePanel() {
   if (!compareArea) return;
 
   initPersistedRunsStore();
+  initPersistedVersionsStore();
   subscribePersistedRuns(handleRunsSnapshot);
+  subscribePersistedVersions(handleVersionsSnapshot);
   onEvent(EVENTS.RESULTS_LOADED, handleResultsLoaded);
   onState("backtest.selectedCandidateVersionId", () => {
     renderComparePanel();
@@ -102,42 +108,28 @@ function pickRetainedRightRunId(leftRunId, currentRunId) {
   return pickDifferentRunId(leftRunId);
 }
 
-async function loadVersions(strategy) {
+async function loadVersions(strategy, options = {}) {
   if (!strategy) {
-    versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
     setSelectedCandidateVersionId(null);
+    await refreshPersistedVersions("", options);
     renderComparePanel();
     return;
   }
 
-  const requestId = ++versionsRequestId;
-  versionsState = { ...versionsState, status: "loading", strategy, error: null };
-  renderComparePanel();
+  await refreshPersistedVersions(strategy, { silent: Boolean(options?.silent) });
+}
 
-  try {
-    const response = await api.versions.listVersions(strategy, true);
-    if (requestId !== versionsRequestId) return;
-    versionsState = {
-      status: "ready",
-      strategy,
-      versions: Array.isArray(response?.versions) ? response.versions : [],
-      activeVersionId: response?.active_version_id || null,
-      error: null,
-    };
+function handleVersionsSnapshot(snapshot) {
+  versionsState = snapshot || { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
+
+  if (workflowModeActive()) {
     ensureSelectedCandidateVersion(versionsState.versions, workflowBaselineRunId());
     renderComparePanel();
     void maybeLoadComparison();
-  } catch (error) {
-    if (requestId !== versionsRequestId) return;
-    versionsState = {
-      status: "error",
-      strategy,
-      versions: [],
-      activeVersionId: null,
-      error: error?.message || String(error),
-    };
-    renderComparePanel();
+    return;
   }
+
+  renderComparePanel();
 }
 
 function handleResultsLoaded(payload) {

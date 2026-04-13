@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 from datetime import datetime
 
@@ -19,6 +19,14 @@ class ChangeType(str, Enum):
     EVOLUTION = "evolution"
     MANUAL = "manual"
     ROLLBACK = "rollback"
+
+
+class VersionAuditEvent(BaseModel):
+    event_type: Literal["created", "accepted", "rejected", "rolled_back"]
+    created_at: str
+    actor: str
+    note: Optional[str] = None
+    from_version_id: Optional[str] = None
 
 
 class StrategyVersion(BaseModel):
@@ -43,6 +51,7 @@ class StrategyVersion(BaseModel):
 
     promoted_from_version_id: Optional[str] = None
     promoted_at: Optional[str] = None
+    audit_events: List[VersionAuditEvent] = Field(default_factory=list)
 
 
 class MutationRequest(BaseModel):

@@ -22,6 +22,7 @@ from app.models.optimizer_models import (
     MutationRequest,
     MutationResult,
     StrategyVersion,
+    VersionAuditEvent,
     VersionStatus,
 )
 from app.services.config_service import ConfigService
@@ -248,6 +249,106 @@ class StrategyMutationService:
                 removed_lines += 1
         return added_lines, removed_lines
 
+    @staticmethod
+    def _append_audit_event(
+        version: StrategyVersion,
+        event_type: str,
+        *,
+        actor: str | None = None,
+        note: str | None = None,
+        from_version_id: str | None = None,
+    ) -> None:
+        note_text = str(note or "").strip() or None
+        source_version_id = str(from_version_id or "").strip() or None
+        audit_events = list(getattr(version, "audit_events", None) or [])
+        audit_events.append(
+            VersionAuditEvent(
+                event_type=event_type,
+                created_at=datetime.now().isoformat(),
+                actor=str(actor or "system").strip() or "system",
+                note=note_text,
+                from_version_id=source_version_id,
+            )
+        )
+        version.audit_events = audit_events
+
+    @staticmethod
+    def _build_code_diff_preview(
+        before_code: str,
+        after_code: str,
+        *,
+        baseline_label: str = "baseline",
+        candidate_label: str = "candidate",
+        max_blocks: int = 3,
+        max_lines: int = 40,
+    ) -> dict[str, Any]:
+        diff_lines = list(
+            difflib.unified_diff(
+                before_code.splitlines(),
+                after_code.splitlines(),
+                fromfile=baseline_label,
+                tofile=candidate_label,
+                n=2,
+                lineterm="",
+            )
+        )
+        if not diff_lines:
+            return {
+                "preview_blocks": [],
+                "preview_truncated": False,
+            }
+
+        total_hunks = sum(1 for line in diff_lines if line.startswith("@@"))
+        preview_blocks: list[dict[str, Any]] = []
+        current_block: dict[str, Any] | None = None
+        preview_line_count = 0
+        truncated = False
+
+        for line in diff_lines:
+            if line.startswith("---") or line.startswith("+++"):
+                continue
+            if line.startswith("@@"):
+                if len(preview_blocks) >= max_blocks:
+                    truncated = True
+                    break
+                current_block = {
+                    "header": line,
+                    "lines": [],
+                }
+                preview_blocks.append(current_block)
+                continue
+            if current_block is None:
+                continue
+            if preview_line_count >= max_lines:
+                truncated = True
+                break
+
+            kind = "context"
+            text = line
+            if line.startswith("+"):
+                kind = "added"
+                text = line[1:]
+            elif line.startswith("-"):
+                kind = "removed"
+                text = line[1:]
+            elif line.startswith(" "):
+                kind = "context"
+                text = line[1:]
+
+            current_block["lines"].append({
+                "kind": kind,
+                "text": text,
+            })
+            preview_line_count += 1
+
+        if total_hunks > len(preview_blocks):
+            truncated = True
+
+        return {
+            "preview_blocks": [block for block in preview_blocks if block.get("lines")],
+            "preview_truncated": truncated,
+        }
+
     def normalize_source_metadata(self, version: StrategyVersion | None) -> dict[str, Any]:
         if version is None:
             return {
@@ -335,6 +436,13 @@ class StrategyMutationService:
         if candidate_version is not None:
             candidate_code = str(self.resolve_effective_artifacts(candidate_version.version_id).get("code_snapshot") or "")
 
+        preview = self._build_code_diff_preview(
+            baseline_code,
+            candidate_code,
+            baseline_label=getattr(baseline_version, "version_id", None) or "baseline",
+            candidate_label=getattr(candidate_version, "version_id", None) or "candidate",
+        )
+
         if not baseline_code.strip() and not candidate_code.strip():
             return {
                 "changed": False,
@@ -342,6 +450,8 @@ class StrategyMutationService:
                 "removed_lines": 0,
                 "diff_ref": diff_ref,
                 "summary": "No persisted code snapshot is available for this compare.",
+                "preview_blocks": [],
+                "preview_truncated": False,
             }
 
         if baseline_code == candidate_code:
@@ -351,6 +461,8 @@ class StrategyMutationService:
                 "removed_lines": 0,
                 "diff_ref": diff_ref,
                 "summary": "No persisted code changes were detected between baseline and candidate.",
+                "preview_blocks": [],
+                "preview_truncated": False,
             }
 
         added_lines, removed_lines = self._count_code_diff_lines(baseline_code, candidate_code)
@@ -360,6 +472,8 @@ class StrategyMutationService:
             "removed_lines": removed_lines,
             "diff_ref": diff_ref,
             "summary": f"Persisted code snapshot changed by {added_lines} added and {removed_lines} removed lines.",
+            "preview_blocks": preview["preview_blocks"],
+            "preview_truncated": preview["preview_truncated"],
         }
 
     def build_version_compare_payload(self, left_version_id: str | None, right_version_id: str | None) -> dict[str, Any]:
@@ -497,6 +611,7 @@ class StrategyMutationService:
             code_snapshot=request.code,
             parameters_snapshot=request.parameters,
         )
+        self._append_audit_event(version, "created", actor=request.created_by)
 
         self._save_version(version)
 
@@ -548,6 +663,7 @@ class StrategyMutationService:
         version.status = VersionStatus.ACTIVE
         version.promoted_from_version_id = active_id
         version.promoted_at = datetime.now().isoformat()
+        self._append_audit_event(version, "accepted", note=notes, from_version_id=active_id)
         self._save_version(version)
         self._set_active_version(version)
 
@@ -604,6 +720,7 @@ class StrategyMutationService:
         target_version.status = VersionStatus.ACTIVE
         target_version.promoted_from_version_id = current_active
         target_version.promoted_at = datetime.now().isoformat()
+        self._append_audit_event(target_version, "rolled_back", note=reason, from_version_id=current_active)
         self._save_version(target_version)
         self._set_active_version(target_version)
 
@@ -645,6 +762,7 @@ class StrategyMutationService:
             )
 
         version.status = VersionStatus.REJECTED
+        self._append_audit_event(version, "rejected", note=reason)
         self._save_version(version)
 
         return MutationResult(

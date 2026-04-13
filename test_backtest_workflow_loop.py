@@ -287,6 +287,10 @@ def test_backtest_workflow_loop_from_diagnosis_to_rollback(monkeypatch, tmp_path
     assert candidate_version.source_context["action_type"] == "tighten_stoploss"
     assert candidate_version.parameters_snapshot["stoploss"] == -0.15
     assert candidate_version.parameters_snapshot["trailing_stop"] is True
+    assert [event.event_type for event in candidate_version.audit_events] == ["created"]
+    assert candidate_version.audit_events[0].actor == candidate_version.created_by
+    assert candidate_version.audit_events[0].note is None
+    assert candidate_version.audit_events[0].from_version_id is None
 
     assert paths["strategy_file"].read_text(encoding="utf-8") == baseline_live_code
     assert json.loads(paths["config_file"].read_text(encoding="utf-8")) == baseline_live_config
@@ -359,6 +363,11 @@ def test_backtest_workflow_loop_from_diagnosis_to_rollback(monkeypatch, tmp_path
     assert comparison["version_diff"]["source_title"] == "Tighten Stoploss"
     assert comparison["version_diff"]["candidate_mode"] == "parameter_only"
     assert any(row["path"] == "stoploss" for row in comparison["version_diff"]["parameter_diff_rows"])
+    code_diff = comparison["version_diff"]["code_diff"]
+    assert "preview_blocks" in code_diff
+    assert "preview_truncated" in code_diff
+    assert code_diff["preview_blocks"] == []
+    assert code_diff["preview_truncated"] is False
 
     accept_response = client.post(
         "/api/versions/TestStrat/accept",
@@ -370,8 +379,22 @@ def test_backtest_workflow_loop_from_diagnosis_to_rollback(monkeypatch, tmp_path
     accepted_config = json.loads(paths["config_file"].read_text(encoding="utf-8"))
     assert accepted_config["stoploss"] == -0.15
     assert accepted_config["trailing_stop"] is True
-    assert mutation_module.mutation_service.get_version_by_id(candidate_version_id).status == VersionStatus.ACTIVE
+    accepted_candidate = mutation_module.mutation_service.get_version_by_id(candidate_version_id)
+    assert accepted_candidate.status == VersionStatus.ACTIVE
     assert mutation_module.mutation_service.get_version_by_id("v-baseline").status == VersionStatus.ARCHIVED
+    accepted_event = accepted_candidate.audit_events[-1]
+    assert accepted_event.event_type == "accepted"
+    assert accepted_event.note == "Accept candidate from workflow loop test"
+    assert accepted_event.from_version_id == "v-baseline"
+
+    version_detail_response = client.get(f"/api/versions/TestStrat/{candidate_version_id}")
+    assert version_detail_response.status_code == 200
+    assert version_detail_response.json()["audit_events"][-1]["event_type"] == "accepted"
+
+    version_list_response = client.get("/api/versions/TestStrat", params={"include_archived": "true"})
+    assert version_list_response.status_code == 200
+    listed_candidate = next(version for version in version_list_response.json()["versions"] if version["version_id"] == candidate_version_id)
+    assert listed_candidate["audit_events"][-1]["note"] == "Accept candidate from workflow loop test"
 
     rollback_response = client.post(
         "/api/versions/TestStrat/rollback",
@@ -381,8 +404,14 @@ def test_backtest_workflow_loop_from_diagnosis_to_rollback(monkeypatch, tmp_path
     assert rollback_response.json()["status"] == "rolled_back"
     assert paths["strategy_file"].read_text(encoding="utf-8") == baseline_live_code
     assert json.loads(paths["config_file"].read_text(encoding="utf-8")) == baseline_live_config
-    assert mutation_module.mutation_service.get_version_by_id("v-baseline").status == VersionStatus.ACTIVE
-    assert mutation_module.mutation_service.get_version_by_id(candidate_version_id).status == VersionStatus.ARCHIVED
+    rolled_back_baseline = mutation_module.mutation_service.get_version_by_id("v-baseline")
+    archived_candidate = mutation_module.mutation_service.get_version_by_id(candidate_version_id)
+    assert rolled_back_baseline.status == VersionStatus.ACTIVE
+    assert archived_candidate.status == VersionStatus.ARCHIVED
+    rollback_event = rolled_back_baseline.audit_events[-1]
+    assert rollback_event.event_type == "rolled_back"
+    assert rollback_event.note == "Rollback to baseline from workflow loop test"
+    assert rollback_event.from_version_id == candidate_version_id
 
 def test_backtest_workflow_reject_keeps_live_baseline_intact(monkeypatch, tmp_path):
     paths = _configure_storage(monkeypatch, tmp_path)
@@ -426,5 +455,9 @@ def test_backtest_workflow_reject_keeps_live_baseline_intact(monkeypatch, tmp_pa
 
     assert rejected_candidate.status == VersionStatus.REJECTED
     assert baseline_version.status == VersionStatus.ACTIVE
+    assert [event.event_type for event in rejected_candidate.audit_events] == ["created", "rejected"]
+    reject_event = rejected_candidate.audit_events[-1]
+    assert reject_event.note == "Reject candidate from workflow loop test"
+    assert reject_event.from_version_id is None
     assert paths["strategy_file"].read_text(encoding="utf-8") == baseline_live_code
     assert json.loads(paths["config_file"].read_text(encoding="utf-8")) == baseline_live_config

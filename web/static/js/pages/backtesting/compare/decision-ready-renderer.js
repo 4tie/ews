@@ -1,4 +1,4 @@
-/**
+﻿/**
  * decision-ready-renderer.js - Shared baseline-vs-candidate compare rendering helpers.
  */
 
@@ -9,7 +9,7 @@ export function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 
@@ -71,56 +71,128 @@ function renderRuleList(title, rules, emptyNote) {
   `;
 }
 
-function collectMetricLabels(rows, classification) {
-  return (Array.isArray(rows) ? rows : [])
-    .filter((row) => row?.classification === classification)
-    .map((row) => row?.label || row?.key || "Metric");
+function countClassification(rows, classification) {
+  return (Array.isArray(rows) ? rows : []).filter((row) => row?.classification === classification).length;
 }
 
-function renderMetricHighlights(rows) {
+function strongestRow(rows, classification) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => row?.classification === classification && row?.delta != null)
+    .slice()
+    .sort((left, right) => Math.abs(Number(right?.delta || 0)) - Math.abs(Number(left?.delta || 0)))[0] || null;
+}
+
+function strongestPair(rows, classification) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => row?.classification === classification && row?.delta?.profit_total_pct != null)
+    .slice()
+    .sort((left, right) => Math.abs(Number(right?.delta?.profit_total_pct || 0)) - Math.abs(Number(left?.delta?.profit_total_pct || 0)))[0] || null;
+}
+
+function renderSnapshotCard(label, value, note = "") {
   return `
-    <div class="compare-diagnosis-grid">
-      ${renderRuleList("Improved", collectMetricLabels(rows, "improved"), "No metrics improved on the selected candidate.")}
-      ${renderRuleList("Regressed", collectMetricLabels(rows, "regressed"), "No metrics regressed on the selected candidate.")}
-      ${renderRuleList("Changed", collectMetricLabels(rows, "changed"), "No metrics changed without a directional verdict.")}
-    </div>
+    <article class="compare-snapshot-card">
+      <div class="compare-snapshot-card__label">${escapeHtml(label)}</div>
+      <div class="compare-snapshot-card__value">${escapeHtml(value)}</div>
+      ${note ? `<div class="compare-snapshot-card__note">${escapeHtml(note)}</div>` : ""}
+    </article>
   `;
 }
 
-function renderParameterDiffTable(versionDiff) {
-  const rows = Array.isArray(versionDiff?.parameter_diff_rows) ? versionDiff.parameter_diff_rows : [];
-  if (!rows.length) {
+function renderDecisionSnapshot(comparison, options = {}) {
+  const versionDiff = comparison?.version_diff || {};
+  const metricRows = Array.isArray(comparison?.metrics) ? comparison.metrics : [];
+  const pairRows = Array.isArray(comparison?.pairs?.rows) ? comparison.pairs.rows : [];
+  const diagnosisDelta = comparison?.diagnosis_delta || {};
+  const sourceTitle = versionDiff?.source_title || versionDiff?.summary || "Selected candidate";
+  const codeChanged = versionDiff?.code_diff?.changed ? "Code Changed" : "Code Unchanged";
+  const strongestMetricGain = strongestRow(metricRows, "improved");
+  const strongestMetricLoss = strongestRow(metricRows, "regressed");
+  const strongestPairGain = strongestPair(pairRows, "improved");
+  const strongestPairLoss = strongestPair(pairRows, "regressed");
+  const baselineLabel = options.baselineLabel || "Baseline";
+  const candidateLabel = options.candidateLabel || "Selected Candidate";
+
+  return `
+    <section class="results-context compare-decision-section compare-snapshot-section">
+      <div class="results-context__title">Decision Snapshot</div>
+      <div class="results-context__note">Summary-first view of the current ${escapeHtml(baselineLabel.toLowerCase())} vs ${escapeHtml(candidateLabel.toLowerCase())} decision.</div>
+      <div class="compare-snapshot-grid">
+        ${renderSnapshotCard("Candidate Source", sourceTitle, `${labelize(versionDiff?.source_kind || '-')}`)}
+        ${renderSnapshotCard("Code Diff", codeChanged, versionDiff?.code_diff?.summary || "No persisted code diff summary is available.")}
+        ${renderSnapshotCard("Improved Metrics", String(countClassification(metricRows, "improved")), strongestMetricGain ? `${strongestMetricGain.label}: ${formatMetricValue(strongestMetricGain.format, strongestMetricGain.delta, '', { signed: true })}` : "No improving metric delta.")}
+        ${renderSnapshotCard("Regressed Metrics", String(countClassification(metricRows, "regressed")), strongestMetricLoss ? `${strongestMetricLoss.label}: ${formatMetricValue(strongestMetricLoss.format, strongestMetricLoss.delta, '', { signed: true })}` : "No regressing metric delta.")}
+        ${renderSnapshotCard("Improved Pairs", String(countClassification(pairRows, "improved")), strongestPairGain ? `${strongestPairGain.pair}: ${formatPct(strongestPairGain?.delta?.profit_total_pct)}` : "No improving pair delta.")}
+        ${renderSnapshotCard("Regressed Pairs", String(countClassification(pairRows, "regressed")), strongestPairLoss ? `${strongestPairLoss.pair}: ${formatPct(strongestPairLoss?.delta?.profit_total_pct)}` : "No regressing pair delta.")}
+        ${renderSnapshotCard("Resolved Rules", String((diagnosisDelta?.resolved_rules || []).length), (diagnosisDelta?.resolved_rules || []).join(", ") || "No resolved deterministic rules.")}
+        ${renderSnapshotCard("New Rules", String((diagnosisDelta?.new_rules || []).length), (diagnosisDelta?.new_rules || []).join(", ") || "No new deterministic rules.")}
+      </div>
+    </section>
+  `;
+}
+
+function renderSectionDetails(title, body, summaryNote = "", open = false) {
+  return `
+    <details class="compare-section-details"${open ? " open" : ""}>
+      <summary class="compare-section-details__summary">
+        <span>${escapeHtml(title)}</span>
+        ${summaryNote ? `<span class="compare-section-details__note">${escapeHtml(summaryNote)}</span>` : ""}
+      </summary>
+      <div class="compare-section-details__body">
+        ${body}
+      </div>
+    </details>
+  `;
+}
+
+function groupParameterDiffRows(rows) {
+  const groups = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const path = String(row?.path || "$");
+    const root = path === "$" ? "root" : (path.split(/[.[]/, 1)[0] || "root");
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(row);
+  });
+  return Array.from(groups.entries()).map(([group, items]) => ({
+    group,
+    items: items.slice().sort((left, right) => String(left?.path || "").localeCompare(String(right?.path || ""))),
+  }));
+}
+
+function renderParameterDiffGroups(versionDiff) {
+  const groups = groupParameterDiffRows(versionDiff?.parameter_diff_rows || []);
+  if (!groups.length) {
     return '<div class="results-context__note">No persisted parameter diff was detected between baseline and selected candidate.</div>';
   }
 
   return `
-    <div class="results-context__table">
-      <table class="data-table compare-table compare-diff-table">
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Parameter Path</th>
-            <th>Baseline</th>
-            <th>Selected Candidate</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map((row) => `
-            <tr>
-              <td>${renderDecisionBadge(row?.status || "changed")}</td>
-              <td class="mono">${escapeHtml(row?.path || "-")}</td>
-              <td>${escapeHtml(formatCompactValue(row?.before))}</td>
-              <td>${escapeHtml(formatCompactValue(row?.after))}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
+    <div class="compare-param-groups">
+      ${groups.map(({ group, items }) => `
+        <article class="compare-param-group">
+          <div class="compare-param-group__title">${escapeHtml(labelize(group))}</div>
+          <div class="compare-param-group__rows">
+            ${items.map((row) => `
+              <div class="compare-param-row">
+                <div class="compare-param-row__header">
+                  <span class="compare-param-row__path mono">${escapeHtml(row?.path || "-")}</span>
+                  ${renderDecisionBadge(row?.status || "changed")}
+                </div>
+                <div class="compare-param-row__values">
+                  <span><strong>Baseline:</strong> ${escapeHtml(formatCompactValue(row?.before))}</span>
+                  <span><strong>Selected Candidate:</strong> ${escapeHtml(formatCompactValue(row?.after))}</span>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+      `).join("")}
     </div>
   `;
 }
 
 function renderCodeDiff(versionDiff) {
   const codeDiff = versionDiff?.code_diff || {};
+  const previewBlocks = Array.isArray(codeDiff?.preview_blocks) ? codeDiff.preview_blocks : [];
   const summary = codeDiff?.summary || "No persisted code diff summary is available.";
   return `
     <div class="compare-code-summary ${codeDiff?.changed ? "compare-code-summary--changed" : "compare-code-summary--unchanged"}">
@@ -134,6 +206,57 @@ function renderCodeDiff(versionDiff) {
         <span><strong>Diff Ref:</strong> ${escapeHtml(codeDiff?.diff_ref || "-")}</span>
       </div>
     </div>
+    ${previewBlocks.length ? `
+      <div class="compare-code-preview">
+        ${previewBlocks.map((block) => `
+          <section class="compare-code-preview__block">
+            <div class="compare-code-preview__header">${escapeHtml(block?.header || 'Diff Block')}</div>
+            <pre class="compare-code-preview__lines">${(Array.isArray(block?.lines) ? block.lines : []).map((line) => `<div class="compare-code-line compare-code-line--${escapeHtml(line?.kind || 'context')}"><span class="compare-code-line__marker">${line?.kind === 'added' ? '+' : line?.kind === 'removed' ? '-' : ' '}</span><span>${escapeHtml(line?.text || '')}</span></div>`).join('')}</pre>
+          </section>
+        `).join("")}
+        ${codeDiff?.preview_truncated ? '<div class="results-context__note">Code preview truncated to the first 3 hunks and 40 diff lines.</div>' : ''}
+      </div>
+    ` : '<div class="results-context__note">No compact code preview is available for this compare.</div>'}
+  `;
+}
+
+function renderVersionDiff(comparison, options = {}) {
+  const versionDiff = comparison?.version_diff || {};
+  const baselineLabel = options.baselineLabel || "Baseline";
+  const candidateLabel = options.candidateLabel || "Selected Candidate";
+  const summaryText = versionDiff?.summary || "No persisted candidate summary is available.";
+  const matchedRules = Array.isArray(versionDiff?.matched_rules) ? versionDiff.matched_rules : [];
+
+  return `
+    <section class="results-context compare-decision-section">
+      <div class="results-context__title">Version Diff</div>
+      <div class="results-context__meta proposal-state-grid">
+        <span><strong>${escapeHtml(baselineLabel)} Run:</strong> ${escapeHtml(comparison?.left?.run_id || '-')}</span>
+        <span><strong>${escapeHtml(baselineLabel)} Version:</strong> ${escapeHtml(versionDiff?.baseline_version_id || comparison?.left?.version_id || '-')}</span>
+        <span><strong>${escapeHtml(candidateLabel)} Run:</strong> ${escapeHtml(comparison?.right?.run_id || '-')}</span>
+        <span><strong>${escapeHtml(candidateLabel)} Version:</strong> ${escapeHtml(versionDiff?.candidate_version_id || comparison?.right?.version_id || '-')}</span>
+        <span><strong>Candidate Parent:</strong> ${escapeHtml(versionDiff?.candidate_parent_version_id || '-')}</span>
+        <span><strong>Baseline Source:</strong> ${escapeHtml(labelize(versionDiff?.baseline_version_source || 'run'))}</span>
+        <span><strong>Source Kind:</strong> ${escapeHtml(labelize(versionDiff?.source_kind || '-'))}</span>
+        <span><strong>Source Title:</strong> ${escapeHtml(versionDiff?.source_title || '-')}</span>
+        <span><strong>Candidate Mode:</strong> ${escapeHtml(labelize(versionDiff?.candidate_mode || '-'))}</span>
+        <span><strong>Change Type:</strong> ${escapeHtml(labelize(versionDiff?.change_type || '-'))}</span>
+        <span><strong>Action Type:</strong> ${escapeHtml(labelize(versionDiff?.action_type || '-'))}</span>
+        <span><strong>Rule:</strong> ${escapeHtml(versionDiff?.rule || '-')}</span>
+      </div>
+      <div class="results-context__note">${escapeHtml(summaryText)}</div>
+      ${matchedRules.length ? `<div class="compare-token-list">${matchedRules.map((rule) => `<span class="compare-token">${escapeHtml(rule)}</span>`).join('')}</div>` : ''}
+      <div class="compare-version-diff-grid">
+        <section class="compare-version-diff-panel">
+          <div class="compare-version-diff-panel__title">Parameter Diff</div>
+          ${renderParameterDiffGroups(versionDiff)}
+        </section>
+        <section class="compare-version-diff-panel">
+          <div class="compare-version-diff-panel__title">Code Diff</div>
+          ${renderCodeDiff(versionDiff)}
+        </section>
+      </div>
+    </section>
   `;
 }
 
@@ -143,11 +266,19 @@ function renderMetricTable(comparison, options = {}) {
   const rows = Array.isArray(comparison?.metrics) ? comparison.metrics : [];
   const leftCurrency = comparison?.left?.summary_metrics?.stake_currency || "";
   const rightCurrency = comparison?.right?.summary_metrics?.stake_currency || leftCurrency;
+  const strongestGain = strongestRow(rows, "improved");
+  const strongestLoss = strongestRow(rows, "regressed");
 
   return `
     <section class="results-context results-context--table compare-decision-section">
       <div class="results-context__title">Decision Metrics</div>
-      ${renderMetricHighlights(rows)}
+      <div class="results-context__meta compare-pair-summary-grid">
+        <span><strong>Improved Metrics:</strong> ${escapeHtml(String(countClassification(rows, 'improved')))}</span>
+        <span><strong>Regressed Metrics:</strong> ${escapeHtml(String(countClassification(rows, 'regressed')))}</span>
+        <span><strong>Changed Metrics:</strong> ${escapeHtml(String(countClassification(rows, 'changed')))}</span>
+        <span><strong>Top Improvement:</strong> ${escapeHtml(strongestGain ? `${strongestGain.label} (${formatMetricValue(strongestGain.format, strongestGain.delta, '', { signed: true })})` : 'No improving metric delta detected.')}</span>
+        <span><strong>Top Regression:</strong> ${escapeHtml(strongestLoss ? `${strongestLoss.label} (${formatMetricValue(strongestLoss.format, strongestLoss.delta, '', { signed: true })})` : 'No regressing metric delta detected.')}</span>
+      </div>
       ${rows.length ? `
         <div class="results-context__table">
           <table class="data-table compare-table proposal-compare-table">
@@ -164,12 +295,12 @@ function renderMetricTable(comparison, options = {}) {
               ${rows.map((metric) => `
                 <tr>
                   <td>
-                    <div>${escapeHtml(metric?.label || "-")}</div>
-                    <div class="compare-cell-note">${escapeHtml(metric?.reason || "")}</div>
+                    <div>${escapeHtml(metric?.label || '-')}</div>
+                    <div class="compare-cell-note">${escapeHtml(metric?.reason || '')}</div>
                   </td>
                   <td>${escapeHtml(formatMetricValue(metric?.format, metric?.left, leftCurrency))}</td>
                   <td>${escapeHtml(formatMetricValue(metric?.format, metric?.right, rightCurrency))}</td>
-                  <td class="compare-metric-delta compare-metric-delta--${escapeHtml(metric?.classification || "neutral")}">${escapeHtml(formatMetricValue(metric?.format, metric?.delta, rightCurrency, { signed: true }))}</td>
+                  <td class="compare-metric-delta compare-metric-delta--${escapeHtml(metric?.classification || 'neutral')}">${escapeHtml(formatMetricValue(metric?.format, metric?.delta, rightCurrency, { signed: true }))}</td>
                   <td>${renderDecisionBadge(metric?.classification)}</td>
                 </tr>
               `).join("")}
@@ -264,51 +395,32 @@ function renderDiagnosisDelta(comparison) {
   return `
     <section class="results-context compare-decision-section">
       <div class="results-context__title">Diagnosis Delta</div>
+      <div class="results-context__meta compare-pair-summary-grid">
+        <span><strong>Resolved Rules:</strong> ${escapeHtml(String((delta?.resolved_rules || []).length))}</span>
+        <span><strong>New Rules:</strong> ${escapeHtml(String((delta?.new_rules || []).length))}</span>
+        <span><strong>Persistent Rules:</strong> ${escapeHtml(String((delta?.persistent_rules || []).length))}</span>
+        <span><strong>Worst Pair Before:</strong> ${escapeHtml(delta?.worst_pair_before || '-')}</span>
+        <span><strong>Worst Pair After:</strong> ${escapeHtml(delta?.worst_pair_after || '-')}</span>
+      </div>
       <div class="results-context__note">Deterministic-only diagnosis evidence from persisted summaries, request snapshots, and run-linked versions.</div>
       <div class="compare-diagnosis-grid">
         ${renderRuleList('Resolved Rules', delta?.resolved_rules, 'No deterministic rules were resolved by the selected candidate.')}
         ${renderRuleList('New Rules', delta?.new_rules, 'No new deterministic rules appeared on the selected candidate.')}
         ${renderRuleList('Persistent Rules', delta?.persistent_rules, 'No deterministic rules persisted across baseline and candidate.')}
       </div>
-      <div class="results-context__meta compare-pair-summary-grid">
-        <span><strong>Worst Pair Before:</strong> ${escapeHtml(delta?.worst_pair_before || '-')}</span>
-        <span><strong>Worst Pair After:</strong> ${escapeHtml(delta?.worst_pair_after || '-')}</span>
-      </div>
     </section>
   `;
 }
 
 export function renderDecisionReadyCompare(comparison, options = {}) {
-  const versionDiff = comparison?.version_diff || {};
-  const baselineLabel = options.baselineLabel || 'Baseline';
-  const candidateLabel = options.candidateLabel || 'Selected Candidate';
-  const summaryText = versionDiff?.summary || 'No persisted candidate summary is available.';
-  const matchedRules = Array.isArray(versionDiff?.matched_rules) ? versionDiff.matched_rules : [];
+  const metricRows = Array.isArray(comparison?.metrics) ? comparison.metrics : [];
+  const pairRows = Array.isArray(comparison?.pairs?.rows) ? comparison.pairs.rows : [];
 
   return `
-    <section class="results-context results-context--table compare-decision-section">
-      <div class="results-context__title">Version Diff</div>
-      <div class="results-context__meta proposal-state-grid">
-        <span><strong>${escapeHtml(baselineLabel)} Run:</strong> ${escapeHtml(comparison?.left?.run_id || '-')}</span>
-        <span><strong>${escapeHtml(baselineLabel)} Version:</strong> ${escapeHtml(versionDiff?.baseline_version_id || comparison?.left?.version_id || '-')}</span>
-        <span><strong>${escapeHtml(candidateLabel)} Run:</strong> ${escapeHtml(comparison?.right?.run_id || '-')}</span>
-        <span><strong>${escapeHtml(candidateLabel)} Version:</strong> ${escapeHtml(versionDiff?.candidate_version_id || comparison?.right?.version_id || '-')}</span>
-        <span><strong>Candidate Parent:</strong> ${escapeHtml(versionDiff?.candidate_parent_version_id || '-')}</span>
-        <span><strong>Baseline Source:</strong> ${escapeHtml(labelize(versionDiff?.baseline_version_source || 'run'))}</span>
-        <span><strong>Source Kind:</strong> ${escapeHtml(labelize(versionDiff?.source_kind || '-'))}</span>
-        <span><strong>Source Title:</strong> ${escapeHtml(versionDiff?.source_title || '-')}</span>
-        <span><strong>Candidate Mode:</strong> ${escapeHtml(labelize(versionDiff?.candidate_mode || '-'))}</span>
-        <span><strong>Change Type:</strong> ${escapeHtml(labelize(versionDiff?.change_type || '-'))}</span>
-        <span><strong>Action Type:</strong> ${escapeHtml(labelize(versionDiff?.action_type || '-'))}</span>
-        <span><strong>Rule:</strong> ${escapeHtml(versionDiff?.rule || '-')}</span>
-      </div>
-      <div class="results-context__note">${escapeHtml(summaryText)}</div>
-      ${matchedRules.length ? `<div class="compare-token-list">${matchedRules.map((rule) => `<span class="compare-token">${escapeHtml(rule)}</span>`).join('')}</div>` : ''}
-      ${renderParameterDiffTable(versionDiff)}
-      ${renderCodeDiff(versionDiff)}
-    </section>
-    ${renderMetricTable(comparison, { baselineLabel, candidateLabel })}
-    ${renderPairTable(comparison, { baselineLabel, candidateLabel })}
-    ${renderDiagnosisDelta(comparison)}
+    ${renderDecisionSnapshot(comparison, options)}
+    ${renderSectionDetails('Version Diff', renderVersionDiff(comparison, options), `${countClassification(metricRows, 'improved')} improved metrics, ${countClassification(pairRows, 'improved')} improved pairs`, true)}
+    ${renderSectionDetails('Decision Metrics', renderMetricTable(comparison, options), `${countClassification(metricRows, 'improved')} improved / ${countClassification(metricRows, 'regressed')} regressed`)}
+    ${renderSectionDetails('Pair Delta', renderPairTable(comparison, options), `${countClassification(pairRows, 'improved')} improved / ${countClassification(pairRows, 'regressed')} regressed`)}
+    ${renderSectionDetails('Diagnosis Delta', renderDiagnosisDelta(comparison), `${(comparison?.diagnosis_delta?.resolved_rules || []).length} resolved / ${(comparison?.diagnosis_delta?.new_rules || []).length} new`)}
   `;
 }

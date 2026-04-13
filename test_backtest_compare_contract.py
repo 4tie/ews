@@ -251,8 +251,14 @@ def test_compare_backtest_runs_adds_version_diff_pair_deltas_and_diagnosis_delta
     assert comparison["version_diff"]["matched_rules"] == []
     assert [row["path"] for row in comparison["version_diff"]["parameter_diff_rows"]] == ["entry.alpha", "stoploss"]
     assert [row["status"] for row in comparison["version_diff"]["parameter_diff_rows"]] == ["changed", "changed"]
-    assert comparison["version_diff"]["code_diff"]["changed"] is True
-    assert comparison["version_diff"]["code_diff"]["diff_ref"] == "diff://candidate"
+    code_diff = comparison["version_diff"]["code_diff"]
+    assert code_diff["changed"] is True
+    assert code_diff["diff_ref"] == "diff://candidate"
+    assert code_diff["preview_blocks"]
+    assert code_diff["preview_blocks"][0]["header"].startswith("@@")
+    assert code_diff["preview_blocks"][0]["lines"]
+    assert code_diff["preview_blocks"][0]["lines"][0]["kind"] in {"context", "removed", "added"}
+    assert code_diff["preview_truncated"] is False
 
     pair_rows = comparison["pairs"]["rows"]
     assert [row["pair"] for row in pair_rows] == ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
@@ -329,3 +335,69 @@ def test_compare_backtest_runs_falls_back_to_candidate_parent_only_when_run_vers
     assert set(comparison.keys()) == {"left", "right", "metrics", "versions", "version_diff", "pairs", "diagnosis_delta"}
     assert comparison["versions"]["baseline_version_id"] == "v-baseline"
     assert comparison["versions"]["baseline_version_source"] == "candidate_parent"
+
+
+def test_compare_backtest_runs_code_preview_is_bounded_and_stable(monkeypatch, tmp_path):
+    strategy_dir = tmp_path / "TestStrat"
+    strategy_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(results_module, "strategy_results_dir", lambda strategy, user_data_path=None: str(strategy_dir))
+    service = results_module.ResultsService()
+
+    left_summary_path = strategy_dir / "bt-left.summary.json"
+    right_summary_path = strategy_dir / "bt-right.summary.json"
+    payload = _summary_payload(1.0, 10.0, 5, 3, pair_rows=[_pair_row("BTC/USDT", 1.0, 5, 3)])
+    left_summary_path.write_text(json.dumps(payload), encoding="utf-8")
+    right_summary_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    left_run = _run_record("bt-left", str(left_summary_path), version_id="v-baseline")
+    right_run = _run_record("bt-right", str(right_summary_path), version_id="v-candidate")
+
+    baseline_version = _version("v-baseline", summary="Baseline")
+    candidate_version = _version(
+        "v-candidate",
+        parent_version_id="v-baseline",
+        summary="Candidate with large diff",
+        source_kind="deterministic_action",
+        source_context={"title": "Large code preview", "candidate_mode": "code_plus_parameters"},
+    )
+    versions = {
+        baseline_version.version_id: baseline_version,
+        candidate_version.version_id: candidate_version,
+    }
+
+    baseline_lines = [f"line {index:02d}" for index in range(1, 81)]
+    candidate_lines = baseline_lines[:]
+    for start in (5, 25, 45, 65):
+        for offset in range(6):
+            candidate_lines[start - 1 + offset] = f"updated {start + offset:02d}"
+
+    artifacts = {
+        "v-baseline": {
+            "version_id": "v-baseline",
+            "strategy_name": "TestStrat",
+            "lineage": ["v-baseline"],
+            "code_snapshot": "\n".join(baseline_lines) + "\n",
+            "parameters_snapshot": {"stoploss": -0.2},
+        },
+        "v-candidate": {
+            "version_id": "v-candidate",
+            "strategy_name": "TestStrat",
+            "lineage": ["v-candidate", "v-baseline"],
+            "code_snapshot": "\n".join(candidate_lines) + "\n",
+            "parameters_snapshot": {"stoploss": -0.1},
+        },
+    }
+
+    monkeypatch.setattr(results_module.mutation_service, "get_version_by_id", lambda version_id: versions.get(version_id))
+    monkeypatch.setattr(results_module.mutation_service, "resolve_effective_artifacts", lambda version_id: artifacts[version_id])
+    monkeypatch.setattr(results_module.diagnosis_service, "diagnose_run", lambda **kwargs: {"facts": {}, "ranked_issues": []})
+
+    comparison = service.compare_backtest_runs(left_run, right_run)
+    code_diff = comparison["version_diff"]["code_diff"]
+
+    assert code_diff["changed"] is True
+    assert code_diff["preview_truncated"] is True
+    assert len(code_diff["preview_blocks"]) == 3
+    assert sum(len(block["lines"]) for block in code_diff["preview_blocks"]) == 40
+    assert all(block["header"].startswith("@@") for block in code_diff["preview_blocks"])
+    assert {line["kind"] for block in code_diff["preview_blocks"] for line in block["lines"]}.issubset({"context", "removed", "added"})

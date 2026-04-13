@@ -6,6 +6,7 @@ import api from "../../../core/api.js";
 import { getState, on as onState } from "../../../core/state.js";
 import { on, EVENTS } from "../../../core/events.js";
 import { formatDate, formatNum, formatPct } from "../../../core/utils.js";
+import { closeModal, openModal } from "../../../components/modal.js";
 import showToast from "../../../components/toast.js";
 import { startBacktestRun } from "../run/run-controller.js";
 import { renderDecisionReadyCompare } from "../compare/decision-ready-renderer.js";
@@ -16,6 +17,11 @@ import {
   setSelectedCandidateVersionId,
 } from "../compare/candidate-selection-state.js";
 import { initPersistedRunsStore, subscribePersistedRuns } from "./persisted-runs-store.js";
+import {
+  initPersistedVersionsStore,
+  refreshPersistedVersions,
+  subscribePersistedVersions,
+} from "./persisted-versions-store.js";
 
 const root = document.getElementById("summary-proposals");
 
@@ -24,7 +30,6 @@ let latestPayload = null;
 let runsSnapshot = { status: "idle", strategy: "", runs: [], error: null };
 let versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
 let compareState = { status: "idle", key: "", data: null, error: null };
-let versionsRequestId = 0;
 let compareRequestId = 0;
 let busyAction = "";
 
@@ -100,6 +105,74 @@ function currentComparableCandidateRun() {
 function formatCandidateOption(version) {
   const sourceTitle = version?.source_context?.title || version?.summary || version?.source_ref || "Candidate";
   return `${version?.version_id || "-"} | ${labelize(version?.change_type)} | ${sourceTitle} | ${formatDate(version?.created_at)}`;
+}
+
+function getVersionAuditEvents(version) {
+  return (Array.isArray(version?.audit_events) ? version.audit_events : [])
+    .slice()
+    .sort((left, right) => String(left?.created_at || "").localeCompare(String(right?.created_at || "")));
+}
+
+function latestVersionAuditEvent(version) {
+  const events = getVersionAuditEvents(version);
+  return events[events.length - 1] || null;
+}
+
+function latestVersionAuditNote(version) {
+  const notedEvents = getVersionAuditEvents(version).filter((event) => String(event?.note || "").trim());
+  return notedEvents[notedEvents.length - 1] || null;
+}
+
+function truncateText(value, maxLength = 160) {
+  const textValue = String(value || "").trim();
+  if (!textValue || textValue.length <= maxLength) return textValue;
+  return `${textValue.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
+}
+
+function openDecisionNoteDialog({ title, label, confirmLabel, placeholder }) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const dialogBody = `
+      <form id="proposal-note-form" class="proposal-note-dialog">
+        <label class="setup-field proposal-note-dialog__field">
+          <span class="form-label">${escapeHtml(label)}</span>
+          <textarea id="proposal-note-input" class="form-input proposal-note-dialog__textarea" rows="5" placeholder="${escapeHtml(placeholder || "")}"></textarea>
+        </label>
+      </form>
+    `;
+    const dialogFooter = `
+      <button type="button" class="btn btn--ghost btn--sm" id="proposal-note-cancel">Cancel</button>
+      <button type="button" class="btn btn--secondary btn--sm" id="proposal-note-confirm">${escapeHtml(confirmLabel)}</button>
+    `;
+
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      closeModal();
+      resolve(value);
+    };
+
+    openModal({
+      title,
+      body: dialogBody,
+      footer: dialogFooter,
+      onClose: () => {
+        if (!settled) {
+          settled = true;
+          resolve(null);
+        }
+      },
+    });
+
+    const input = document.getElementById("proposal-note-input");
+    document.getElementById("proposal-note-cancel")?.addEventListener("click", () => settle(null));
+    document.getElementById("proposal-note-confirm")?.addEventListener("click", () => settle(String(input?.value || "").trim()));
+    document.getElementById("proposal-note-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      settle(String(input?.value || "").trim());
+    });
+    input?.focus();
+  });
 }
 
 function renderCandidateSelector() {
@@ -271,6 +344,8 @@ function renderWorkflowState() {
   const rejectBusy = busyAction === "reject-candidate";
   const rollbackBusy = busyAction === "rollback-baseline";
   const anyBusy = Boolean(busyAction);
+  const latestAudit = latestVersionAuditEvent(candidate);
+  const latestAuditNote = latestVersionAuditNote(candidate);
 
   const candidateRunLabel = candidateRun
     ? `${labelize(candidateRun.status)} | ${formatDate(candidateRun.completed_at || candidateRun.created_at)}`
@@ -280,6 +355,12 @@ function renderWorkflowState() {
     : "Baseline run has no exact version_id. Candidate creation and rerun are available, but accept and rollback stay disabled to avoid promoting against an ambiguous baseline.";
   const sourceTitle = candidate?.source_context?.title || candidate?.summary || candidate?.source_ref || "-";
   const candidateMode = candidate?.source_context?.candidate_mode || "-";
+  const latestAuditLabel = latestAudit
+    ? `${labelize(latestAudit.event_type)} | ${formatDate(latestAudit.created_at)}`
+    : "No audit events yet";
+  const latestAuditNoteText = latestAuditNote?.note
+    ? `Latest audit note: ${truncateText(latestAuditNote.note)}`
+    : "No audit note saved yet for this candidate.";
 
   return `
     <section class="results-context results-context--table">
@@ -297,8 +378,10 @@ function renderWorkflowState() {
         <span><strong>Candidate Mode:</strong> ${escapeHtml(labelize(candidateMode))}</span>
         <span><strong>Candidate Run:</strong> ${escapeHtml(candidateRunLabel)}</span>
         <span><strong>Created:</strong> ${escapeHtml(formatDate(candidate.created_at))}</span>
+        <span><strong>Latest Audit:</strong> ${escapeHtml(latestAuditLabel)}</span>
       </div>
       <div class="results-context__note">${escapeHtml(exactBaselineNote)}</div>
+      <div class="results-context__note proposal-audit-note">${escapeHtml(latestAuditNoteText)}</div>
       <div class="proposal-actions">
         <button type="button" class="btn btn--secondary btn--sm" data-action="rerun-candidate"${anyBusy && !rerunBusy ? " disabled" : ""}>${rerunBusy ? "Starting..." : "Re-run Candidate"}</button>
         <button type="button" class="btn btn--secondary btn--sm" data-action="accept-candidate"${!exactBaseline || (anyBusy && !acceptBusy) ? " disabled" : ""}>${acceptBusy ? "Accepting..." : "Accept"}</button>
@@ -428,42 +511,22 @@ function render() {
 
 async function loadVersions(strategy, options = {}) {
   if (!strategy) {
-    versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
     setSelectedCandidateVersionId(null);
+    await refreshPersistedVersions("", options);
     render();
     return;
   }
 
-  const requestId = ++versionsRequestId;
-  if (!options.silent) {
-    versionsState = { ...versionsState, status: "loading", strategy, error: null };
-    render();
-  }
+  await refreshPersistedVersions(strategy, { silent: Boolean(options?.silent) });
+}
 
-  try {
-    const response = await api.versions.listVersions(strategy, true);
-    if (requestId !== versionsRequestId) return;
-    versionsState = {
-      status: "ready",
-      strategy,
-      versions: Array.isArray(response?.versions) ? response.versions : [],
-      activeVersionId: response?.active_version_id || null,
-      error: null,
-    };
+function handleVersionsSnapshot(snapshot) {
+  versionsState = snapshot || { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
+  if (canShowWorkflow()) {
     syncWorkflowCandidateSelection();
-    render();
-    void ensureCompareLoaded();
-  } catch (error) {
-    if (requestId !== versionsRequestId) return;
-    versionsState = {
-      status: "error",
-      strategy,
-      versions: [],
-      activeVersionId: null,
-      error: error?.message || String(error),
-    };
-    render();
   }
+  render();
+  void ensureCompareLoaded();
 }
 
 async function ensureCompareLoaded() {
@@ -525,7 +588,7 @@ async function handleCreateCandidate(sourceKind, sourceIndex, actionType) {
       setSelectedCandidateVersionId(response.candidate_version_id);
     }
     showToast(response?.candidate_version_id ? `Candidate ${response.candidate_version_id} created.` : "Candidate created.", "success");
-    await loadVersions(resolveStrategy(), { silent: true });
+    await refreshPersistedVersions(resolveStrategy(), { silent: true });
     await ensureCompareLoaded();
   } catch (error) {
     showToast(`Failed to create candidate: ${error?.message || String(error)}`, "error");
@@ -587,16 +650,24 @@ async function handleAcceptCandidate() {
     return;
   }
 
+  const note = await openDecisionNoteDialog({
+    title: "Accept Candidate",
+    label: "Optional note",
+    confirmLabel: "Accept Candidate",
+    placeholder: "Why this candidate should become active.",
+  });
+  if (note === null) return;
+
   busyAction = "accept-candidate";
   render();
 
   try {
     const response = await api.versions.accept(strategy, {
       version_id: candidate.version_id,
-      notes: `Accepted from proposal workflow using baseline run ${currentBaselineRunId()}`,
+      notes: note || undefined,
     });
     showToast(response?.message || `Accepted ${candidate.version_id}.`, "success");
-    await loadVersions(strategy, { silent: true });
+    await refreshPersistedVersions(strategy, { silent: true });
   } catch (error) {
     showToast(`Failed to accept candidate: ${error?.message || String(error)}`, "error");
   } finally {
@@ -613,16 +684,24 @@ async function handleRejectCandidate() {
     return;
   }
 
+  const reason = await openDecisionNoteDialog({
+    title: "Reject Candidate",
+    label: "Optional reason",
+    confirmLabel: "Reject Candidate",
+    placeholder: "Why this candidate should stay out of the live strategy.",
+  });
+  if (reason === null) return;
+
   busyAction = "reject-candidate";
   render();
 
   try {
     const response = await api.versions.reject(strategy, {
       version_id: candidate.version_id,
-      reason: `Rejected from proposal workflow using baseline run ${currentBaselineRunId()}`,
+      reason: reason || undefined,
     });
     showToast(response?.message || `Rejected ${candidate.version_id}.`, "success");
-    await loadVersions(strategy, { silent: true });
+    await refreshPersistedVersions(strategy, { silent: true });
   } catch (error) {
     showToast(`Failed to reject candidate: ${error?.message || String(error)}`, "error");
   } finally {
@@ -639,16 +718,24 @@ async function handleRollbackBaseline() {
     return;
   }
 
+  const reason = await openDecisionNoteDialog({
+    title: "Rollback Baseline",
+    label: "Optional reason",
+    confirmLabel: "Rollback to Baseline",
+    placeholder: "Why the workflow should return to the baseline version.",
+  });
+  if (reason === null) return;
+
   busyAction = "rollback-baseline";
   render();
 
   try {
     const response = await api.versions.rollback(strategy, {
       target_version_id: baselineVersionId,
-      reason: `Rollback to baseline run ${currentBaselineRunId()} from proposal workflow`,
+      reason: reason || undefined,
     });
     showToast(response?.message || `Rolled back to ${baselineVersionId}.`, "success");
-    await loadVersions(strategy, { silent: true });
+    await refreshPersistedVersions(strategy, { silent: true });
   } catch (error) {
     showToast(`Failed to rollback baseline: ${error?.message || String(error)}`, "error");
   } finally {
@@ -697,6 +784,7 @@ export function initProposalWorkflow() {
   if (!root) return;
 
   initPersistedRunsStore();
+  initPersistedVersionsStore();
   root.addEventListener("click", handleRootClick);
   root.addEventListener("change", handleRootChange);
   subscribePersistedRuns((snapshot) => {
@@ -704,6 +792,8 @@ export function initProposalWorkflow() {
     render();
     void ensureCompareLoaded();
   });
+
+  subscribePersistedVersions(handleVersionsSnapshot);
 
   on(EVENTS.RESULTS_LOADED, (payload) => {
     latestPayload = payload || null;
