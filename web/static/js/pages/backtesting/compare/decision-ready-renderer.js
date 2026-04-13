@@ -112,6 +112,8 @@ function renderDecisionSnapshot(comparison, options = {}) {
   const strongestPairLoss = strongestPair(pairRows, "regressed");
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
+  const requestDiff = versionDiff?.request_snapshot_diff || {};
+  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
 
   return `
     <section class="results-context compare-decision-section compare-snapshot-section">
@@ -120,6 +122,7 @@ function renderDecisionSnapshot(comparison, options = {}) {
       <div class="compare-snapshot-grid">
         ${renderSnapshotCard("Candidate Source", sourceTitle, `${labelize(versionDiff?.source_kind || '-')}`)}
         ${renderSnapshotCard("Code Diff", codeChanged, versionDiff?.code_diff?.summary || "No persisted code diff summary is available.")}
+        ${renderSnapshotCard("Compare Warnings", String(compareWarnings.length), compareWarnings.length ? (compareWarnings[0] || "Compare context warnings detected.") : "No critical request differences detected.")}
         ${renderSnapshotCard("Improved Metrics", String(countClassification(metricRows, "improved")), strongestMetricGain ? `${strongestMetricGain.label}: ${formatMetricValue(strongestMetricGain.format, strongestMetricGain.delta, '', { signed: true })}` : "No improving metric delta.")}
         ${renderSnapshotCard("Regressed Metrics", String(countClassification(metricRows, "regressed")), strongestMetricLoss ? `${strongestMetricLoss.label}: ${formatMetricValue(strongestMetricLoss.format, strongestMetricLoss.delta, '', { signed: true })}` : "No regressing metric delta.")}
         ${renderSnapshotCard("Improved Pairs", String(countClassification(pairRows, "improved")), strongestPairGain ? `${strongestPairGain.pair}: ${formatPct(strongestPairGain?.delta?.profit_total_pct)}` : "No improving pair delta.")}
@@ -220,10 +223,58 @@ function renderCodeDiff(versionDiff) {
   `;
 }
 
+
+function renderRequestSnapshotDiff(versionDiff) {
+  const diff = versionDiff?.request_snapshot_diff || {};
+  const summary = diff?.summary || {};
+  const warnings = Array.isArray(diff?.warnings) ? diff.warnings : [];
+  const rows = Array.isArray(diff?.rows) ? diff.rows : [];
+
+  if (!warnings.length && !rows.length) {
+    return '<div class="results-context__note">No persisted run request snapshot diff is available for this compare.</div>';
+  }
+
+  return `
+    ${warnings.length ? `
+      <div class="compare-code-summary compare-code-summary--changed">
+        <div class="compare-code-summary__header">
+          ${renderDecisionBadge('changed')}
+          <span><strong>Compare Warnings:</strong> ${escapeHtml(String(warnings.length))}</span>
+        </div>
+        <div class="results-context__note">${escapeHtml(warnings.join(' '))}</div>
+      </div>
+    ` : ''}
+    ${rows.length ? `
+      <div class="compare-param-groups">
+        <article class="compare-param-group">
+          <div class="compare-param-group__title">Request Snapshot (${escapeHtml(String(summary?.changed ?? '-'))} changed)</div>
+          <div class="compare-param-group__rows">
+            ${rows.map((row) => `
+              <div class="compare-param-row">
+                <div class="compare-param-row__header">
+                  <span class="compare-param-row__path mono">${escapeHtml(row?.label || row?.path || '-')}</span>
+                  ${renderDecisionBadge(row?.status || 'changed')}
+                </div>
+                <div class="compare-param-row__values">
+                  <span><strong>Baseline:</strong> ${escapeHtml(String(row?.left_preview ?? formatCompactValue(row?.left)))}</span>
+                  <span><strong>Selected Candidate:</strong> ${escapeHtml(String(row?.right_preview ?? formatCompactValue(row?.right)))}</span>
+                </div>
+                ${(row?.note ? `<div class="compare-cell-note">${escapeHtml(row.note)}</div>` : '')}
+              </div>
+            `).join('')}
+          </div>
+        </article>
+      </div>
+    ` : '<div class="results-context__note">No request snapshot rows are available for this compare.</div>'}
+  `;
+}
+
 function renderVersionDiff(comparison, options = {}) {
   const versionDiff = comparison?.version_diff || {};
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
+  const requestDiff = versionDiff?.request_snapshot_diff || {};
+  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
   const summaryText = versionDiff?.summary || "No persisted candidate summary is available.";
   const matchedRules = Array.isArray(versionDiff?.matched_rules) ? versionDiff.matched_rules : [];
 
@@ -255,6 +306,10 @@ function renderVersionDiff(comparison, options = {}) {
           <div class="compare-version-diff-panel__title">Code Diff</div>
           ${renderCodeDiff(versionDiff)}
         </section>
+        <section class="compare-version-diff-panel">
+          <div class="compare-version-diff-panel__title">Run Snapshot Diff</div>
+          ${renderRequestSnapshotDiff(versionDiff)}
+        </section>
       </div>
     </section>
   `;
@@ -263,6 +318,8 @@ function renderVersionDiff(comparison, options = {}) {
 function renderMetricTable(comparison, options = {}) {
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
+  const requestDiff = versionDiff?.request_snapshot_diff || {};
+  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
   const rows = Array.isArray(comparison?.metrics) ? comparison.metrics : [];
   const leftCurrency = comparison?.left?.summary_metrics?.stake_currency || "";
   const rightCurrency = comparison?.right?.summary_metrics?.stake_currency || leftCurrency;
@@ -315,6 +372,8 @@ function renderMetricTable(comparison, options = {}) {
 function renderPairTable(comparison, options = {}) {
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
+  const requestDiff = versionDiff?.request_snapshot_diff || {};
+  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
   const pairs = comparison?.pairs || {};
   const rows = Array.isArray(pairs?.rows) ? pairs.rows : [];
   const topImprovements = Array.isArray(pairs?.top_improvements) ? pairs.top_improvements : [];
@@ -424,3 +483,5 @@ export function renderDecisionReadyCompare(comparison, options = {}) {
     ${renderSectionDetails('Diagnosis Delta', renderDiagnosisDelta(comparison), `${(comparison?.diagnosis_delta?.resolved_rules || []).length} resolved / ${(comparison?.diagnosis_delta?.new_rules || []).length} new`)}
   `;
 }
+
+

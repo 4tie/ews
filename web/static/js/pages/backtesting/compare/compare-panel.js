@@ -1,4 +1,4 @@
-/**
+﻿/**
  * compare-panel.js - Baseline-versus-candidate compare in workflow mode, generic two-run compare otherwise.
  */
 
@@ -348,7 +348,10 @@ function buildRunContext(run, title) {
       <span><strong>Version:</strong> ${escapeHtml(run?.version_id || "-")}</span>
       <span><strong>Status:</strong> ${escapeHtml(labelize(run?.status))}</span>
       <span><strong>Timeframe:</strong> ${escapeHtml(snapshot?.timeframe || metrics?.timeframe || "-")}</span>
+      <span><strong>Timerange:</strong> ${escapeHtml(snapshot?.timerange || "-")}</span>
       <span><strong>Pairs:</strong> ${escapeHtml(pairCount == null ? "-" : String(pairCount))}</span>
+      <span><strong>Exchange:</strong> ${escapeHtml(snapshot?.exchange || "-")}</span>
+      <span><strong>Config:</strong> ${escapeHtml(snapshot?.config_path || "-")}</span>
       <span><strong>Trigger:</strong> ${escapeHtml(labelize(run?.trigger_source || "-"))}</span>
       <span><strong>Created:</strong> ${escapeHtml(formatDate(run?.completed_at || run?.created_at))}</span>
     </div>
@@ -458,3 +461,4 @@ function renderComparePanel() {
   }
   compareArea.appendChild(layout);
 }
+

@@ -1,4 +1,4 @@
-import glob
+﻿import glob
 import json
 import os
 from typing import Any, Optional
@@ -12,6 +12,121 @@ from app.utils.json_io import read_json, write_json
 
 
 class ResultsService:
+    def _preview_list(self, value: Any, *, limit: int = 6) -> str:
+        if not isinstance(value, list):
+            return str(value) if value is not None else "-"
+        items = [str(item) for item in value if item is not None]
+        if not items:
+            return "[]"
+        if len(items) <= limit:
+            return "[" + ", ".join(items) + "]"
+        return "[" + ", ".join(items[:limit]) + f", +{len(items) - limit} more]"
+
+    def _normalize_compare_value(self, value: Any) -> Any:
+        if isinstance(value, list):
+            return [item for item in value if item is not None]
+        return value
+
+    def _diff_status(self, left_value: Any, right_value: Any) -> str:
+        if left_value is None and right_value is None:
+            return "same"
+        if left_value is None and right_value is not None:
+            return "added"
+        if left_value is not None and right_value is None:
+            return "removed"
+        return "same" if left_value == right_value else "changed"
+
+    def _build_request_snapshot_diff(self, left_run: BacktestRunRecord, right_run: BacktestRunRecord) -> dict[str, Any]:
+        left_snapshot = left_run.request_snapshot if isinstance(left_run.request_snapshot, dict) else {}
+        right_snapshot = right_run.request_snapshot if isinstance(right_run.request_snapshot, dict) else {}
+
+        specs: list[dict[str, Any]] = [
+            {"key": "strategy", "label": "Strategy", "critical": True, "source": "record"},
+            {"key": "version_id", "label": "Version", "critical": False, "source": "record"},
+            {"key": "trigger_source", "label": "Trigger Source", "critical": False, "source": "record"},
+            {"key": "exchange", "label": "Exchange", "critical": True, "source": "snapshot"},
+            {"key": "timeframe", "label": "Timeframe", "critical": True, "source": "snapshot"},
+            {"key": "timerange", "label": "Timerange", "critical": True, "source": "snapshot"},
+            {"key": "pairs", "label": "Pairs", "critical": True, "source": "snapshot_list_set"},
+            {"key": "max_open_trades", "label": "Max Open Trades", "critical": False, "source": "snapshot"},
+            {"key": "dry_run_wallet", "label": "Dry Run Wallet", "critical": False, "source": "snapshot"},
+            {"key": "config_path", "label": "Config Path", "critical": False, "source": "snapshot"},
+            {"key": "extra_flags", "label": "Extra Flags", "critical": False, "source": "snapshot_list_set"},
+        ]
+
+        rows: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        changed_count = 0
+        critical_changed_count = 0
+
+        def _value(run: BacktestRunRecord, snapshot: dict[str, Any], spec: dict[str, Any]) -> Any:
+            key = spec["key"]
+            source = spec["source"]
+            if source == "record":
+                return getattr(run, key, None)
+            if source in {"snapshot", "snapshot_list_set"}:
+                return snapshot.get(key)
+            return snapshot.get(key)
+
+        for spec in specs:
+            key = spec["key"]
+            label = spec["label"]
+            critical = bool(spec.get("critical"))
+            source = spec.get("source")
+            left_raw = self._normalize_compare_value(_value(left_run, left_snapshot, spec))
+            right_raw = self._normalize_compare_value(_value(right_run, right_snapshot, spec))
+
+            left_value = left_raw
+            right_value = right_raw
+            note = ""
+
+            if source == "snapshot_list_set":
+                left_value = sorted({str(item) for item in left_raw or []})
+                right_value = sorted({str(item) for item in right_raw or []})
+                if key == "pairs":
+                    note = "Pairs compared as sets (order-insensitive)."
+                else:
+                    note = "Compared as sets (order-insensitive)."
+
+            status = self._diff_status(left_value, right_value)
+            if status != "same":
+                changed_count += 1
+                if critical:
+                    critical_changed_count += 1
+                    warnings.append(f"{label} differs between the two runs.")
+
+            left_preview = self._preview_list(left_value)
+            right_preview = self._preview_list(right_value)
+            left_payload = left_value
+            right_payload = right_value
+            if source == "snapshot_list_set":
+                left_payload = {"count": len(left_value), "preview": left_preview}
+                right_payload = {"count": len(right_value), "preview": right_preview}
+
+            rows.append(
+                {
+                    "path": f"run_request.{key}",
+                    "label": label,
+                    "status": status,
+                    "left": left_payload,
+                    "right": right_payload,
+                    "left_preview": left_preview,
+                    "right_preview": right_preview,
+                    "critical": critical,
+                    "note": note,
+                }
+            )
+
+        return {
+            "summary": {
+                "total": len(rows),
+                "changed": changed_count,
+                "critical_changed": critical_changed_count,
+                "warnings": len(warnings),
+            },
+            "warnings": warnings,
+            "rows": rows,
+        }
     def _run_result_paths(self, strategy: str, run_id: str) -> dict:
         base = strategy_results_dir(strategy)
         os.makedirs(base, exist_ok=True)
@@ -586,6 +701,10 @@ class ResultsService:
             )
 
         version_compare = mutation_service.build_version_compare_payload(left_run.version_id, right_run.version_id)
+
+        version_diff = dict(version_compare.get("version_diff") or {})
+
+        version_diff["request_snapshot_diff"] = self._build_request_snapshot_diff(left_run, right_run)
         pair_compare = self._build_pair_compare(
             left_context.get("summary_block"),
             right_context.get("summary_block"),
@@ -599,7 +718,7 @@ class ResultsService:
             "right": right_view,
             "metrics": rows,
             "versions": version_compare.get("versions") or {},
-            "version_diff": version_compare.get("version_diff") or {},
+            "version_diff": version_diff,
             "pairs": pair_compare,
             "diagnosis_delta": diagnosis_delta,
         }
@@ -684,5 +803,7 @@ class ResultsService:
         if not os.path.isdir(base):
             return []
         return [d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))]
+
+
 
 
