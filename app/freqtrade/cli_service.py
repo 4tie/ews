@@ -4,6 +4,7 @@ import glob
 import json
 import logging
 import os
+import re
 import subprocess
 from datetime import datetime
 from typing import Any
@@ -27,6 +28,9 @@ class FreqtradeCliService:
         "--export-directory",
         "--backtest-directory",
         "--notes",
+        "--config",
+        "-c",
+        "--strategy-path",
     }
 
     def _settings(self) -> dict[str, Any]:
@@ -71,7 +75,7 @@ class FreqtradeCliService:
         if conflicting:
             conflict_list = ", ".join(sorted(set(conflicting)))
             raise ValueError(
-                f"extra_flags may not override run-scoped export settings: {conflict_list}"
+                f"extra_flags may not override run-scoped flags: {conflict_list}"
             )
 
     def _backtest_extra_flags(self, payload: dict[str, Any]) -> list[str]:
@@ -83,6 +87,31 @@ class FreqtradeCliService:
             extra_flags.extend(["--cache", "none"])
 
         return extra_flags
+
+    def _rewrite_first_class_declaration(self, code_snapshot: str, strategy: str) -> str:
+        """Ensure the strategy class name matches the `--strategy` value for this run.
+
+        This rewrite is run-scoped only (workspace materialization), never a live file mutation.
+        """
+        if not isinstance(code_snapshot, str) or not code_snapshot.strip():
+            return code_snapshot
+        strategy_name = str(strategy or "").strip()
+        if not strategy_name:
+            return code_snapshot
+
+        pattern = re.compile(r"^(\\s*class\\s+)([A-Za-z_][A-Za-z0-9_]*)(\\s*)(\\(|:)", flags=re.MULTILINE)
+        match = pattern.search(code_snapshot)
+        if not match:
+            return code_snapshot
+
+        existing = match.group(2)
+        if existing == strategy_name:
+            return code_snapshot
+
+        def _replace(m):
+            return f"{m.group(1)}{strategy_name}{m.group(3)}{m.group(4)}"
+
+        return pattern.sub(_replace, code_snapshot, count=1)
 
     def _backtest_artifact_paths(self, strategy: str, run_id: str) -> dict[str, Any]:
         result_dir = strategy_results_dir(strategy)
@@ -141,6 +170,8 @@ class FreqtradeCliService:
         code_snapshot = resolved.get("code_snapshot")
         if not isinstance(code_snapshot, str) or not code_snapshot.strip():
             raise ValueError(f"Version {version_id} does not resolve to a strategy code snapshot")
+
+        code_snapshot = self._rewrite_first_class_declaration(code_snapshot, strategy)
 
         parameters_snapshot = resolved.get("parameters_snapshot")
         if not isinstance(parameters_snapshot, dict):
