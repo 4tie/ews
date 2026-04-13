@@ -59,16 +59,31 @@ function joinDerivedPath(base, parts) {
   return [root, ...parts].join(separator);
 }
 
+function setValidationStatus(statusId, message = "", tone = "") {
+  const status = document.getElementById(statusId);
+  if (!status) return;
+
+  status.textContent = message;
+  status.className = tone ? `field-hint ${tone === "success" ? "is-success" : "is-error"}` : "field-hint";
+}
+
+function clearValidationStatus(statusId) {
+  setValidationStatus(statusId, "", "");
+}
+
 async function validatePath(inputId, statusId, kind = "path") {
   const input = document.getElementById(inputId);
-  const status = document.getElementById(statusId);
-  const path = input?.value?.trim();
+  const path = normalizePath(input?.value);
+  if (input && path !== input.value) {
+    input.value = path;
+  }
   if (!path) {
+    clearValidationStatus(statusId);
     showToast("Enter a path first.", "warning");
     return;
   }
 
-  if (status) status.textContent = "Validating...";
+  setValidationStatus(statusId, "Validating...");
   try {
     const res = await fetch("/api/settings/validate-path", {
       method: "POST",
@@ -76,29 +91,32 @@ async function validatePath(inputId, statusId, kind = "path") {
       body: JSON.stringify({ path, kind }),
     });
     const { valid, error, resolved_path: resolvedPath } = await res.json();
-    if (status) {
-      if (valid && kind === "freqtrade" && resolvedPath) {
-        status.textContent = `Resolved executable: ${resolvedPath}`;
-      } else if (valid) {
-        status.textContent = "Path exists";
-      } else {
-        status.textContent = error || "Path not found";
-      }
-      status.className = `field-hint ${valid ? "is-success" : "is-error"}`;
+    if (valid && kind === "freqtrade" && resolvedPath) {
+      setValidationStatus(statusId, `Resolved executable: ${resolvedPath}`, "success");
+    } else if (valid) {
+      setValidationStatus(statusId, "Path exists", "success");
+    } else {
+      setValidationStatus(statusId, error || "Path not found", "error");
     }
   } catch (e) {
-    if (status) {
-      status.textContent = "Validation failed";
-      status.className = "field-hint is-error";
-    }
+    setValidationStatus(statusId, "Validation failed", "error");
   }
 }
 
 export function initPathsSettings() {
   const ftInput = document.getElementById("set-ft-path");
+  const configInput = document.getElementById("set-config-path");
 
-  ftInput?.addEventListener("input", () => autofillDerived(ftInput.value.trim()));
-  ftInput?.addEventListener("change", () => autofillDerived(ftInput.value.trim()));
+  ftInput?.addEventListener("input", () => {
+    clearValidationStatus("ft-path-status");
+    autofillDerived(ftInput.value.trim());
+  });
+  ftInput?.addEventListener("change", () => {
+    clearValidationStatus("ft-path-status");
+    autofillDerived(ftInput.value.trim());
+  });
+  configInput?.addEventListener("input", () => clearValidationStatus("config-path-status"));
+  configInput?.addEventListener("change", () => clearValidationStatus("config-path-status"));
 
   document.getElementById("btn-validate-ft-path")
     ?.addEventListener("click", () => validatePath("set-ft-path", "ft-path-status", "freqtrade"));
@@ -107,6 +125,7 @@ export function initPathsSettings() {
 
   if (ftInput?.value?.trim()) {
     autofillDerived(ftInput.value.trim());
+    void validatePath("set-ft-path", "ft-path-status", "freqtrade");
   }
 }
 

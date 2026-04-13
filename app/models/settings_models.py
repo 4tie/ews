@@ -1,4 +1,5 @@
-﻿import re
+﻿import os
+import re
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -47,6 +48,22 @@ class AppSettings(BaseModel):
         if normalized not in _SUPPORTED_AI_PROVIDERS:
             raise ValueError("ai_provider must be one of: ollama, openrouter, huggingface, openai")
         return normalized
+
+    @field_validator(
+        "freqtrade_path",
+        "user_data_path",
+        "config_path",
+        "results_base_path",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_path_fields(cls, value: str | None) -> str:
+        normalized = str(value or "").strip()
+        if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {'"', "'"}:
+            normalized = normalized[1:-1].strip()
+        if not normalized:
+            return ""
+        return os.path.normpath(normalized)
 
     @field_validator(
         "ai_classifier_model",
