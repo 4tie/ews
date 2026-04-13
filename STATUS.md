@@ -20,18 +20,30 @@
 
 ## Phase 4
 
-Phase 4 is operational hardening after the reload fix, not feature rescue.
+Phase 4 is `Decision-Ready Candidate Compare`.
 
-Current Phase 4 goals:
-- keep `backtest.selectedCandidateVersionId` as the only selected-candidate state
-- keep workflow compare on `Baseline` vs `Selected Candidate`
-- preserve the canonical compare payload:
+Phase 4 is already implemented with these outcomes:
+- one shared `backtest.selectedCandidateVersionId` state across workflow compare surfaces
+- explicit workflow compare on `Baseline` vs `Selected Candidate`
+- canonical version-aware compare payload:
   - `versions`
   - `version_diff`
   - `parameter_diff_rows`
   - `code_diff`
   - `pairs`
   - `diagnosis_delta`
+- parameter diff rows and persisted code diff summary in the compare evidence
+- pair deltas with improved/regressed classification
+- deterministic diagnosis delta with resolved/new/persistent rules
+- improved/regressed metric classification grounded in persisted compare evidence
+
+## Additional Operational Hardening
+
+Launcher/reload hardening is a separate additional pass. It is useful, but it is not what fulfilled Phase 4.
+
+Current hardening goals:
+- keep `python app\main.py` as the owned startup path
+- preserve reload exclusions for workflow write paths
 - run a smoke flow with:
   - candidate creation
   - rerun on the selected `version_id`
@@ -49,7 +61,7 @@ Current Phase 4 goals:
 
 ## Remaining Work After Phase 4
 
-Only polish-level work should remain after this phase:
+Only polish-level work should remain after Phase 4 and the separate launcher/reload hardening pass:
 - richer diff rendering
 - optional raw patch viewer
 - clearer history and audit visuals
