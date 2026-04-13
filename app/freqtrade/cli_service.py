@@ -99,7 +99,7 @@ class FreqtradeCliService:
         if not strategy_name:
             return code_snapshot
 
-        pattern = re.compile(r"^(\\s*class\\s+)([A-Za-z_][A-Za-z0-9_]*)(\\s*)(\\(|:)", flags=re.MULTILINE)
+        pattern = re.compile(r"^(\s*class\s+)([A-Za-z_][A-Za-z0-9_]*)(\s*)(\(|:)", flags=re.MULTILINE)
         match = pattern.search(code_snapshot)
         if not match:
             return code_snapshot

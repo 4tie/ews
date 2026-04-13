@@ -1,5 +1,6 @@
 import json
 import os
+import pytest
 from types import SimpleNamespace
 
 from app.freqtrade import commands as commands_module
@@ -94,6 +95,43 @@ def test_materialize_version_workspace_with_parameters_adds_overlay_config(tmp_p
     assert overlay == {"stoploss": -0.1, "nested": {"enabled": True}}
 
 
+
+def test_materialize_version_workspace_rewrites_class_declaration_to_strategy_name(tmp_path, monkeypatch):
+    service = FreqtradeCliService()
+    base_config_path = tmp_path / "config.json"
+    base_config_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(service, "_workspace_paths", _workspace_paths_factory(tmp_path))
+    monkeypatch.setattr(
+        mutation_service,
+        "get_version_by_id",
+        lambda version_id: SimpleNamespace(strategy_name="TestStrat"),
+    )
+    monkeypatch.setattr(
+        mutation_service,
+        "resolve_effective_artifacts",
+        lambda version_id: {
+            "strategy_name": "TestStrat",
+            "code_snapshot": "class WrongName(IStrategy):\\n    pass\\n\\nclass Helper:\\n    pass\\n",
+            "parameters_snapshot": {},
+        },
+    )
+
+    result = service._materialize_version_workspace(
+        {
+            "run_id": "bt-test-class-rename",
+            "strategy": "TestStrat",
+            "version_id": "v-test-class-rename",
+        },
+        str(base_config_path),
+    )
+
+    with open(result["strategy_file"], "r", encoding="utf-8") as handle:
+        written = handle.read()
+    assert "class TestStrat(IStrategy):" in written
+    assert "class WrongName" not in written
+    assert "class Helper:" in written
+
 def test_prepare_backtest_run_uses_workspace_strategy_path_and_stacked_configs(tmp_path, monkeypatch):
     service = FreqtradeCliService()
     base_config_path = tmp_path / "base.config.json"
@@ -141,3 +179,21 @@ def test_prepare_backtest_run_uses_workspace_strategy_path_and_stacked_configs(t
     assert "--strategy-path" in cmd
     assert cmd[cmd.index("--strategy-path") + 1] == prepared["strategy_path"]
     assert prepared["strategy_path"].endswith(os.path.join("bt-test-789", "workspace", "strategies"))
+
+@pytest.mark.parametrize(
+    "extra_flags",
+    [
+        ["--strategy-path", "C:/tmp"],
+        ["--config", "C:/tmp/config.json"],
+        ["-c", "C:/tmp/config.json"],
+        ["--config=C:/tmp/config.json"],
+        ["--strategy-path=C:/tmp"],
+    ],
+)
+def test_backtest_extra_flags_rejects_overriding_strategy_path_and_config(extra_flags):
+    service = FreqtradeCliService()
+    with pytest.raises(ValueError) as excinfo:
+        service._backtest_extra_flags({"extra_flags": extra_flags})
+    message = str(excinfo.value)
+    assert "run-scoped flags" in message
+    assert any(token in message for token in ("--strategy-path", "--config", "-c"))
