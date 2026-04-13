@@ -1,0 +1,137 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: 4tie
+        - generic [ref=e6]: Control Panel
+      - navigation [ref=e7]:
+        - link "Backtesting" [ref=e8] [cursor=pointer]:
+          - /url: /backtesting
+          - img [ref=e9]
+          - generic [ref=e11]: Backtesting
+        - link "Optimizer" [ref=e12] [cursor=pointer]:
+          - /url: /optimizer
+          - img [ref=e13]
+          - generic [ref=e16]: Optimizer
+        - link "Settings" [ref=e17] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e18]
+          - generic [ref=e21]: Settings
+      - generic [ref=e22]: v0.1.0
+    - generic [ref=e23]:
+      - banner [ref=e24]:
+        - heading "Optimizer" [level=1] [ref=e26]
+        - generic [ref=e27]:
+          - button "AI Assistant" [ref=e28] [cursor=pointer]
+          - generic [ref=e31]: Idle
+      - main [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]:
+            - heading "Optimizer Configuration" [level=2] [ref=e36]
+            - generic [ref=e37]:
+              - generic [ref=e38]:
+                - generic [ref=e39]: Strategy
+                - combobox "Strategy" [ref=e40] [cursor=pointer]:
+                  - option "Select strategy…" [selected]
+                  - option "AIStrategy"
+                  - option "Diamond"
+                  - option "mabStra"
+                  - option "MohsBaseline"
+                  - option "MultiMa"
+                  - option "MultiMa2"
+                  - option "PatternRecognition"
+                  - option "SwingHighToSky"
+                  - option "TestLatestResults"
+                  - option "UniversalMACD"
+              - generic [ref=e41]:
+                - generic [ref=e42]: Timeframe
+                - combobox "Timeframe" [ref=e43] [cursor=pointer]:
+                  - option "Select timeframe…" [selected]
+                  - option "1m"
+                  - option "3m"
+                  - option "5m"
+                  - option "15m"
+                  - option "30m"
+                  - option "1h"
+                  - option "2h"
+                  - option "4h"
+                  - option "6h"
+                  - option "8h"
+                  - option "12h"
+                  - option "1d"
+                  - option "3d"
+                  - option "1w"
+              - generic [ref=e44]:
+                - generic [ref=e45]: Epochs
+                - spinbutton "Epochs" [ref=e46]: "100"
+              - generic [ref=e47]:
+                - generic [ref=e48]: Hyperopt Loss
+                - combobox "Hyperopt Loss" [ref=e49] [cursor=pointer]:
+                  - option "SharpeHyperOptLoss" [selected]
+                  - option "SortinoHyperOptLoss"
+                  - option "OnlyProfitHyperOptLoss"
+                  - option "MaxDrawDownHyperOptLoss"
+                  - option "CalmarHyperOptLoss"
+              - generic [ref=e50]:
+                - generic [ref=e51]: Spaces
+                - generic [ref=e52]:
+                  - generic [ref=e53] [cursor=pointer]:
+                    - checkbox "Buy" [checked] [ref=e54]
+                    - text: Buy
+                  - generic [ref=e55] [cursor=pointer]:
+                    - checkbox "Sell" [checked] [ref=e56]
+                    - text: Sell
+                  - generic [ref=e57] [cursor=pointer]:
+                    - checkbox "ROI" [ref=e58]
+                    - text: ROI
+                  - generic [ref=e59] [cursor=pointer]:
+                    - checkbox "Stoploss" [ref=e60]
+                    - text: Stoploss
+                  - generic [ref=e61] [cursor=pointer]:
+                    - checkbox "Trailing" [ref=e62]
+                    - text: Trailing
+              - generic [ref=e63]:
+                - generic [ref=e64]: Time Range
+                - textbox "Time Range" [ref=e65]:
+                  - /placeholder: 20230101-20240101
+              - generic [ref=e66]:
+                - generic [ref=e67]: Pairs (comma-separated)
+                - textbox "Pairs (comma-separated)" [ref=e68]:
+                  - /placeholder: BTC/USDT, ETH/USDT
+                - paragraph [ref=e69]:
+                  - text: Leave empty to use config pairs.
+                  - link "Seed from last backtest config" [ref=e70] [cursor=pointer]:
+                    - /url: "#"
+            - generic [ref=e71]:
+              - button "Start Optimizer" [ref=e72] [cursor=pointer]
+              - button "Stop" [disabled]
+              - button "Pause" [disabled]
+          - generic [ref=e74]:
+            - heading "Live Log Stream" [level=2] [ref=e75]
+            - button "Clear" [ref=e76] [cursor=pointer]
+          - generic [ref=e79]:
+            - generic [ref=e80]:
+              - generic [ref=e81]:
+                - heading "Latest Attempt" [level=2] [ref=e82]
+                - generic [ref=e83]: epoch —
+              - generic [ref=e85]: No attempt results yet.
+            - generic [ref=e86]:
+              - generic [ref=e87]:
+                - heading "Active Best Result" [level=2] [ref=e88]
+                - generic [ref=e89]: —
+              - generic [ref=e91]: No accepted result yet.
+          - generic [ref=e92]:
+            - heading "Checkpoints" [level=2] [ref=e94]
+            - generic [ref=e97]: No checkpoints saved yet.
+          - generic [ref=e98]:
+            - heading "Comparison" [level=2] [ref=e100]
+            - generic [ref=e102]: Select checkpoints to compare results.
+  - complementary [ref=e103]:
+    - generic [ref=e104]:
+      - heading [level=3] [ref=e105]: AI Assistant
+      - button [ref=e106] [cursor=pointer]: ×
+    - generic [ref=e108]: Select a strategy in Backtesting to enable the assistant.
+    - generic [ref=e109]:
+      - textbox [disabled] [ref=e110]:
+        - /placeholder: Ask about your strategy...
+      - button [ref=e111] [cursor=pointer]: Send
