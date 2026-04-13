@@ -175,7 +175,7 @@ def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_deci
     assert "loadOptions();" in source
     assert "switchBacktestStrategy" in source
     assert "switchBacktestStrategy(response.new_strategy_name)" in source
-    assert "Optional reason" in source
+    assert source.count("Decision note") >= 2
     assert "proposal-audit-note" in source
     assert 'data-role="selected-candidate"' in source
     assert "Selected Candidate" in source
