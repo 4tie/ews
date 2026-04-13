@@ -198,3 +198,31 @@ def test_decision_renderer_exposes_diff_pair_and_diagnosis_sections():
     assert "compare-diagnosis-grid" in source
     assert "compare-cell-note" in source
     assert "decision-badge--" in source
+
+
+def test_shared_drawer_explicitly_selects_the_created_candidate_version():
+    source = SHARED_DRAWER.read_text(encoding="utf-8")
+
+    assert 'import { setSelectedCandidateVersionId } from "../pages/backtesting/compare/candidate-selection-state.js";' in source
+    assert 'setSelectedCandidateVersionId(response.candidate_version_id);' in source
+
+
+def test_candidate_selection_state_filters_workflow_choices_to_pending_candidates_only():
+    source = CANDIDATE_SELECTION_STATE.read_text(encoding="utf-8")
+
+    assert "function isPendingWorkflowCandidate(version)" in source
+    assert 'String(version?.status || "").toLowerCase() === "candidate"' in source
+    assert '.filter((version) => version?.source_ref === sourceRef && isPendingWorkflowCandidate(version))' in source
+
+
+def test_ai_apply_reruns_keep_the_workflow_pinned_to_the_baseline_diagnosis():
+    run_controller = (ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "run" / "run-controller.js").read_text(encoding="utf-8")
+    results_controller = (ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "results-controller.js").read_text(encoding="utf-8")
+
+    assert "let _currentRunMeta = { trigger_source: null, version_id: null, strategy: null };" in run_controller
+    assert "function setCurrentRunMeta(meta = null)" in run_controller
+    assert "function currentRunEventMeta(status, exitCode, error)" in run_controller
+    assert "emit(EVENTS.BACKTEST_COMPLETE, currentRunEventMeta(s, exitCode, error));" in run_controller
+    assert 'triggerSource === "ai_apply"' in results_controller
+    assert "function shouldPreserveWorkflowBaseline(event)" in results_controller
+    assert "if (shouldPreserveWorkflowBaseline(event))" in results_controller

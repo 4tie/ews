@@ -111,8 +111,8 @@ class StrategyMutationService:
         - {user_data}/config/{strategy_name}.json
         
         Called exclusively from:
-        - accept_version() — after status + artifact validation gates
-        - rollback_version() — after artifact validation gates
+        - accept_version() - after status + artifact validation gates
+        - rollback_version() - after artifact validation gates
         
         Caller must validate:
         - Version status is correct (accept checks CANDIDATE, rollback checks any)
@@ -558,13 +558,22 @@ class StrategyMutationService:
         )
 
     def rollback_version(self, target_version_id: str, reason: Optional[str] = None) -> MutationResult:
-        """Rollback to an existing version and restore its live artifacts."""
+        """Rollback to an accepted prior version and restore its live artifacts."""
         target_version = self.get_version_by_id(target_version_id)
         if not target_version:
             return MutationResult(
                 version_id=target_version_id,
                 status="error",
                 message=f"Version {target_version_id} not found",
+            )
+
+        if target_version.status in {VersionStatus.CANDIDATE, VersionStatus.DRAFT, VersionStatus.REJECTED}:
+            return MutationResult(
+                version_id=target_version_id,
+                status="error",
+                message=(
+                    f"Version {target_version_id} is {target_version.status} and cannot be used as a rollback target"
+                ),
             )
 
         # Gate 1: Ensure valid artifacts before touching live files
@@ -626,6 +635,13 @@ class StrategyMutationService:
                 version_id=version_id,
                 status="rejected",
                 message=f"Version {version_id} is already rejected" + (f": {reason}" if reason else ""),
+            )
+
+        if version.status != VersionStatus.CANDIDATE:
+            return MutationResult(
+                version_id=version_id,
+                status="error",
+                message=f"Version {version_id} is not a candidate and cannot be rejected",
             )
 
         version.status = VersionStatus.REJECTED

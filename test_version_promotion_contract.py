@@ -481,3 +481,56 @@ def test_rerun_creates_isolated_workspace_per_run(monkeypatch, tmp_path):
 
     # Verify: Live strategy file is NOT modified (workspace doesn't touch live)
     assert not paths["strategy_file"].exists(), "Live strategy file should not be touched by rerun workspace materialization"
+
+
+def test_reject_version_rejects_only_candidate_versions(monkeypatch, tmp_path):
+    paths = _configure_storage(monkeypatch, tmp_path)
+    service = mutation_module.StrategyMutationService()
+
+    archived = _version(
+        "v-archived",
+        status=VersionStatus.ARCHIVED,
+        code_snapshot="class TestStrat:\n    archived = True\n",
+        parameters_snapshot={"stoploss": -0.2},
+    )
+    service._save_version(archived)
+
+    result = service.reject_version(archived.version_id, reason="not actionable")
+
+    assert result.status == "error"
+    assert "not a candidate" in result.message
+    assert service.get_version_by_id(archived.version_id).status == VersionStatus.ARCHIVED
+    assert not paths["strategy_file"].exists()
+    assert not paths["config_file"].exists()
+
+
+def test_rollback_version_rejects_candidate_targets(monkeypatch, tmp_path):
+    paths = _configure_storage(monkeypatch, tmp_path)
+    service = mutation_module.StrategyMutationService()
+
+    active = _version(
+        "v-active",
+        status=VersionStatus.ACTIVE,
+        code_snapshot="class TestStrat:\n    active = True\n",
+        parameters_snapshot={"stoploss": -0.2},
+    )
+    candidate = _version(
+        "v-candidate",
+        status=VersionStatus.CANDIDATE,
+        parent_version_id=active.version_id,
+        code_snapshot="class TestStrat:\n    candidate = True\n",
+        parameters_snapshot={"stoploss": -0.1},
+    )
+
+    service._save_version(active)
+    service._save_version(candidate)
+    service._set_active_version(active)
+
+    result = service.rollback_version(candidate.version_id, reason="invalid rollback target")
+
+    assert result.status == "error"
+    assert "cannot be used as a rollback target" in result.message
+    assert service.get_version_by_id(candidate.version_id).status == VersionStatus.CANDIDATE
+    assert service.get_version_by_id(active.version_id).status == VersionStatus.ACTIVE
+    assert not paths["strategy_file"].exists()
+    assert not paths["config_file"].exists()

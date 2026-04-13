@@ -267,14 +267,28 @@ function handleRunsSnapshot(snapshot) {
   }
 }
 
+function shouldPreserveWorkflowBaseline(event) {
+  const triggerSource = String(event?.trigger_source || "").toLowerCase();
+  return Boolean(
+    triggerSource === "ai_apply"
+      && lastReadyPayload?.diagnosis_status === "ready"
+      && lastReadyPayload?.summary_available
+      && lastReadyPayload?.run_id
+  );
+}
+
 export function initResultsController() {
   currentStrategy = getState("backtest.strategy") || "";
   initPersistedRunsStore();
   subscribePersistedRuns(handleRunsSnapshot);
 
   on(EVENTS.BACKTEST_COMPLETE, (event) => {
-    if (event?.run_id) {
-      loadDiagnosis(event.run_id);
+    if (!event?.run_id) {
+      return;
     }
+    if (shouldPreserveWorkflowBaseline(event)) {
+      return;
+    }
+    loadDiagnosis(event.run_id);
   });
 }

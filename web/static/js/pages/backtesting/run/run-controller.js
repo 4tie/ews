@@ -23,6 +23,7 @@ const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped"]);
 let _currentRunId = null;
 let _listenersController = null;
 let _lastTerminalEvent = null;
+let _currentRunMeta = { trigger_source: null, version_id: null, strategy: null };
 
 function setStatus(state, label) {
   if (statusDot) statusDot.className = `status-dot status-dot--${state}`;
@@ -32,6 +33,26 @@ function setStatus(state, label) {
 function setCurrentRunId(runId) {
   _currentRunId = runId || null;
   _lastTerminalEvent = null;
+}
+
+function setCurrentRunMeta(meta = null) {
+  _currentRunMeta = {
+    trigger_source: meta?.trigger_source || null,
+    version_id: meta?.version_id || null,
+    strategy: meta?.strategy || null,
+  };
+}
+
+function currentRunEventMeta(status, exitCode, error) {
+  return {
+    run_id: _currentRunId,
+    status,
+    exit_code: exitCode,
+    error,
+    trigger_source: _currentRunMeta.trigger_source,
+    version_id: _currentRunMeta.version_id,
+    strategy: _currentRunMeta.strategy,
+  };
 }
 
 function persistActiveRun(runId, strategy) {
@@ -117,21 +138,22 @@ function finishRun(status, exitCode, error, progress) {
   if (s === "completed") {
     setStatus("done", `Completed (exit ${exitCode ?? 0})`);
     showToast("Backtest completed.", "success");
-    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
+    emit(EVENTS.BACKTEST_COMPLETE, currentRunEventMeta(s, exitCode, error));
   } else if (s === "failed") {
     setStatus("error", exitCode != null ? `Failed (exit ${exitCode})` : "Failed");
     showToast(failureMessage ? `Backtest failed: ${failureMessage}` : "Backtest failed.", "error");
-    emit(EVENTS.BACKTEST_FAILED, { run_id: _currentRunId, status: s, exit_code: exitCode, error: failureMessage || error });
+    emit(EVENTS.BACKTEST_FAILED, currentRunEventMeta(s, exitCode, failureMessage || error));
   } else if (s === "stopped") {
     setStatus("idle", "Stopped");
     showToast("Backtest stopped.", "warning");
-    emit(EVENTS.BACKTEST_STOPPED, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
+    emit(EVENTS.BACKTEST_STOPPED, currentRunEventMeta(s, exitCode, error));
   } else {
     setStatus("idle", formatProgressLabel(progress, s || "Done"));
-    emit(EVENTS.BACKTEST_COMPLETE, { run_id: _currentRunId, status: s, exit_code: exitCode, error });
+    emit(EVENTS.BACKTEST_COMPLETE, currentRunEventMeta(s, exitCode, error));
   }
 
   clearActiveRun();
+  setCurrentRunMeta(null);
   resetRunUi();
 }
 
@@ -185,6 +207,7 @@ async function restoreActiveRun() {
     }
 
     setCurrentRunId(run.run_id || stored.runId);
+    setCurrentRunMeta(run);
     persistActiveRun(_currentRunId, run.strategy || stored.strategy || currentStrategy);
     syncRunningUi(run.progress, run.status === "queued" ? "Queued" : "Running...");
     attachRunLogStream(_currentRunId, { resetViewer: true });
@@ -215,6 +238,7 @@ export async function startBacktestRun(payload, options = {}) {
   try {
     const res = await api.backtest.run(payload);
     setCurrentRunId(res.run_id);
+    setCurrentRunMeta(payload);
     persistActiveRun(_currentRunId, payload.strategy);
 
     if (res.status === "failed" || res.error) {
@@ -223,12 +247,7 @@ export async function startBacktestRun(payload, options = {}) {
       clearActiveRun();
       resetRunUi();
       setStatus("error", res.exit_code != null ? `Failed (exit ${res.exit_code})` : "Failed");
-      emit(EVENTS.BACKTEST_FAILED, {
-        run_id: _currentRunId,
-        status: res.status || "failed",
-        exit_code: res.exit_code,
-        error: message || res.error,
-      });
+      emit(EVENTS.BACKTEST_FAILED, currentRunEventMeta(res.status || "failed", res.exit_code, message || res.error));
       throw new Error(message || res.error || "Backtest failed.");
     }
 
@@ -242,11 +261,8 @@ export async function startBacktestRun(payload, options = {}) {
     clearActiveRun();
     showToast(message ? `Run failed: ${message}` : "Run failed.", "error");
     setStatus("error", "Failed");
-    emit(EVENTS.BACKTEST_FAILED, {
-      run_id: _currentRunId,
-      status: "failed",
-      error: message || error?.message || String(error),
-    });
+    emit(EVENTS.BACKTEST_FAILED, currentRunEventMeta("failed", null, message || error?.message || String(error)));
+    setCurrentRunMeta(null);
     resetRunUi();
     throw error;
   }

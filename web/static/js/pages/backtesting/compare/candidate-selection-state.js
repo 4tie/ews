@@ -1,4 +1,4 @@
-﻿/**
+/**
  * candidate-selection-state.js - Shared selected-candidate state for backtesting compare surfaces.
  */
 
@@ -39,5 +39,3 @@ export function ensureSelectedCandidateVersion(versions, baselineRunId) {
   }
   return next;
 }
-
-

@@ -383,3 +383,48 @@ def test_backtest_workflow_loop_from_diagnosis_to_rollback(monkeypatch, tmp_path
     assert json.loads(paths["config_file"].read_text(encoding="utf-8")) == baseline_live_config
     assert mutation_module.mutation_service.get_version_by_id("v-baseline").status == VersionStatus.ACTIVE
     assert mutation_module.mutation_service.get_version_by_id(candidate_version_id).status == VersionStatus.ARCHIVED
+
+def test_backtest_workflow_reject_keeps_live_baseline_intact(monkeypatch, tmp_path):
+    paths = _configure_storage(monkeypatch, tmp_path)
+    _seed_active_baseline(paths)
+    _patch_diagnosis(monkeypatch)
+
+    fake_engine = FakeBacktestEngine(paths["results_dir"])
+    monkeypatch.setattr(backtest_router, "_resolve_engine", lambda: fake_engine)
+
+    baseline_summary = paths["results_dir"] / "bt-baseline.summary.json"
+    baseline_summary.write_text(json.dumps(_summary_payload(1.0, 100.0, 8, 5)), encoding="utf-8")
+    _save_completed_run("bt-baseline", "v-baseline", baseline_summary)
+
+    baseline_live_code = paths["strategy_file"].read_text(encoding="utf-8")
+    baseline_live_config = json.loads(paths["config_file"].read_text(encoding="utf-8"))
+
+    candidate_response = client.post(
+        "/api/backtest/runs/bt-baseline/proposal-candidates",
+        json={
+            "source_kind": "deterministic_action",
+            "source_index": 0,
+            "candidate_mode": "auto",
+            "action_type": "tighten_stoploss",
+        },
+    )
+    assert candidate_response.status_code == 200
+    candidate_version_id = candidate_response.json()["candidate_version_id"]
+
+    reject_response = client.post(
+        "/api/versions/TestStrat/reject",
+        json={
+            "version_id": candidate_version_id,
+            "reason": "Reject candidate from workflow loop test",
+        },
+    )
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == "rejected"
+
+    rejected_candidate = mutation_module.mutation_service.get_version_by_id(candidate_version_id)
+    baseline_version = mutation_module.mutation_service.get_version_by_id("v-baseline")
+
+    assert rejected_candidate.status == VersionStatus.REJECTED
+    assert baseline_version.status == VersionStatus.ACTIVE
+    assert paths["strategy_file"].read_text(encoding="utf-8") == baseline_live_code
+    assert json.loads(paths["config_file"].read_text(encoding="utf-8")) == baseline_live_config

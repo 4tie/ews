@@ -357,10 +357,6 @@ def stage_backtest_candidate(
     )
 
 
-def _stage_candidate_mutation(**kwargs: Any) -> ProposalCandidateResult:
-    """Backward-compatible alias for older internal call sites."""
-    return stage_backtest_candidate(**kwargs)
-
 def _resolve_effective_artifacts(strategy_name: str, linked_version: Any | None) -> dict[str, Any]:
     version_id = getattr(linked_version, "version_id", None)
     if version_id:

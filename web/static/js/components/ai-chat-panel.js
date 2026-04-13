@@ -5,6 +5,7 @@ import persistence, { KEYS } from "../core/persistence.js";
 import showToast from "./toast.js";
 import { setButtonLoading } from "./loading-state.js";
 import { copyToClipboard } from "../core/utils.js";
+import { setSelectedCandidateVersionId } from "../pages/backtesting/compare/candidate-selection-state.js";
 
 const panel = document.getElementById("ai-chat-panel");
 const backdrop = document.getElementById("ai-chat-backdrop");
@@ -951,6 +952,9 @@ async function handleApplyAction(messageId, action) {
       summary: compactText(message.text || "AI chat candidate", 220),
     });
     rememberCandidateOverlay(strategy, messageId, response);
+    if (response?.candidate_version_id) {
+      setSelectedCandidateVersionId(response.candidate_version_id);
+    }
 
     if (state.latestResultsPayload) {
       emit(EVENTS.RESULTS_LOADED, state.latestResultsPayload);
