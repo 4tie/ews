@@ -131,11 +131,27 @@ function truncateText(value, maxLength = 160) {
   return `${textValue.slice(0, Math.max(0, maxLength - 1)).trimEnd()}...`;
 }
 
-function openDecisionNoteDialog({ title, label, confirmLabel, placeholder }) {
+function buildDecisionContextHtml({ title = "", fields = [], note = "" }) {
+  const rows = Array.isArray(fields)
+    ? fields.filter(([label, value]) => String(label || "").trim() && String(value || "").trim())
+    : [];
+
+  return `
+    <div class="proposal-note-dialog__context">
+      ${title ? `<div class="proposal-note-dialog__context-title">${escapeHtml(title)}</div>` : ""}
+      ${rows.length ? `<div class="proposal-note-dialog__context-grid">${rows.map(([label, value]) => `<span><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</span>`).join("")}</div>` : ""}
+      ${note ? `<div class="proposal-note-dialog__context-copy">${escapeHtml(note)}</div>` : ""}
+    </div>
+  `;
+}
+
+
+function openDecisionNoteDialog({ title, label, confirmLabel, placeholder, contextHtml = "" }) {
   return new Promise((resolve) => {
     let settled = false;
     const dialogBody = `
       <form id="proposal-note-form" class="proposal-note-dialog">
+        ${contextHtml || ""}
         <label class="setup-field proposal-note-dialog__field">
           <span class="form-label">${escapeHtml(label)}</span>
           <textarea id="proposal-note-input" class="form-input proposal-note-dialog__textarea" rows="5" placeholder="${escapeHtml(placeholder || "")}"></textarea>
@@ -177,30 +193,50 @@ function openDecisionNoteDialog({ title, label, confirmLabel, placeholder }) {
   });
 }
 
+
 function openAcceptDecisionDialog() {
   return new Promise((resolve) => {
     let settled = false;
-    const suggestion = `${resolveStrategy() || 'Strategy'}_v2`;
+    const strategyName = resolveStrategy() || "Strategy";
+    const candidate = currentCandidateVersion();
+    const baselineVersionId = currentBaselineVersionId() || "Unavailable";
+    const candidateVersionId = candidate?.version_id || "Unavailable";
+    const candidateSourceTitle = candidate?.source_context?.title || candidate?.summary || candidate?.source_ref || "Selected candidate";
+    const suggestion = `${strategyName || 'Strategy'}_v2`;
+    const contextHtml = buildDecisionContextHtml({
+      title: "Decision target",
+      fields: [
+        ["Current strategy", strategyName],
+        ["Current live version", baselineVersionId],
+        ["Selected candidate", candidateVersionId],
+        ["Candidate source", candidateSourceTitle],
+      ],
+      note: `Current live target is ${strategyName} at version ${baselineVersionId}. Accepting as current writes this candidate into that target. Promote as new strategy variant creates a separate live strategy and leaves ${strategyName} unchanged.`,
+    });
     const dialogBody = `
       <form id="proposal-accept-form" class="proposal-note-dialog">
+        ${contextHtml}
         <fieldset class="proposal-note-dialog__mode-group">
           <legend class="form-label">Promotion Mode</legend>
           <label class="proposal-note-dialog__choice">
             <input type="radio" name="proposal-accept-mode" value="accept_current" checked />
-            <span>Accept as current</span>
+            <span>Accept as current strategy</span>
           </label>
+          <div class="proposal-note-dialog__choice-copy">Writes candidate ${escapeHtml(candidateVersionId)} into the live ${escapeHtml(strategyName)} target.</div>
           <label class="proposal-note-dialog__choice">
             <input type="radio" name="proposal-accept-mode" value="promote_new_strategy" />
-            <span>Promote as new strategy</span>
+            <span>Promote as new strategy variant</span>
           </label>
+          <div class="proposal-note-dialog__choice-copy">Creates a separate strategy lineage and keeps ${escapeHtml(strategyName)} unchanged.</div>
         </fieldset>
         <label class="setup-field proposal-note-dialog__field">
-          <span class="form-label">Optional note</span>
-          <textarea id="proposal-note-input" class="form-input proposal-note-dialog__textarea" rows="5" placeholder="Why this candidate should become active."></textarea>
+          <span class="form-label">Decision note</span>
+          <textarea id="proposal-note-input" class="form-input proposal-note-dialog__textarea" rows="5" placeholder="Why this candidate should become the live target or a new variant."></textarea>
         </label>
         <label class="setup-field proposal-note-dialog__field" id="proposal-new-strategy-field" hidden>
           <span class="form-label">New strategy name</span>
           <input id="proposal-new-strategy-input" class="form-input" type="text" value="${escapeHtml(suggestion)}" placeholder="MultiMa_v2" pattern="[A-Za-z_][A-Za-z0-9_]*" spellcheck="false" autocapitalize="off" autocomplete="off" />
+          <span class="field-hint">Creates a separate live strategy and leaves ${escapeHtml(strategyName)} unchanged.</span>
           <span class="field-hint">File: <code id="proposal-new-strategy-file">user_data/strategies/${escapeHtml(suggestion)}.py</code></span>
           <span class="field-hint">Class: <code id="proposal-new-strategy-class">${escapeHtml(suggestion)}</code></span>
           <span class="field-hint">Config: <code id="proposal-new-strategy-config">user_data/config/config_${escapeHtml(suggestion)}.json</code></span>
@@ -309,6 +345,7 @@ function openAcceptDecisionDialog() {
   });
 }
 
+
 function renderCandidateSelector() {
   const versions = getWorkflowVersions();
   if (versions.length < 2) return "";
@@ -352,26 +389,83 @@ function formatMetricValue(valueFormat, value, currency = "", options = {}) {
   return String(value);
 }
 
-function renderPrimaryFlags() {
+function resolveDeterministicAction(rule) {
+  const normalizedRule = String(rule || "").trim();
+  if (!normalizedRule) return null;
+
+  const actions = Array.isArray(latestPayload?.diagnosis?.proposal_actions) ? latestPayload.diagnosis.proposal_actions : [];
+  return actions.find((item) => Array.isArray(item?.matched_rules) && item.matched_rules.includes(normalizedRule)) || null;
+}
+
+function describeProposalActionability(sourceKind, item) {
+  if (sourceKind === "deterministic_action") {
+    return {
+      actionable: true,
+      label: "Actionable now",
+      reason: item?.summary || item?.message || "This deterministic action can stage a candidate immediately.",
+      mappedAction: item || null,
+    };
+  }
+
+  if (sourceKind === "ai_parameter_suggestion") {
+    return {
+      actionable: true,
+      label: "Actionable now",
+      reason: "AI can draft a versioned candidate from this diagnosed run context.",
+      mappedAction: null,
+    };
+  }
+
+  const mappedAction = resolveDeterministicAction(item?.rule);
+  if (mappedAction) {
+    const actionLabel = mappedAction?.label || labelize(mappedAction?.action_type || "deterministic action");
+    return {
+      actionable: true,
+      label: "Actionable now",
+      reason: `Candidate path available via ${actionLabel}.`,
+      mappedAction,
+    };
+  }
+
+  return {
+    actionable: false,
+    label: "Diagnostic only",
+    reason: "No direct candidate action is mapped for this diagnosis item yet.",
+    mappedAction: null,
+  };
+}
+
+function renderProposalStatusChip(details) {
+  const tone = details?.actionable ? "actionable" : "advisory";
+  const label = details?.label || (details?.actionable ? "Actionable now" : "Diagnostic only");
+  return `<span class="proposal-status-chip proposal-status-chip--${escapeHtml(tone)}">${escapeHtml(label)}</span>`;
+}
+
+function renderPrimaryIssues() {
   const items = Array.isArray(latestPayload?.diagnosis?.primary_flags) ? latestPayload.diagnosis.primary_flags : [];
   const body = items.length
     ? `<div class="proposal-flags">${items.map((flag) => {
         const severity = String(flag?.severity || "warning");
+        const actionability = describeProposalActionability("ranked_issue", flag);
         return `
           <article class="proposal-flag proposal-flag--${escapeHtml(severity)}">
             <div class="proposal-flag__header">
               <span class="proposal-flag__rule">${escapeHtml(flag?.rule || "issue")}</span>
-              <span class="proposal-flag__severity">${escapeHtml(labelize(severity))}</span>
+              <div class="proposal-flag__chips">
+                <span class="proposal-flag__severity">${escapeHtml(labelize(severity))}</span>
+                ${renderProposalStatusChip(actionability)}
+              </div>
             </div>
             <div class="proposal-flag__message">${escapeHtml(flag?.message || "No summary available.")}</div>
+            <div class="proposal-status-note">${escapeHtml(actionability.reason)}</div>
           </article>
         `;
       }).join("")}</div>`
-    : '<div class="results-context__note">No pinned flags are currently available for this run.</div>';
+    : '<div class="results-context__note">No pinned primary issues are currently available for this run.</div>';
 
   return `
     <section class="results-context">
-      <div class="results-context__title">Primary Flags</div>
+      <div class="results-context__title">Primary Issues</div>
       ${body}
     </section>
   `;
@@ -432,9 +526,15 @@ function renderActionSection({ title, sourceKind, items, note, renderer }) {
   const body = items.length
     ? items.map((item, index) => {
         const actionKey = `create:${sourceKind}:${index}`;
-        const disabled = busyAction && busyAction !== actionKey ? " disabled" : "";
+        const actionability = describeProposalActionability(sourceKind, item);
+        const advisoryOnly = !actionability.actionable;
+        const busyLocked = Boolean(busyAction && busyAction !== actionKey);
         const loading = busyAction === actionKey;
-        const actionTypeAttr = item?.action_type ? ` data-action-type="${escapeHtml(item.action_type)}"` : "";
+        const effectiveActionType = item?.action_type || actionability?.mappedAction?.action_type || "";
+        const actionTypeAttr = effectiveActionType ? ` data-action-type="${escapeHtml(effectiveActionType)}"` : "";
+        const disabled = advisoryOnly || busyLocked ? " disabled" : "";
+        const buttonTitle = advisoryOnly ? ` title="${escapeHtml(actionability.reason)}"` : "";
+        const buttonLabel = advisoryOnly ? "Advisory Only" : loading ? "Creating..." : "Create Candidate";
         return `
           <article class="proposal-item">
             <div class="proposal-item__header">
@@ -442,9 +542,13 @@ function renderActionSection({ title, sourceKind, items, note, renderer }) {
                 <div class="proposal-item__title">${escapeHtml(item?.label || item?.rule || item?.name || item?.parameter || item?.key || `${title} ${index + 1}`)}</div>
                 <div class="proposal-item__subtitle">${escapeHtml(sourceKind.replace(/_/g, " "))}</div>
               </div>
-              <button type="button" class="btn btn--secondary btn--sm" data-action="create-candidate" data-source-kind="${escapeHtml(sourceKind)}" data-source-index="${index}"${actionTypeAttr}${disabled}>${loading ? "Creating..." : "Create Candidate"}</button>
+              <div class="proposal-item__controls">
+                ${renderProposalStatusChip(actionability)}
+                <button type="button" class="btn btn--secondary btn--sm" data-action="create-candidate" data-source-kind="${escapeHtml(sourceKind)}" data-source-index="${index}"${actionTypeAttr}${buttonTitle}${disabled}>${buttonLabel}</button>
+              </div>
             </div>
             ${renderer(item)}
+            <div class="proposal-status-note">${escapeHtml(actionability.reason)}</div>
           </article>
         `;
       }).join("")
@@ -484,9 +588,10 @@ function renderWorkflowState() {
   const candidateRunLabel = candidateRun
     ? `${labelize(candidateRun.status)} | ${formatDate(candidateRun.completed_at || candidateRun.created_at)}`
     : "Not rerun yet";
+  const strategyName = resolveStrategy() || "strategy";
   const exactBaselineNote = exactBaseline
-    ? "Accept and rollback stay enabled because this baseline run already points to an exact version."
-    : "Baseline run has no exact version_id. Candidate creation and rerun are available, but accept and rollback stay disabled to avoid promoting against an ambiguous baseline.";
+    ? `Current live target is ${strategyName} at version ${baselineVersionId}. Accept promotes the selected candidate into this target. Use "Promote as new strategy variant" in the dialog to keep ${strategyName} unchanged and create a separate strategy lineage.`
+    : `Current live target is ambiguous because baseline run ${baselineRunId || "-"} has no exact version_id. Candidate creation and rerun stay available, but accept and rollback remain disabled until the workflow is grounded in an exact version.`;
   const sourceTitle = candidate?.source_context?.title || candidate?.summary || candidate?.source_ref || "-";
   const candidateMode = candidate?.source_context?.candidate_mode || "-";
   const latestAuditLabel = latestAudit
@@ -609,7 +714,7 @@ function render() {
     : "No AI parameter suggestions were returned for this run.";
 
   root.innerHTML = `
-    ${renderPrimaryFlags()}
+    ${renderPrimaryIssues()}
     ${renderActionSection({
       title: "Deterministic Actions",
       sourceKind: "deterministic_action",
@@ -827,9 +932,18 @@ async function handleRejectCandidate() {
 
   const reason = await openDecisionNoteDialog({
     title: "Reject Candidate",
-    label: "Optional reason",
+    label: "Decision note",
     confirmLabel: "Reject Candidate",
     placeholder: "Why this candidate should stay out of the live strategy.",
+    contextHtml: buildDecisionContextHtml({
+      title: "Decision target",
+      fields: [
+        ["Strategy", strategy],
+        ["Selected candidate", candidate.version_id],
+        ["Candidate source", candidate?.source_context?.title || candidate?.summary || candidate?.source_ref || "Selected candidate"],
+      ],
+      note: `Reject marks candidate ${candidate.version_id} as rejected and leaves the live ${strategy} strategy untouched.`,
+    }),
   });
   if (reason === null) return;
 
@@ -861,9 +975,18 @@ async function handleRollbackBaseline() {
 
   const reason = await openDecisionNoteDialog({
     title: "Rollback Baseline",
-    label: "Optional reason",
+    label: "Decision note",
     confirmLabel: "Rollback to Baseline",
     placeholder: "Why the workflow should return to the baseline version.",
+    contextHtml: buildDecisionContextHtml({
+      title: "Rollback target",
+      fields: [
+        ["Strategy", strategy],
+        ["Rollback version", baselineVersionId],
+        ["Current live version", versionsState.activeVersionId || baselineVersionId],
+      ],
+      note: `Rollback restores version ${baselineVersionId} as the live ${strategy} target and archives the currently active version.`,
+    }),
   });
   if (reason === null) return;
 

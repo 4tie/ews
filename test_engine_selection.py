@@ -31,7 +31,7 @@ def test_settings_route_returns_freqtrade_runtime_defaults(monkeypatch):
     assert response.status_code == 200
     payload = response.json()
     assert payload["engine"] == "freqtrade"
-    assert payload["freqtrade_path"] == "T:/freqtrade"
+    assert payload["freqtrade_path"] == "T:\\freqtrade"  # Normalized to Windows path
     assert "config_path" in payload
     assert "results_base_path" in payload
 

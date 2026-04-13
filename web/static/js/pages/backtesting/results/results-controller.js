@@ -35,6 +35,39 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function labelize(value) {
+  return String(value || "-")
+    .replace(/_/g, " ")
+    .replace(/\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatConfidence(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return `${Math.round(number * 100)}%`;
+}
+
+function resolveMappedAction(diagnosis, rule) {
+  const normalizedRule = String(rule || "").trim();
+  if (!normalizedRule) return null;
+  const actions = Array.isArray(diagnosis?.proposal_actions) ? diagnosis.proposal_actions : [];
+  return actions.find((item) => Array.isArray(item?.matched_rules) && item.matched_rules.includes(normalizedRule)) || null;
+}
+
+function describeIssueActionability(diagnosis, rule) {
+  const mappedAction = resolveMappedAction(diagnosis, rule);
+  if (mappedAction) {
+    return {
+      label: "Actionable now",
+      reason: `Candidate path available via ${mappedAction?.label || labelize(mappedAction?.action_type || "deterministic action")}.`,
+    };
+  }
+  return {
+    label: "Diagnostic only",
+    reason: "No direct candidate action is mapped for this issue yet.",
+  };
+}
+
 function resolveStrategyBlock(summary, strategy) {
   if (!isObject(summary)) return null;
 
@@ -119,7 +152,13 @@ function renderDiagnosis(response) {
     ? `<ul class="diagnosis-list">${primaryFlags.map((flag) => {
         const severity = String(flag?.severity || "warning");
         const klass = severity === "critical" ? "diagnosis-item diagnosis-item--critical" : "diagnosis-item diagnosis-item--warning";
-        return `<li class="${klass}"><strong>${escapeHtml(flag?.rule || "issue")}</strong>: ${escapeHtml(flag?.message || "")}</li>`;
+        const actionability = describeIssueActionability(diagnosis, flag?.rule);
+        return `
+          <li class="${klass}">
+            <strong>${escapeHtml(flag?.rule || "issue")}</strong>: ${escapeHtml(flag?.message || "")}
+            <div class="results-context__note"><strong>${escapeHtml(actionability.label)}:</strong> ${escapeHtml(actionability.reason)}</div>
+          </li>
+        `;
       }).join("")}</ul>`
     : '<div class="results-context__note">No deterministic issues are currently flagged for this run.</div>';
 
@@ -131,10 +170,25 @@ function renderDiagnosis(response) {
   if (aiStatus === "ready") {
     const priorities = Array.isArray(ai?.priorities) ? ai.priorities : [];
     const rationale = Array.isArray(ai?.rationale) ? ai.rationale : [];
+    const overlayDiagnosis = isObject(ai?.diagnosis) ? ai.diagnosis : {};
+    const weaknesses = Array.isArray(overlayDiagnosis?.weaknesses) ? overlayDiagnosis.weaknesses : [];
+    const parameterSuggestions = Array.isArray(ai?.parameter_suggestions) ? ai.parameter_suggestions : [];
+    const confidenceLabel = formatConfidence(ai?.confidence);
     aiHtml = `
       ${ai?.summary ? `<div class="results-context__note">${escapeHtml(ai.summary)}</div>` : ""}
+      <div class="results-context__meta">
+        ${ai?.recommended_next_step ? `<span><strong>Recommended next step:</strong> ${escapeHtml(labelize(ai.recommended_next_step))}</span>` : ""}
+        ${confidenceLabel ? `<span><strong>Confidence:</strong> ${escapeHtml(confidenceLabel)}</span>` : ""}
+        ${ai?.provider ? `<span><strong>Model:</strong> ${escapeHtml(ai.provider)}${ai?.model ? ` / ${escapeHtml(ai.model)}` : ""}</span>` : ""}
+      </div>
+      ${overlayDiagnosis?.problem ? `<div class="results-context__note"><strong>Problem:</strong> ${escapeHtml(overlayDiagnosis.problem)}</div>` : ""}
+      ${overlayDiagnosis?.cause ? `<div class="results-context__note"><strong>Cause:</strong> ${escapeHtml(overlayDiagnosis.cause)}</div>` : ""}
+      ${weaknesses.length ? `<ul class="diagnosis-list">${weaknesses.map((item) => `<li class="diagnosis-item">${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+      ${ai?.code_change_summary ? `<div class="results-context__note"><strong>Code change summary:</strong> ${escapeHtml(ai.code_change_summary)}</div>` : ""}
       ${priorities.length ? `<ul class="diagnosis-list">${priorities.map((item) => `<li class="diagnosis-item">${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+      ${parameterSuggestions.length ? `<ul class="diagnosis-list">${parameterSuggestions.map((item) => `<li class="diagnosis-item"><strong>${escapeHtml(item?.name || "suggestion")}</strong>${item?.value != null ? ` = ${escapeHtml(item.value)}` : ""}${item?.reason ? `: ${escapeHtml(item.reason)}` : ""}</li>`).join("")}</ul>` : ""}
       ${rationale.length ? `<div class="results-context__note">${escapeHtml(rationale.join(" "))}</div>` : ""}
+      <div class="results-context__note">Advisory only. Deterministic diagnosis remains the source of truth for version decisions.</div>
     `;
   } else if (aiStatus === "unavailable") {
     aiHtml = '<div class="results-context__note">AI overlay unavailable. Deterministic diagnosis remains available.</div>';

@@ -39,7 +39,12 @@ class ConfigService:
         return get_freqtrade_runtime_settings()
 
     def save_settings(self, data: dict) -> None:
-        write_json(self._settings_path(), data)
+        # Normalize path fields on save to use OS-appropriate separators
+        normalized = dict(data)
+        for key in ["freqtrade_path", "user_data_path", "config_path", "results_base_path"]:
+            if normalized.get(key):
+                normalized[key] = os.path.normpath(str(normalized[key]))
+        write_json(self._settings_path(), normalized)
 
     def _legacy_saved_configs_dirs(self) -> list[str]:
         return [os.path.join(root, "saved_configs") for root in legacy_storage_dirs()]

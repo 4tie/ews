@@ -307,6 +307,31 @@
   color: var(--color-text-muted);
 }
 
+.ai-chat-message__note--context-state {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-border-light) 78%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
+}
+
+.ai-chat-message__note--context-state.is-ready {
+  border-color: color-mix(in srgb, var(--color-success) 34%, var(--color-border));
+}
+
+.ai-chat-message__note--context-state strong {
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-chat-message__note--context-state span {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
 .ai-chat-message__payload-shell {
   position: relative;
   display: grid;

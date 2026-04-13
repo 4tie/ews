@@ -99,7 +99,7 @@ function buildOverviewCard(runs, versions, strategy) {
       <span><strong>Persisted Versions:</strong> ${escapeHtml(String(versions.length))}</span>
       <span><strong>Active Version:</strong> ${escapeHtml(activeVersion?.version_id || versionsState.activeVersionId || "-")}</span>
     </div>
-    <div class="results-context__note">History is now a hybrid surface: persisted runs plus version-native audit events from the same strategy lineage.</div>
+    <div class="results-context__note">Pinned active version is the current live target. Accept promotes into this target, rollback re-pins an older accepted version, and promote-as-new-strategy creates a separate strategy lineage.</div>
   `;
   return card;
 }
@@ -169,7 +169,7 @@ function buildDecisionCardHtml(version) {
   const backtestProfit = version?.backtest_profit_pct == null ? "-" : formatPct(version.backtest_profit_pct);
   const isActiveVersion = version?.version_id === versionsState.activeVersionId;
   const activeChip = isActiveVersion
-    ? '<span class="history-decision-chip history-decision-chip--active">Active</span>'
+    ? '<span class="history-decision-chip history-decision-chip--active">Current Live Target</span>'
     : "";
   const statusChip = isActiveVersion && String(version?.status || '').toLowerCase() === 'active'
     ? ''
@@ -211,7 +211,7 @@ function buildDecisionCardHtml(version) {
       <div><span class="history-card__label">Promoted</span><strong>${escapeHtml(formatDate(version?.promoted_at || ''))}</strong></div>
       <div><span class="history-card__label">Latest Audit</span><strong>${escapeHtml(latestAudit ? formatAuditEventLabel(latestAudit.event_type) : '-')}</strong></div>
     </div>
-    <div class="history-decision-card__note">${escapeHtml(latestNote ? truncateText(latestNote.note) : 'No audit note saved for this version.')}</div>
+    <div class="history-decision-card__note">${escapeHtml(latestNote ? `Latest decision note: ${truncateText(latestNote.note)}` : 'No decision note saved for this version.')}</div>
     <div class="history-audit-timeline">
       ${timeline}
     </div>

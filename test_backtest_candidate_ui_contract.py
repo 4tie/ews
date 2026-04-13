@@ -11,6 +11,7 @@ STATE = ROOT / "web" / "static" / "js" / "core" / "state.js"
 BACKTESTING_INDEX = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "index.js"
 PROPOSAL_WORKFLOW = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "proposal-workflow.js"
 COMPARE_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "compare-panel.js"
+RESULTS_CONTROLLER = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "results" / "results-controller.js"
 CANDIDATE_SELECTION_STATE = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "candidate-selection-state.js"
 DECISION_RENDERER = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "compare" / "decision-ready-renderer.js"
 HISTORY_PANEL = ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "history" / "history-panel.js"
@@ -66,6 +67,8 @@ def test_shared_drawer_action_policy_and_soft_failure_copy_are_explicit():
     assert 'state.requestInFlight ? " disabled" : ""' in source
     assert "No run/diagnosis context yet. Load a completed run before staging a candidate." in source
     assert "Candidate staging unavailable for this message until a completed run diagnosis is loaded." in source
+    assert "Candidate creation requires a completed diagnosed run." in source
+    assert "describeCandidateCreationState" in source
     assert "Redo unavailable because no source user prompt was found." in source
     assert "Nothing to copy for this message." in source
     assert "Nothing to copy for this payload." in source
@@ -157,10 +160,15 @@ def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_deci
     assert 'import { closeModal, openModal } from "../../../components/modal.js";' in source
     assert 'import {' in source and 'subscribePersistedVersions,' in source
     assert "openDecisionNoteDialog" in source
-    assert "Optional note" in source
+    assert "Decision note" in source
     assert "Promotion Mode" in source
     assert "Accept as current" in source
     assert "Promote as new strategy" in source
+    assert "Promote as new strategy variant" in source
+    assert "Primary Issues" in source
+    assert "Actionable now" in source
+    assert "Diagnostic only" in source
+    assert "Current live target is" in source
     assert "New strategy name" in source
     assert "promotion_mode" in source
     assert "new_strategy_name" in source
@@ -253,6 +261,8 @@ def test_history_panel_is_hybrid_and_uses_shared_versions_store():
     assert "subscribePersistedVersions" in source
     assert "latestAuditNote" in source
     assert "promoted_as_new_strategy" in source
+    assert "Current Live Target" in source
+    assert "Pinned active version is the current live target." in source
 
     assert "activeVersionId" in store_source
     assert "api.versions.listVersions(strategy, true)" in store_source
@@ -260,6 +270,16 @@ def test_history_panel_is_hybrid_and_uses_shared_versions_store():
 
     assert "onClose" in modal_source
     assert "activeOnClose" in modal_source
+
+
+def test_results_controller_surfaces_overlay_fields_and_primary_issue_copy() -> None:
+    source = RESULTS_CONTROLLER.read_text(encoding="utf-8")
+
+    assert "Primary Issues" in source
+    assert "Recommended next step" in source
+    assert "Confidence" in source
+    assert "Code change summary" in source
+    assert "Advisory only. Deterministic diagnosis remains the source of truth for version decisions." in source
 
 
 def test_shared_drawer_explicitly_selects_the_created_candidate_version():

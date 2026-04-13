@@ -172,6 +172,37 @@ function currentRunReady() {
   return Boolean(context.run_id && context.diagnosis_status === "ready" && context.summary_available);
 }
 
+function describeCandidateCreationState(context = currentContext()) {
+  const normalized = normalizeContext(context);
+  if (!normalized.run_id) {
+    return {
+      ready: false,
+      headline: "Candidate creation requires a completed diagnosed run.",
+      reason: "No run/diagnosis context yet. Load a completed run before staging a candidate.",
+    };
+  }
+  if (!normalized.summary_available) {
+    return {
+      ready: false,
+      headline: "Candidate creation requires a completed diagnosed run.",
+      reason: "The loaded run does not have a persisted summary artifact yet.",
+    };
+  }
+  if (normalized.diagnosis_status !== "ready") {
+    return {
+      ready: false,
+      headline: "Candidate creation requires a completed diagnosed run.",
+      reason: `Candidate staging unavailable for this message until a completed run diagnosis is loaded. Current diagnosis status: ${labelize(normalized.diagnosis_status || "pending")}.`,
+    };
+  }
+  return {
+    ready: true,
+    headline: "Candidate creation is enabled for this diagnosed run.",
+    reason: "Versioned candidate staging can use the current run and version context.",
+  };
+}
+
+
 function normalizeCandidateOverlay(entry) {
   const raw = isObject(entry) ? entry : {};
   const normalized = {};
@@ -603,12 +634,16 @@ function renderRunNotReadyNote(message) {
   if (message?.candidate_version_id) return "";
   const hasCandidatePayload = Boolean(payloadText(message, "parameters") || payloadText(message, "code"));
   if (!hasCandidatePayload || currentRunReady()) return "";
-  const context = currentContext();
-  if (!context.run_id) {
-    return '<div class="ai-chat-message__note">No run/diagnosis context yet. Load a completed run before staging a candidate.</div>';
-  }
-  return '<div class="ai-chat-message__note">Candidate staging unavailable for this message until a completed run diagnosis is loaded.</div>';
+
+  const candidateState = describeCandidateCreationState(currentContext());
+  return `
+    <div class="ai-chat-message__note ai-chat-message__note--context-state">
+      <strong>${escapeHtml(candidateState.headline)}</strong>
+      <span>${escapeHtml(candidateState.reason)}</span>
+    </div>
+  `;
 }
+
 
 function renderMessageCopyButton(message) {
   if (!message?.id) return "";
@@ -666,6 +701,7 @@ function renderStatusMessage() {
   if (effectiveVersionSource === "run") versionSourceLabel = "Run-linked version snapshot";
   if (effectiveVersionSource === "active") versionSourceLabel = "Active version fallback";
   if (effectiveVersionSource === "loading") versionSourceLabel = "Loading version context";
+  const candidateCreationState = describeCandidateCreationState(context);
 
   return `
     <article class="ai-chat-message ai-chat-message--system ai-chat-message--status">
@@ -680,6 +716,10 @@ function renderStatusMessage() {
         <span><strong>Version Source:</strong> ${escapeHtml(versionSourceLabel)}</span>
         <span><strong>Result Context:</strong> ${escapeHtml(resultState)}</span>
         <span><strong>Code Context:</strong> ${escapeHtml(state.currentVersion?.code_snapshot ? "Code snapshot ready" : "Code snapshot unavailable")}</span>
+      </div>
+      <div class="ai-chat-message__note ai-chat-message__note--context-state${candidateCreationState.ready ? " is-ready" : ""}">
+        <strong>${escapeHtml(candidateCreationState.headline)}</strong>
+        <span>${escapeHtml(candidateCreationState.reason)}</span>
       </div>
     </article>
   `;

@@ -31,7 +31,13 @@ async def get_settings():
 @router.post("")
 async def save_settings(payload: AppSettings):
     """Persist application settings."""
-    config_svc.save_settings(payload.model_dump())
+    import os
+    data = payload.model_dump()
+    # Normalize path fields to use OS-appropriate separators
+    for key in ["freqtrade_path", "user_data_path", "config_path", "results_base_path"]:
+        if data.get(key):
+            data[key] = os.path.normpath(str(data[key]))
+    config_svc.save_settings(data)
     return {"status": "saved"}
 
 

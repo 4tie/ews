@@ -55,9 +55,16 @@ DEFAULT_FREQTRADE_SETTINGS: dict[str, Any] = {
 
 def get_freqtrade_runtime_settings(settings: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Merge persisted settings with freqtrade runtime defaults and derived paths."""
+    import os
+    
     merged = dict(DEFAULT_FREQTRADE_SETTINGS)
     if settings:
         merged.update(dict(settings))
+
+    # Normalize all path fields to use OS-appropriate separators
+    for key in ["freqtrade_path", "user_data_path", "config_path", "results_base_path"]:
+        if merged.get(key):
+            merged[key] = os.path.normpath(str(merged[key]))
 
     resolved_user_data_path = str(merged.get("user_data_path") or user_data_dir())
     merged["user_data_path"] = user_data_dir(resolved_user_data_path)
