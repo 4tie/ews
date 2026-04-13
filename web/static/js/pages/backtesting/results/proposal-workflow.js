@@ -368,6 +368,16 @@ function renderEmptyState(message) {
   root.innerHTML = message ? `<section class="results-context results-context--empty"><div class="results-context__title">Proposal Workflow</div><div class="results-context__note">${escapeHtml(message)}</div></section>` : "";
 }
 
+function renderWorkflowIntro() {
+  return `
+    <section class="results-context results-context--table">
+      <div class="results-context__title">Proposal Workflow</div>
+      <div class="results-context__note">Start here after reviewing diagnosis. Create a versioned candidate from an actionable source, re-run the selected candidate, compare baseline vs selected candidate, then make the version decision.</div>
+      <div class="results-context__note">If you want to preserve the original strategy, use <strong>Promote as new strategy variant</strong> when the candidate is ready.</div>
+    </section>
+  `;
+}
+
 function formatMetricValue(valueFormat, value, currency = "", options = {}) {
   if (value == null || value === "") return "-";
   if (valueFormat === "pct") return formatPct(value);
@@ -466,6 +476,7 @@ function renderPrimaryIssues() {
   return `
     <section class="results-context">
       <div class="results-context__title">Primary Issues</div>
+      <div class="results-context__note">Start with items marked Actionable now. Diagnostic-only items explain the run but do not stage a candidate path by themselves.</div>
       ${body}
     </section>
   `;
@@ -673,7 +684,7 @@ function renderCompareSection() {
     </section>
     ${renderDecisionReadyCompare(compareState.data, { baselineLabel: "Baseline", candidateLabel: "Selected Candidate" })}
     <section class="results-context">
-      <div class="results-context__note">Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only.</div>
+      <div class="results-context__note">Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Use this evidence before choosing Accept as current strategy or Promote as new strategy variant.</div>
     </section>
   `;
 }
@@ -691,15 +702,15 @@ function render() {
   if (!root) return;
 
   if (!resolveStrategy()) {
-    renderEmptyState("");
+    renderEmptyState("Select a strategy, then run a backtest to unlock the candidate workflow.");
     return;
   }
   if (!latestPayload) {
-    renderEmptyState("");
+    renderEmptyState("Run or load a completed backtest. Proposal Workflow appears here once diagnosis is ready.");
     return;
   }
   if (latestPayload?.diagnosis_status !== "ready" || !latestPayload?.summary_available) {
-    renderEmptyState("");
+    renderEmptyState("Backtest results are loaded, but diagnosis is not ready yet. Wait for Primary Issues and candidate actions to finish loading.");
     return;
   }
 
@@ -714,6 +725,7 @@ function render() {
     : "No AI parameter suggestions were returned for this run.";
 
   root.innerHTML = `
+    ${renderWorkflowIntro()}
     ${renderPrimaryIssues()}
     ${renderActionSection({
       title: "Deterministic Actions",
