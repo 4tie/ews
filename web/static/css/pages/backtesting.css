@@ -1766,3 +1766,7 @@
     align-items: flex-start;
   }
 }
+
+.summary-auto-optimize {
+  margin-top: var(--space-5);
+}

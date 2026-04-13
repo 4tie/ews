@@ -14,7 +14,16 @@ async function request(method, path, body = null) {
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
+    const detail = err?.detail;
+    let message = null;
+    if (typeof detail === "string") {
+      message = detail;
+    } else if (detail && typeof detail === "object") {
+      message = detail.message || detail.error || JSON.stringify(detail);
+    } else if (err?.message) {
+      message = err.message;
+    }
+    throw new Error(message || `HTTP ${res.status}`);
   }
   return res.json();
 }
@@ -54,6 +63,8 @@ export const api = {
 
   optimizer: {
     startRun: (data) => api.post("/api/optimizer/runs", data),
+    getRun: (optimizerRunId) => api.get(`/api/optimizer/runs/${encodeURIComponent(optimizerRunId)}`),
+    streamEvents: (optimizerRunId) => new EventSource(`/api/optimizer/runs/${optimizerRunId}/stream`),
     getCheckpoints: (runId) => api.get(`/api/optimizer/runs/${runId}/checkpoints`),
     rollback: (runId, checkId) => api.post(`/api/optimizer/runs/${runId}/rollback/${checkId}`, {}),
     streamLogs: (runId) => new EventSource(`/api/optimizer/runs/${runId}/logs/stream`),

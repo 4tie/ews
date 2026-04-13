@@ -1,4 +1,5 @@
-﻿import os
+import os
+import json
 
 from app.utils.json_io import list_json_files, read_json, write_json
 from app.utils.paths import (
@@ -21,6 +22,24 @@ class PersistenceService:
     def load_optimizer_run(self, run_id: str) -> dict:
         path = resolve_safe(optimizer_runs_dir(), run_id, "run_meta.json")
         return read_json(path, fallback={})
+
+
+    def save_optimizer_nodes(self, run_id: str, data: dict) -> None:
+        path = resolve_safe(optimizer_runs_dir(), run_id, "nodes.json")
+        write_json(path, data)
+
+    def load_optimizer_nodes(self, run_id: str) -> dict:
+        path = resolve_safe(optimizer_runs_dir(), run_id, "nodes.json")
+        return read_json(path, fallback={})
+
+    def optimizer_events_path(self, run_id: str) -> str:
+        return resolve_safe(optimizer_runs_dir(), run_id, "events.log")
+
+    def append_optimizer_event(self, run_id: str, event: dict) -> None:
+        path = self.optimizer_events_path(run_id)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=True) + "\n")
 
     def save_backtest_run(self, run_id: str, data: dict) -> None:
         path = resolve_safe(backtest_runs_dir(), run_id, "run_meta.json")
