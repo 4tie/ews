@@ -66,6 +66,18 @@ function workflowCandidateVersions() {
   return getWorkflowCandidateVersions(versionsState.versions, workflowBaselineRunId());
 }
 
+function workflowCandidatesLoaded() {
+  return workflowModeActive() && versionsState.status === "ready";
+}
+
+function workflowHasLinkedCandidates() {
+  return workflowCandidatesLoaded() && workflowCandidateVersions().length > 0;
+}
+
+function workflowMissingLinkedCandidates() {
+  return workflowCandidatesLoaded() && workflowCandidateVersions().length === 0;
+}
+
 function workflowCandidateVersion() {
   const selected = getSelectedCandidateVersionId();
   return workflowCandidateVersions().find((version) => version?.version_id === selected) || workflowCandidateVersions()[0] || null;
@@ -123,7 +135,9 @@ function handleVersionsSnapshot(snapshot) {
   versionsState = snapshot || { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
 
   if (workflowModeActive()) {
-    ensureSelectedCandidateVersion(versionsState.versions, workflowBaselineRunId());
+    if (workflowHasLinkedCandidates()) {
+      ensureSelectedCandidateVersion(versionsState.versions, workflowBaselineRunId());
+    }
     renderComparePanel();
     void maybeLoadComparison();
     return;
@@ -149,7 +163,15 @@ function handleRunsSnapshot(snapshot) {
   selectedLeftRunId = pickRetainedRunId(selectedLeftRunId, 0);
   selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
 
-  if (workflowModeActive()) {
+  if (workflowMissingLinkedCandidates()) {
+    const baselineRunId = workflowBaselineRunId();
+    if (baselineRunId && comparableRuns.some((run) => run?.run_id === baselineRunId)) {
+      selectedLeftRunId = baselineRunId;
+      selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
+    }
+  }
+
+  if (workflowHasLinkedCandidates()) {
     ensureSelectedCandidateVersion(versionsState.versions, workflowBaselineRunId());
     renderComparePanel();
     void maybeLoadComparison();
@@ -210,7 +232,7 @@ async function loadComparisonForRuns(leftRunId, rightRunId) {
 }
 
 async function maybeLoadComparison() {
-  if (workflowModeActive()) {
+  if (workflowHasLinkedCandidates()) {
     const candidateRun = workflowCandidateRun();
     if (!candidateRun) {
       lastComparison = null;
@@ -454,8 +476,14 @@ function renderComparePanel() {
   compareArea.innerHTML = "";
 
   const layout = el("div", { class: "compare-layout" });
+
   if (workflowModeActive()) {
-    renderWorkflowCompare(layout);
+    if (workflowHasLinkedCandidates() || versionsState.status !== "ready") {
+      renderWorkflowCompare(layout);
+    } else {
+      layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first."));
+      renderGenericCompare(layout);
+    }
   } else {
     renderGenericCompare(layout);
   }
