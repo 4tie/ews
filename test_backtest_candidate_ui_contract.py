@@ -217,7 +217,7 @@ def test_compare_panel_is_workflow_aware_and_uses_shared_versions_store():
     assert "Right run" in source
     assert "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first." in source
     assert "workflowHasLinkedCandidates" in source
-    assert "versionsState.status !== "ready"" in source
+    assert 'versionsState.status !== "ready"' in source
     assert "Re-run the selected candidate to create a persisted completed run before comparing it against the baseline run." in source
     assert "Loading persisted compare evidence for the baseline run and selected candidate..." in source
     assert "Persisted compare evidence is unavailable for the baseline run and selected candidate:" in source
