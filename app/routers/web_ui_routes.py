@@ -20,7 +20,11 @@ async def backtesting_page(request: Request):
 
 @router.get("/optimizer")
 async def optimizer_page(request: Request):
-    return RedirectResponse(url="/backtesting", status_code=307)
+    return templates.TemplateResponse(
+        request=request,
+        name="pages/optimizer/index.html",
+        context={"page": "optimizer", "title": "Optimizer"},
+    )
 
 
 @router.get("/settings")

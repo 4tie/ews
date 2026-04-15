@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block page_css %}
+<link rel="stylesheet" href="/static/css/pages/optimizer.css" />
+{% endblock %}
+
+{% block content %}
+<div class="optimizer-workspace" id="optimizer-workspace">
+  <div class="optimizer-container">
+    <section class="panel panel--optimizer" id="optimizer-panel">
+      <div class="panel__header">
+        <div class="panel__header-content">
+          <h2 class="panel__title">Auto Optimize</h2>
+          <p class="panel__subtitle">Parameter-only beam search anchored to the currently loaded baseline run.</p>
+        </div>
+      </div>
+      <div class="panel__body">
+        <div class="summary-auto-optimize" id="summary-auto-optimize">
+          <div class="info-empty">No optimizer run loaded. Load a baseline backtest result from the Backtesting page to enable Auto Optimize.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module" src="/static/js/pages/backtesting/optimizer/auto-optimize-panel.js"></script>
+<script type="module" src="/static/js/pages/optimizer/index.js"></script>
+{% endblock %}

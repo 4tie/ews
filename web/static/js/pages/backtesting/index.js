@@ -18,7 +18,6 @@ import { initHistoryPanel } from "./history/history-panel.js";
 import { initExportPanel } from "./export/export-panel.js";
 import { initResultsController } from "./results/results-controller.js";
 import { initProposalWorkflow } from "./results/proposal-workflow.js";
-import { initAutoOptimizePanel } from "./optimizer/auto-optimize-panel.js";
 import { initConfigsPanel } from "./configs/configs-panel.js";
 import { initHeaderConfigButtons } from "./configs/header-config-buttons.js";
 import { getState, setState } from "../../core/state.js";
@@ -71,7 +70,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   initHeaderConfigButtons();
   initResultsController();
   initProposalWorkflow();
-  initAutoOptimizePanel();
 
   const tfSelect = document.getElementById("select-timeframe");
   tfSelect?.addEventListener("change", () => {
