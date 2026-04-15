@@ -1,4 +1,4 @@
-"""
+﻿"""
 Strategy Intelligence Apply Service - Applies deterministic and AI-backed proposal candidates.
 """
 from __future__ import annotations
@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import copy
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -195,6 +196,274 @@ def _build_source_context(
             context[key] = value
 
     return context
+
+
+_MAX_SUGGESTIONS = 5
+
+_RISK_SET_TYPES: dict[str, str] = {
+    "stoploss": "float",
+    "trailing_stop": "bool",
+    "trailing_stop_positive": "float",
+    "trailing_stop_positive_offset": "float",
+    "trailing_only_offset_is_reached": "bool",
+    "minimal_roi": "roi_dict",
+}
+
+
+def _canonical_parameter_key(key: str) -> str:
+    text = str(key or "").strip()
+    if not text:
+        return ""
+    if "." in text:
+        prefix, suffix = text.split(".", 1)
+        if prefix in {"buy_params", "sell_params"}:
+            return suffix.strip()
+    return text
+
+
+def _build_evidence_allowlist(diagnosis: dict[str, Any] | None) -> set[str]:
+    diagnosis = diagnosis or {}
+    allow: set[str] = set()
+    for bucket in (
+        diagnosis.get("flags") or [],
+        diagnosis.get("primary_flags") or [],
+        diagnosis.get("ranked_issues") or [],
+        diagnosis.get("parameter_hints") or [],
+    ):
+        if not isinstance(bucket, list):
+            continue
+        for item in bucket:
+            if not isinstance(item, dict):
+                continue
+            rule = str(item.get("rule") or "").strip()
+            if rule:
+                allow.add(rule)
+    return allow
+
+
+def _parameter_space_index(parameter_space: list[dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    if not isinstance(parameter_space, list):
+        return index
+    for item in parameter_space:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if not key:
+            continue
+        index[key] = dict(item)
+    return index
+
+
+def _safe_keys_from_space(parameter_space: list[dict[str, Any]] | None) -> set[str]:
+    safe = set(_parameter_space_index(parameter_space).keys())
+    safe.update(_RISK_SET_TYPES.keys())
+    return safe
+
+
+def _coerce_number(value: Any) -> float | None:
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(num):
+        return None
+    return num
+
+
+def _delta_matches_step(delta: float, step: Any, *, epsilon: float = 1e-9) -> bool:
+    if step in (None, 0, 0.0, "", False):
+        return True
+    step_num = _coerce_number(step)
+    if step_num is None or step_num == 0.0:
+        return True
+    ratio = abs(delta) / step_num
+    nearest = round(ratio)
+    return math.isclose(ratio, nearest, rel_tol=0.0, abs_tol=epsilon)
+
+
+def validate_and_apply_delta_suggestions(
+    *,
+    suggestions: list[dict[str, Any]] | None,
+    diagnosis: dict[str, Any] | None,
+    parameter_snapshot: dict[str, Any] | None,
+    parameter_space: list[dict[str, Any]] | None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]] | None, str | None]:
+    if not isinstance(suggestions, list):
+        return None, None, "suggestions must be a list"
+    if not (1 <= len(suggestions) <= _MAX_SUGGESTIONS):
+        return None, None, f"suggestions must contain 1..{_MAX_SUGGESTIONS} items"
+    if not isinstance(parameter_snapshot, dict) or not parameter_snapshot:
+        return None, None, "parameter_snapshot is required"
+
+    allowlist = _build_evidence_allowlist(diagnosis)
+    space_index = _parameter_space_index(parameter_space)
+    safe_keys = _safe_keys_from_space(parameter_space)
+
+    modified = copy.deepcopy(parameter_snapshot)
+    applied: list[dict[str, Any]] = []
+
+    def _get_current_value(key: str) -> Any:
+        if key in modified:
+            return modified.get(key)
+        for container_key in ("buy_params", "sell_params"):
+            container = modified.get(container_key)
+            if isinstance(container, dict) and key in container:
+                return container.get(key)
+        return None
+
+    def _set_value(key: str, value: Any) -> None:
+        modified[key] = value
+        for container_key in ("buy_params", "sell_params"):
+            container = modified.get(container_key)
+            if isinstance(container, dict) and key in container:
+                container[key] = value
+
+    for item in suggestions:
+        if not isinstance(item, dict):
+            return None, None, "each suggestion must be an object"
+
+        raw_key = str(item.get("key") or "").strip()
+        key = _canonical_parameter_key(raw_key)
+        direction = str(item.get("direction") or "").strip().lower()
+        delta = _coerce_number(item.get("delta"))
+        reason = str(item.get("reason") or "").strip()
+        evidence = item.get("evidence")
+        confidence = item.get("confidence")
+
+        if not key:
+            return None, None, "suggestion key is required"
+        if key not in safe_keys:
+            return None, None, f"unsafe key: {key}"
+        if direction not in {"increase", "decrease"}:
+            return None, None, f"invalid direction for {key}"
+        if delta is None or delta == 0.0:
+            return None, None, f"delta must be a finite non-zero number for {key}"
+        if not reason:
+            return None, None, f"reason is required for {key}"
+        if not isinstance(evidence, list) or not [tok for tok in evidence if str(tok).strip()]:
+            return None, None, f"evidence tokens are required for {key}"
+
+        evidence_tokens = [str(tok).strip() for tok in evidence if str(tok).strip()]
+        for token in evidence_tokens:
+            if token not in allowlist:
+                return None, None, f"evidence token not in diagnosis allowlist: {token}"
+
+        current_value = _get_current_value(key)
+        if current_value is None:
+            return None, None, f"current snapshot missing key: {key}"
+
+        declared = space_index.get(key) or {}
+        declared_type = str(declared.get("type") or "").strip() or _RISK_SET_TYPES.get(key) or ""
+        if declared_type in {"bool", "categorical", "roi_dict"}:
+            return None, None, f"delta suggestions are not allowed for type {declared_type}: {key}"
+
+        if isinstance(current_value, bool) or not isinstance(current_value, (int, float)):
+            return None, None, f"current value for {key} is not numeric"
+
+        signed_delta = delta if direction == "increase" else -delta
+        next_value = float(current_value) + signed_delta
+
+        if declared_type == "int" or isinstance(current_value, int):
+            if not math.isclose(next_value, round(next_value), abs_tol=1e-9):
+                return None, None, f"next value for {key} must be an integer"
+            next_value = int(round(next_value))
+
+        min_value = declared.get("min")
+        max_value = declared.get("max")
+        if min_value is not None:
+            min_num = _coerce_number(min_value)
+            if min_num is not None and float(next_value) < min_num - 1e-9:
+                return None, None, f"next value for {key} is below min"
+        if max_value is not None:
+            max_num = _coerce_number(max_value)
+            if max_num is not None and float(next_value) > max_num + 1e-9:
+                return None, None, f"next value for {key} is above max"
+
+        step = declared.get("step")
+        if not _delta_matches_step(delta, step):
+            return None, None, f"delta for {key} does not match step"
+
+        if confidence is not None:
+            try:
+                confidence = float(confidence)
+            except (TypeError, ValueError):
+                confidence = None
+            if confidence is not None:
+                confidence = max(0.0, min(confidence, 1.0))
+
+        _set_value(key, next_value)
+        applied.append(
+            {
+                "key": key,
+                "direction": direction,
+                "delta": delta,
+                "reason": reason,
+                "evidence": evidence_tokens,
+                "confidence": confidence,
+                "current_value": current_value,
+                "next_value": next_value,
+            }
+        )
+
+    return modified, applied, None
+
+
+def validate_parameter_patch(
+    *,
+    patch: dict[str, Any] | None,
+    diagnosis: dict[str, Any] | None,
+    parameter_snapshot: dict[str, Any] | None,
+    parameter_space: list[dict[str, Any]] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    if not isinstance(patch, dict) or not patch:
+        return None, "parameters patch must be a non-empty object"
+
+    safe_keys = _safe_keys_from_space(parameter_space)
+    space_index = _parameter_space_index(parameter_space)
+
+    base = copy.deepcopy(parameter_snapshot) if isinstance(parameter_snapshot, dict) and parameter_snapshot else {}
+
+    for raw_key, value in patch.items():
+        key = _canonical_parameter_key(str(raw_key))
+        if not key:
+            return None, "parameter key is required"
+        if key not in safe_keys:
+            return None, f"unsafe key: {key}"
+        declared = space_index.get(key) or {}
+        declared_type = str(declared.get("type") or "").strip() or _RISK_SET_TYPES.get(key) or ""
+        if declared_type == "roi_dict":
+            return None, f"minimal_roi is not allowed in parameter patch: {key}"
+        if declared_type == "bool" and not isinstance(value, bool):
+            return None, f"{key} must be a boolean"
+        if declared_type in {"int", "float"}:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None, f"{key} must be numeric"
+            min_value = declared.get("min")
+            max_value = declared.get("max")
+            if min_value is not None:
+                min_num = _coerce_number(min_value)
+                if min_num is not None and float(value) < min_num - 1e-9:
+                    return None, f"{key} is below min"
+            if max_value is not None:
+                max_num = _coerce_number(max_value)
+                if max_num is not None and float(value) > max_num + 1e-9:
+                    return None, f"{key} is above max"
+            step = declared.get("step")
+            if step not in (None, 0, 0.0) and not _delta_matches_step(float(value) - float(base.get(key) or 0.0), step):
+                return None, f"{key} change does not match step"
+        if declared_type == "categorical":
+            choices = declared.get("choices")
+            if isinstance(choices, list) and value not in choices:
+                return None, f"{key} value must be one of declared choices"
+
+        base[key] = value
+        for container_key in ("buy_params", "sell_params"):
+            container = base.get(container_key)
+            if isinstance(container, dict) and key in container:
+                container[key] = value
+
+    return base, None
 
 
 async def apply_strategy_recommendations(
@@ -464,6 +733,174 @@ def _extract_parameter_snapshot_from_code(code_snapshot: str | None, strategy_na
             extracted.setdefault(str(key), value)
 
     return extracted or None
+_PARAMETER_CALL_TYPES: dict[str, str] = {
+    "IntParameter": "int",
+    "DecimalParameter": "float",
+    "CategoricalParameter": "categorical",
+    "BooleanParameter": "bool",
+}
+
+
+def resolve_parameter_space(strategy_name: str, linked_version: Any | None) -> list[dict[str, Any]]:
+    """Extract the strategy tunable space from the version-exact (or live) code snapshot."""
+    resolved = _resolve_effective_artifacts(strategy_name, linked_version)
+    code_snapshot = resolved.get("code_snapshot")
+    if not isinstance(code_snapshot, str) or not code_snapshot.strip():
+        code_snapshot = load_live_strategy_code(strategy_name) or ""
+    extracted = _extract_parameter_space_from_code(code_snapshot, strategy_name)
+    return extracted or []
+
+
+def _extract_parameter_space_from_code(code_snapshot: str | None, strategy_name: str) -> list[dict[str, Any]] | None:
+    if not isinstance(code_snapshot, str) or not code_snapshot.strip():
+        return None
+
+    try:
+        tree = ast.parse(code_snapshot)
+    except SyntaxError:
+        return None
+
+    strategy_class = None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == strategy_name:
+            strategy_class = node
+            break
+    if strategy_class is None:
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                strategy_class = node
+                break
+    if strategy_class is None:
+        return None
+
+    constants: dict[str, Any] = {}
+    for statement in strategy_class.body:
+        target_name = None
+        value_node = None
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+            target_name = statement.targets[0].id
+            value_node = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            target_name = statement.target.id
+            value_node = statement.value
+        if not target_name or value_node is None:
+            continue
+        if target_name.startswith("_"):
+            continue
+        if isinstance(value_node, ast.Call):
+            continue
+        try:
+            value = ast.literal_eval(value_node)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, tuple):
+            value = list(value)
+        constants[target_name] = value
+
+    space: list[dict[str, Any]] = []
+    for statement in strategy_class.body:
+        target_name = None
+        value_node = None
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+            target_name = statement.targets[0].id
+            value_node = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            target_name = statement.target.id
+            value_node = statement.value
+        if not target_name or not isinstance(value_node, ast.Call):
+            continue
+        if target_name.startswith("_"):
+            continue
+
+        func_name = _call_name(value_node.func)
+        if func_name not in _PARAMETER_CALL_TYPES:
+            continue
+
+        entry: dict[str, Any] = {
+            "key": target_name,
+            "type": _PARAMETER_CALL_TYPES[func_name],
+            "min": None,
+            "max": None,
+            "step": None,
+            "choices": None,
+            "dependencies": [],
+            "default": None,
+        }
+
+        if func_name == "CategoricalParameter":
+            if value_node.args:
+                choices, dep = _resolve_node(value_node.args[0], constants)
+                if dep:
+                    entry["dependencies"].append(dep)
+                if isinstance(choices, (list, tuple)):
+                    entry["choices"] = list(choices)
+        elif func_name == "BooleanParameter":
+            pass
+        else:
+            if len(value_node.args) >= 1:
+                low, dep = _resolve_node(value_node.args[0], constants)
+                if dep:
+                    dep = {**dep, "name": "min"}
+                    entry["dependencies"].append(dep)
+                entry["min"] = low
+            if len(value_node.args) >= 2:
+                high, dep = _resolve_node(value_node.args[1], constants)
+                if dep:
+                    dep = {**dep, "name": "max"}
+                    entry["dependencies"].append(dep)
+                entry["max"] = high
+
+        for keyword in value_node.keywords or []:
+            if keyword.arg == "default":
+                try:
+                    entry["default"] = ast.literal_eval(keyword.value)
+                except (TypeError, ValueError):
+                    entry["default"] = None
+            if keyword.arg == "step":
+                try:
+                    entry["step"] = ast.literal_eval(keyword.value)
+                except (TypeError, ValueError):
+                    entry["step"] = None
+            if keyword.arg in {"decimals", "decimal_places"} and entry["type"] == "float" and entry.get("step") in (None, 0):
+                try:
+                    decimals = int(ast.literal_eval(keyword.value))
+                except (TypeError, ValueError):
+                    decimals = None
+                if decimals is not None and decimals >= 0:
+                    entry["step"] = float(10 ** (-decimals))
+
+        if entry["type"] == "int" and entry.get("step") in (None, 0):
+            entry["step"] = 1
+
+        if not entry.get("dependencies"):
+            entry.pop("dependencies", None)
+        if entry.get("default") is None:
+            entry.pop("default", None)
+
+        space.append(entry)
+
+    space.sort(key=lambda item: str(item.get("key") or ""))
+    return space or None
+
+
+def _call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _resolve_node(node: ast.AST, constants: dict[str, Any]) -> tuple[Any, dict[str, Any] | None]:
+    if isinstance(node, ast.Name):
+        name = node.id
+        if name in constants:
+            return constants[name], {"from": name, "value": constants[name]}
+        return None, {"from": name, "value": None}
+    try:
+        return ast.literal_eval(node), None
+    except (TypeError, ValueError):
+        return None, None
 
 
 def _resolve_parameters_snapshot(strategy_name: str, linked_version: Any | None) -> dict[str, Any] | None:
@@ -481,6 +918,10 @@ def _resolve_parameters_snapshot(strategy_name: str, linked_version: Any | None)
     if isinstance(live_parameters, dict) and live_parameters:
         return copy.deepcopy(live_parameters)
     return None
+
+def resolve_parameters_snapshot(strategy_name: str, linked_version: Any | None) -> dict[str, Any] | None:
+    """Resolve the effective parameters snapshot (version-exact when available)."""
+    return _resolve_parameters_snapshot(strategy_name, linked_version)
 
 
 async def _apply_tighten_entries_action(
@@ -729,7 +1170,7 @@ def _resolve_source_item(
     elif source_kind == "deterministic_action":
         items = diagnosis.get("proposal_actions") or []
     else:
-        items = ai_payload.get("parameter_suggestions") or []
+        items = ai_payload.get("suggestions") if isinstance(ai_payload.get("suggestions"), list) else (ai_payload.get("parameter_suggestions") or [])
 
     if not isinstance(items, list) or source_index >= len(items):
         return None
@@ -770,6 +1211,13 @@ def _summarize_source_item(source_kind: str, item: dict[str, Any]) -> str:
     if source_kind == "deterministic_action":
         return str(item.get("label") or item.get("action_type") or "Deterministic action")
 
+    if item.get("direction") and item.get("delta") is not None:
+        key = str(item.get("key") or "AI suggestion").strip() or "AI suggestion"
+        direction = str(item.get("direction") or "").strip()
+        delta = item.get("delta")
+        reason = str(item.get("reason") or item.get("rationale") or item.get("summary") or "").strip()
+        return f"{key} {direction} {delta}" + (f": {reason}" if reason else "")
+
     name = str(item.get("name") or item.get("parameter") or item.get("key") or "AI suggestion")
     value = item.get("value")
     reason = str(item.get("reason") or item.get("rationale") or item.get("summary") or "").strip()
@@ -791,6 +1239,7 @@ async def create_proposal_candidate_from_diagnosis(
     candidate_mode: str = "auto",
     action_type: str | None = None,
     candidate_parameters: dict[str, Any] | None = None,
+    candidate_suggestions: list[dict[str, Any]] | None = None,
     candidate_code: str | None = None,
     candidate_summary: str | None = None,
 ) -> ProposalCandidateResult:
@@ -818,23 +1267,25 @@ async def create_proposal_candidate_from_diagnosis(
     parameters_snapshot = _resolve_parameters_snapshot(strategy_name, linked_version)
 
     if source_kind == "ai_chat_draft":
+        has_suggestions = isinstance(candidate_suggestions, list) and bool(candidate_suggestions)
         has_parameters = isinstance(candidate_parameters, dict) and bool(candidate_parameters)
         has_code = isinstance(candidate_code, str) and bool(candidate_code.strip())
-        if has_parameters == has_code:
+        if sum([1 if has_suggestions else 0, 1 if has_parameters else 0, 1 if has_code else 0]) != 1:
             return ProposalCandidateResult(
                 success=False,
                 message="AI chat draft must contain exactly one candidate payload.",
-                error="Provide either parameters or code for ai_chat_draft.",
+                error="Provide exactly one of suggestions, parameters, or code for ai_chat_draft.",
             )
 
         effective_mode = candidate_mode
         if effective_mode == "auto":
             effective_mode = "code_patch" if has_code else "parameter_only"
-        if effective_mode == "parameter_only" and not has_parameters:
+
+        if effective_mode == "parameter_only" and not (has_suggestions or has_parameters):
             return ProposalCandidateResult(
                 success=False,
                 message="AI chat draft requested a parameter candidate without parameters.",
-                error="parameter_only mode requires candidate_parameters.",
+                error="parameter_only mode requires candidate_suggestions or candidate_parameters.",
             )
         if effective_mode == "code_patch" and not has_code:
             return ProposalCandidateResult(
@@ -844,16 +1295,86 @@ async def create_proposal_candidate_from_diagnosis(
             )
 
         chat_summary = str(candidate_summary or "").strip()
-        extra_context = {"candidate_mode": effective_mode}
+        extra_context: dict[str, Any] = {"candidate_mode": effective_mode}
         if chat_summary:
             extra_context["chat_summary"] = chat_summary
+
+        if effective_mode == "parameter_only":
+            parameter_space = resolve_parameter_space(strategy_name, linked_version)
+
+            if has_suggestions:
+                merged, applied, error = validate_and_apply_delta_suggestions(
+                    suggestions=candidate_suggestions,
+                    diagnosis=diagnosis,
+                    parameter_snapshot=parameters_snapshot,
+                    parameter_space=parameter_space,
+                )
+                if error:
+                    return ProposalCandidateResult(
+                        success=False,
+                        message="Candidate suggestions failed validation.",
+                        error=error,
+                    )
+                extra_context["applied_suggestions"] = applied or []
+                return stage_backtest_candidate(
+                    strategy_name=strategy_name,
+                    linked_version=linked_version,
+                    summary=f"AI chat candidate from run {run_id}",
+                    created_by="ai_apply",
+                    parameters=merged,
+                    source_ref=f"backtest_run:{run_id}",
+                    source_kind=source_kind,
+                    source_context=_build_source_context(
+                        run_id=run_id,
+                        source_kind=source_kind,
+                        source_index=source_index,
+                        source_title="AI Chat Draft",
+                        candidate_mode=effective_mode,
+                        extra=extra_context,
+                    ),
+                    source_title="AI Chat Draft",
+                    ai_mode=effective_mode,
+                )
+
+            merged, error = validate_parameter_patch(
+                patch=candidate_parameters,
+                diagnosis=diagnosis,
+                parameter_snapshot=parameters_snapshot,
+                parameter_space=parameter_space,
+            )
+            if error:
+                return ProposalCandidateResult(
+                    success=False,
+                    message="Candidate parameters failed validation.",
+                    error=error,
+                )
+            extra_context["applied_parameters_patch"] = list(candidate_parameters.keys()) if isinstance(candidate_parameters, dict) else []
+            return stage_backtest_candidate(
+                strategy_name=strategy_name,
+                linked_version=linked_version,
+                summary=f"AI chat candidate from run {run_id}",
+                created_by="ai_apply",
+                parameters=merged,
+                source_ref=f"backtest_run:{run_id}",
+                source_kind=source_kind,
+                source_context=_build_source_context(
+                    run_id=run_id,
+                    source_kind=source_kind,
+                    source_index=source_index,
+                    source_title="AI Chat Draft",
+                    candidate_mode=effective_mode,
+                    extra=extra_context,
+                ),
+                source_title="AI Chat Draft",
+                ai_mode=effective_mode,
+            )
+
         return stage_backtest_candidate(
             strategy_name=strategy_name,
             linked_version=linked_version,
             summary=f"AI chat candidate from run {run_id}",
             created_by="ai_apply",
-            parameters=candidate_parameters if has_parameters else None,
-            code=candidate_code if has_code else None,
+            code=candidate_code,
             source_ref=f"backtest_run:{run_id}",
             source_kind=source_kind,
             source_context=_build_source_context(
@@ -935,122 +1456,46 @@ async def create_proposal_candidate_from_diagnosis(
             source_kind,
             source_context,
         )
-
     if source_kind == "ai_parameter_suggestion":
-        strategy_code = _resolve_strategy_code(strategy_name, linked_version)
-        effective_mode = candidate_mode
-        if effective_mode == "code_patch" and not strategy_code:
-            return ProposalCandidateResult(
-                success=False,
-                message="Code candidate creation requires a strategy snapshot.",
-                error="No strategy code snapshot is available for a code_patch proposal.",
-            )
-        if effective_mode == "auto" and not strategy_code:
-            effective_mode = "parameter_only"
+        parameter_space = resolve_parameter_space(strategy_name, linked_version)
 
-        source_title = _summarize_source_item(source_kind, source_item)
-        prompt = _build_candidate_prompt(
-            strategy_name=strategy_name,
-            request_snapshot=request_snapshot or {},
-            summary_metrics=summary_metrics or {},
+        merged, applied, error = validate_and_apply_delta_suggestions(
+            suggestions=[source_item],
             diagnosis=diagnosis,
-            source_kind=source_kind,
-            source_index=source_index,
-            source_item=source_item,
-            candidate_mode=effective_mode,
-            linked_version=linked_version,
-            parameters_snapshot=parameters_snapshot,
-            code_available=bool(strategy_code),
+            parameter_snapshot=parameters_snapshot,
+            parameter_space=parameter_space,
         )
-        backtest_context = {
-            "summary_metrics": summary_metrics or {},
-            "request_snapshot": request_snapshot or {},
-            "diagnosis": {
-                "primary_flags": diagnosis.get("primary_flags") or [],
-                "ranked_issues": diagnosis.get("ranked_issues") or [],
-                "parameter_hints": diagnosis.get("parameter_hints") or [],
-                "proposal_actions": diagnosis.get("proposal_actions") or [],
-                "facts": diagnosis.get("facts") or {},
-            },
-            "selected_source": {
-                "kind": source_kind,
-                "index": source_index,
-                "title": source_title,
-                "payload": source_item,
-            },
-            "current_parameters": parameters_snapshot or {},
-        }
-
-        loop_result = await run_ai_loop(
-            user_message=prompt,
-            strategy_name=strategy_name,
-            strategy_code=strategy_code,
-            backtest_results=backtest_context,
-            config=LoopConfig(
-                max_iterations=4,
-                temperature=0.2,
-                include_code=bool(strategy_code),
-                include_backtest=True,
-                include_optimizer=False,
-            ),
-        )
-        if not loop_result.success:
+        if error:
             return ProposalCandidateResult(
                 success=False,
-                message="AI could not draft a candidate from this diagnosis item.",
-                error=loop_result.error or "AI candidate drafting failed.",
-                source_title=source_title,
-            )
-
-        if effective_mode == "parameter_only" and loop_result.final_code:
-            return ProposalCandidateResult(
-                success=False,
-                message="AI returned a code candidate where a parameter-only candidate was required.",
-                error="Unexpected code candidate for parameter_only mode.",
-                source_title=source_title,
-                ai_mode="code_patch",
-            )
-        if effective_mode == "code_patch" and loop_result.final_parameters:
-            return ProposalCandidateResult(
-                success=False,
-                message="AI returned a parameter candidate where a code candidate was required.",
-                error="Unexpected parameter candidate for code_patch mode.",
-                source_title=source_title,
+                message="AI parameter suggestion failed validation.",
+                error=error,
+                source_title=_summarize_source_item(source_kind, source_item),
                 ai_mode="parameter_only",
             )
-        if loop_result.final_code and not strategy_code:
-            return ProposalCandidateResult(
-                success=False,
-                message="AI returned a code candidate without a strategy code context.",
-                error="No strategy code snapshot was available for code candidate generation.",
-                source_title=source_title,
-                ai_mode="code_patch",
-            )
 
-        candidate_summary = (
-            f"AI proposal candidate from run {run_id} using {source_kind}[{source_index}]"
-            f" ({source_title})"
+        source_title = _summarize_source_item(source_kind, source_item)
+        candidate_summary = f"AI parameter delta candidate from run {run_id} ({source_title})"
+        source_context = _build_source_context(
+            run_id=run_id,
+            source_kind=source_kind,
+            source_index=source_index,
+            source_title=source_title,
+            candidate_mode="parameter_only",
+            extra={"applied_suggestions": applied or []},
         )
-        ai_mode = "parameter_only" if loop_result.final_parameters else "code_patch"
+
         return stage_backtest_candidate(
             strategy_name=strategy_name,
             linked_version=linked_version,
             summary=candidate_summary,
             created_by="ai_apply",
-            parameters=loop_result.final_parameters,
-            code=loop_result.final_code,
+            parameters=merged,
             source_ref=f"backtest_run:{run_id}",
             source_kind=source_kind,
-            source_context=_build_source_context(
-                run_id=run_id,
-                source_kind=source_kind,
-                source_index=source_index,
-                source_title=source_title,
-                candidate_mode=ai_mode,
-                extra=None,
-            ),
+            source_context=source_context,
             source_title=source_title,
-            ai_mode=ai_mode,
+            ai_mode="parameter_only",
         )
 
     if source_kind in {"ranked_issue", "parameter_hint", "deterministic_action"}:
@@ -1124,3 +1569,12 @@ __all__ = [
     "create_proposal_candidate_from_diagnosis",
     "stage_backtest_candidate",
 ]
+
+
+
+
+
+
+
+
+

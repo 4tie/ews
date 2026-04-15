@@ -1,4 +1,4 @@
-/**
+﻿/**
  * proposal-workflow.js - Run-scoped proposal, candidate, rerun, compare, and decision workflow.
  */
 
@@ -508,18 +508,36 @@ function renderParameterHint(item) {
 }
 
 function renderAiSuggestion(item) {
-  const name = item?.name || item?.parameter || item?.key || "AI suggestion";
-  const value = item?.value == null ? "-" : String(item.value);
+  const key = item?.key || item?.name || item?.parameter || "AI suggestion";
+  const direction = item?.direction;
+  const delta = item?.delta;
   const reason = item?.reason || item?.rationale || item?.summary || "AI suggestion grounded in the latest diagnosis.";
+
+  if (direction && delta != null) {
+    const evidence = Array.isArray(item?.evidence) ? item.evidence.join(", ") : "-";
+    const confidence = item?.confidence == null || Number.isNaN(Number(item.confidence))
+      ? "-"
+      : Number(item.confidence).toFixed(2);
+    return `
+      <div class="proposal-item__body">${escapeHtml(reason)}</div>
+      <div class="proposal-item__meta">
+        <span><strong>Key:</strong> ${escapeHtml(key)}</span>
+        <span><strong>Delta:</strong> ${escapeHtml(String(direction))} ${escapeHtml(String(delta))}</span>
+        <span><strong>Confidence:</strong> ${escapeHtml(confidence)}</span>
+        <span><strong>Evidence:</strong> ${escapeHtml(evidence)}</span>
+      </div>
+    `;
+  }
+
+  const value = item?.value == null ? "-" : String(item.value);
   return `
     <div class="proposal-item__body">${escapeHtml(reason)}</div>
     <div class="proposal-item__meta">
-      <span><strong>Name:</strong> ${escapeHtml(name)}</span>
+      <span><strong>Name:</strong> ${escapeHtml(key)}</span>
       <span><strong>Value:</strong> ${escapeHtml(value)}</span>
     </div>
   `;
 }
-
 function renderDeterministicAction(item) {
   const parameters = Array.isArray(item?.parameters) ? item.parameters.join(", ") : "-";
   const matchedRules = Array.isArray(item?.matched_rules) ? item.matched_rules.join(", ") : "-";
@@ -717,9 +735,13 @@ function render() {
   const rankedIssues = Array.isArray(latestPayload?.diagnosis?.ranked_issues) ? latestPayload.diagnosis.ranked_issues : [];
   const parameterHints = Array.isArray(latestPayload?.diagnosis?.parameter_hints) ? latestPayload.diagnosis.parameter_hints : [];
   const deterministic_actions = Array.isArray(latestPayload?.diagnosis?.proposal_actions) ? latestPayload.diagnosis.proposal_actions : [];
-  const aiSuggestions = latestPayload?.ai?.ai_status === "ready" && Array.isArray(latestPayload?.ai?.parameter_suggestions)
+  const aiSuggestionsV2 = latestPayload?.ai?.ai_status === "ready" && Array.isArray(latestPayload?.ai?.suggestions)
+    ? latestPayload.ai.suggestions
+    : [];
+  const aiSuggestionsLegacy = latestPayload?.ai?.ai_status === "ready" && Array.isArray(latestPayload?.ai?.parameter_suggestions)
     ? latestPayload.ai.parameter_suggestions
     : [];
+  const aiSuggestions = aiSuggestionsV2.length ? aiSuggestionsV2 : aiSuggestionsLegacy;
   const aiNote = latestPayload?.ai?.ai_status === "unavailable"
     ? "AI suggestions are unavailable for this run right now. Deterministic proposal sources remain usable."
     : "No AI parameter suggestions were returned for this run.";
@@ -1087,3 +1109,4 @@ export function initProposalWorkflow() {
 
   render();
 }
+

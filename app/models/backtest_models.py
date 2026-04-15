@@ -61,6 +61,7 @@ class ProposalCandidateRequest(BaseModel):
     candidate_mode: ProposalCandidateMode = ProposalCandidateMode.AUTO
     action_type: Optional[DeterministicActionType] = None
     parameters: Optional[Dict[str, Any]] = None
+    suggestions: Optional[List[Dict[str, Any]]] = None
     code: Optional[str] = None
     summary: Optional[str] = None
 
@@ -114,3 +115,4 @@ class Trade(BaseModel):
     close_date: str
     duration: str
     is_open: bool = False
+

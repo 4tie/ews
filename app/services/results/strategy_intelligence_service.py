@@ -1,13 +1,14 @@
-"""
+﻿"""
 Strategy Intelligence Service - AI-powered strategy analysis.
 """
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from app.ai.context_builder import build_strategy_analysis_context
+from app.ai.context_builder import build_run_intelligence_context, build_strategy_analysis_context
 from app.ai.models import ModelResponse, get_dispatch
 from app.ai.prompts.trading import (
     ANALYST_SYSTEM_PROMPT,
@@ -125,39 +126,196 @@ async def analyze_run_diagnosis_overlay(
     diagnosis: dict[str, Any],
     summary_metrics: dict[str, Any] | None,
     linked_version: Any | None,
+    *,
+    run_id: str | None = None,
+    trades: list[dict[str, Any]] | None = None,
+    results_per_pair: list[dict[str, Any]] | None = None,
+    request_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Produce an optional AI overlay for deterministic run diagnosis."""
-    context = build_strategy_analysis_context(
+    """Produce an optional AI overlay for deterministic run diagnosis.
+
+    Strict contract: only JSON, delta-based parameter suggestions, no free-form prose.
+    """
+    from app.services.results import strategy_intelligence_apply_service as apply_service
+
+    version_id = getattr(linked_version, "version_id", None)
+    parameter_snapshot = apply_service.resolve_parameters_snapshot(strategy_name, linked_version) or {}
+    parameter_space = apply_service.resolve_parameter_space(strategy_name, linked_version) or []
+
+    context = build_run_intelligence_context(
         strategy_name=strategy_name,
+        run_id=run_id,
+        version_id=str(version_id) if version_id else None,
         summary_metrics=summary_metrics or {},
-        diagnosis=diagnosis,
+        trades=trades or [],
+        results_per_pair=results_per_pair or [],
+        diagnosis=diagnosis or {},
+        parameter_snapshot=parameter_snapshot,
+        parameter_space=parameter_space,
         linked_version=linked_version,
-        user_question="Explain why this run is weak and suggest the safest next versioned move.",
     )
-    result = await _run_structured_analysis(
-        task_type="overlay",
-        base_prompt=(
-            "You are a trading strategy diagnosis assistant. Stay grounded in the provided deterministic diagnosis. "
-            "Keep suggestions advisory only and suitable for versioned candidate creation."
-        ),
-        context=context,
+
+    json_instructions = """
+Return strict JSON only.
+Schema:
+{
+  \"summary\": string,
+  \"suggestions\": [
+    {
+      \"key\": string,
+      \"direction\": \"increase\" | \"decrease\",
+      \"delta\": number,
+      \"reason\": string,
+      \"evidence\": [string],
+      \"confidence\": number | null
+    }
+  ],
+  \"confidence\": number | null
+}
+Rules:
+- Delta-based suggestions only (no absolute values).
+- Max 5 suggestions (hard).
+- Evidence tokens must be drawn from diagnosis rules provided in the context.
+Do not include markdown fences or extra prose outside the JSON object.
+""".strip()
+
+    dispatch = get_dispatch()
+    system_prompt = "\n\n".join(
+        section
+        for section in (
+            "You are a trading strategy diagnosis assistant. Stay grounded in the provided deterministic diagnosis.",
+            "Return parameter delta suggestions only. Do not output absolute parameter maps.",
+            json_instructions,
+        )
+        if section
     )
-    payload = result.analysis_payload or _fallback_analysis_envelope(result.raw_text or "")
+
+    try:
+        response = await dispatch.complete_for_task(
+            task_type="overlay",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": context},
+            ],
+        )
+    except Exception as exc:
+        return {
+            "summary": None,
+            "suggestions": [],
+            "parameter_suggestions": [],
+            "confidence": None,
+            "raw_text": str(exc),
+            "provider": None,
+            "model": None,
+            "ai_status": "unavailable",
+        }
+
+    raw_text = str(response.content or "").strip()
+    payload: dict[str, Any] | None = None
+    try:
+        parsed = json.loads(raw_text)
+        payload = parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        payload = None
+
+    if payload is None:
+        return {
+            "summary": None,
+            "suggestions": [],
+            "parameter_suggestions": [],
+            "confidence": None,
+            "raw_text": raw_text,
+            "provider": response.provider,
+            "model": response.model,
+            "ai_status": "invalid",
+        }
+
+    summary = str(payload.get("summary") or "").strip() or None
+
+    confidence = payload.get("confidence")
+    try:
+        confidence = float(confidence)
+    except (TypeError, ValueError):
+        confidence = None
+    if confidence is not None:
+        confidence = max(0.0, min(confidence, 1.0))
+
+    suggestions = payload.get("suggestions")
+    if not isinstance(suggestions, list):
+        suggestions = []
+
+    normalized_suggestions: list[dict[str, Any]] = []
+    for item in suggestions:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        direction = str(item.get("direction") or "").strip().lower()
+        delta = item.get("delta")
+        reason = str(item.get("reason") or "").strip()
+        evidence = item.get("evidence")
+        item_conf = item.get("confidence")
+
+        if direction not in {"increase", "decrease"}:
+            continue
+        try:
+            delta = float(delta)
+        except (TypeError, ValueError):
+            continue
+        if not key or not reason or delta == 0.0 or not math.isfinite(delta):
+            continue
+        if not isinstance(evidence, list) or not [token for token in evidence if str(token).strip()]:
+            continue
+
+        if item_conf is not None:
+            try:
+                item_conf = float(item_conf)
+            except (TypeError, ValueError):
+                item_conf = None
+            if item_conf is not None:
+                item_conf = max(0.0, min(item_conf, 1.0))
+
+        normalized_suggestions.append(
+            {
+                "key": key,
+                "direction": direction,
+                "delta": delta,
+                "reason": reason,
+                "evidence": [str(token).strip() for token in evidence if str(token).strip()],
+                "confidence": item_conf,
+            }
+        )
+
+    if len(normalized_suggestions) > 5:
+        return {
+            "summary": summary,
+            "suggestions": [],
+            "parameter_suggestions": [],
+            "confidence": confidence,
+            "raw_text": raw_text,
+            "provider": response.provider,
+            "model": response.model,
+            "ai_status": "invalid",
+        }
+
+    legacy = [
+        {
+            "name": item["key"],
+            "value": f"{item['direction']} {item['delta']}",
+            "reason": item.get("reason") or "",
+        }
+        for item in normalized_suggestions
+    ]
+
     return {
-        "summary": payload.get("summary") or None,
-        "diagnosis": payload.get("diagnosis") or {},
-        "priorities": _string_list(payload.get("priorities")),
-        "rationale": _string_list(payload.get("rationale")),
-        "parameter_suggestions": _normalize_parameter_suggestions(payload.get("parameter_suggestions")),
-        "code_change_summary": payload.get("code_change_summary") or None,
-        "recommended_next_step": payload.get("recommended_next_step") or None,
-        "confidence": payload.get("confidence"),
-        "raw_text": payload.get("raw_text") or result.raw_text,
-        "provider": result.provider,
-        "model": result.model,
+        "summary": summary,
+        "suggestions": normalized_suggestions,
+        "parameter_suggestions": legacy,
+        "confidence": confidence,
+        "raw_text": raw_text,
+        "provider": response.provider,
+        "model": response.model,
         "ai_status": "ready",
     }
-
 
 async def _run_structured_analysis(
     *,
@@ -631,3 +789,4 @@ __all__ = [
     "analyze_metrics",
     "analyze_run_diagnosis_overlay",
 ]
+

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -122,4 +122,7 @@ def test_backtest_proposal_candidate_keeps_run_version_linkage(monkeypatch):
     assert captured["source_kind"] == "ai_chat_draft"
     assert captured["candidate_mode"] == "parameter_only"
     assert captured["candidate_parameters"] == {"stoploss": -0.12}
+    assert captured["candidate_suggestions"] is None
     assert captured["candidate_code"] is None
+
+

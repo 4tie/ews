@@ -1,4 +1,4 @@
-import api from "../core/api.js";
+﻿import api from "../core/api.js";
 import { getState, on as onState } from "../core/state.js";
 import { emit, on as onEvent, EVENTS } from "../core/events.js";
 import persistence, { KEYS } from "../core/persistence.js";
@@ -555,6 +555,9 @@ function renderRecommendations(message) {
 }
 
 function payloadText(message, payloadKind) {
+  if (payloadKind === "parameters" && Array.isArray(message?.suggestions) && message.suggestions.length) {
+    return JSON.stringify({ suggestions: message.suggestions }, null, 2);
+  }
   if (payloadKind === "parameters" && hasKeys(message?.parameters)) {
     return JSON.stringify(message.parameters, null, 2);
   }
@@ -988,7 +991,8 @@ async function handleApplyAction(messageId, action) {
       source_kind: "ai_chat_draft",
       source_index: 0,
       candidate_mode: action === "apply-code" ? "code_patch" : "parameter_only",
-      parameters: action === "apply-parameters" ? message.parameters : null,
+      suggestions: action === "apply-parameters" && Array.isArray(message?.suggestions) ? message.suggestions : null,
+      parameters: action === "apply-parameters" && !Array.isArray(message?.suggestions) ? message.parameters : null,
       code: action === "apply-code" ? message.code : null,
       summary: compactText(message.text || "AI chat candidate", 220),
     });
@@ -1128,3 +1132,5 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+

@@ -1,5 +1,7 @@
-import asyncio
+﻿import asyncio
 from types import SimpleNamespace
+
+import pytest
 
 from app.models.optimizer_models import ChangeType, MutationResult, StrategyVersion, VersionStatus
 from app.services.results import strategy_intelligence_apply_service as apply_service
@@ -326,21 +328,12 @@ def test_ai_parameter_suggestion_returns_source_metadata(monkeypatch):
             message="created",
         )
 
-    async def _fake_run_ai_loop(**kwargs):
-        return SimpleNamespace(
-            success=True,
-            final_parameters={"stoploss": -0.12},
-            final_code=None,
-            error=None,
-        )
-
     monkeypatch.setattr(apply_service.mutation_service, "create_mutation", _create_mutation)
     monkeypatch.setattr(
         apply_service.mutation_service,
         "get_version_by_id",
         lambda version_id: _version(version_id, ChangeType.PARAMETER_CHANGE),
     )
-    monkeypatch.setattr(apply_service, "run_ai_loop", _fake_run_ai_loop)
 
     result = asyncio.run(
         apply_service.create_proposal_candidate_from_diagnosis(
@@ -349,10 +342,17 @@ def test_ai_parameter_suggestion_returns_source_metadata(monkeypatch):
             linked_version=SimpleNamespace(version_id="v-linked"),
             request_snapshot={"exchange": "binance"},
             summary_metrics={"profit_total_pct": 1.0},
-            diagnosis={"primary_flags": [], "proposal_actions": []},
+            diagnosis={"flags": [{"rule": "high_drawdown"}], "primary_flags": [], "proposal_actions": []},
             ai_payload={
-                "parameter_suggestions": [
-                    {"name": "stoploss", "value": -0.12, "reason": "Cut losses sooner."}
+                "suggestions": [
+                    {
+                        "key": "stoploss",
+                        "direction": "increase",
+                        "delta": 0.08,
+                        "reason": "Reduce drawdown by cutting losses sooner.",
+                        "evidence": ["high_drawdown"],
+                        "confidence": 0.7,
+                    }
                 ]
             },
             source_kind="ai_parameter_suggestion",
@@ -362,20 +362,17 @@ def test_ai_parameter_suggestion_returns_source_metadata(monkeypatch):
     )
 
     assert result.success is True
-    assert result.source_title.startswith("stoploss = -0.12")
+    assert result.source_title.startswith("stoploss increase 0.08")
     assert result.ai_mode == "parameter_only"
+
     request = captured["request"]
     assert request.parent_version_id == "v-linked"
-    assert request.parameters == {"stoploss": -0.12}
+    assert request.parameters["stoploss"] == pytest.approx(-0.12)
     assert request.source_ref == "backtest_run:bt-3"
     assert request.source_kind == "ai_parameter_suggestion"
-    assert request.source_context == {
-        "run_id": "bt-3",
-        "candidate_mode": "parameter_only",
-        "source_index": 0,
-        "title": "stoploss = -0.12: Cut losses sooner.",
-    }
-
+    assert request.source_context["candidate_mode"] == "parameter_only"
+    assert request.source_context["applied_suggestions"][0]["key"] == "stoploss"
+    assert request.source_context["applied_suggestions"][0]["next_value"] == pytest.approx(-0.12)
 
 def test_ai_chat_draft_parameter_candidate_uses_stage_backtest_candidate(monkeypatch):
     captured = {}
@@ -428,6 +425,7 @@ def test_ai_chat_draft_parameter_candidate_uses_stage_backtest_candidate(monkeyp
         "title": "AI Chat Draft",
         "candidate_mode": "parameter_only",
         "chat_summary": "AI chat candidate",
+        "applied_parameters_patch": ["stoploss"],
     }
 
 
@@ -601,3 +599,7 @@ def test_apply_strategy_recommendations_uses_stage_backtest_candidate(monkeypatc
             "parameters": {"stoploss": -0.11},
         }
     ]
+
+
+
+

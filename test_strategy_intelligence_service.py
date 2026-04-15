@@ -68,12 +68,16 @@ def test_analyze_metrics_falls_back_when_json_is_invalid(monkeypatch):
 def test_analyze_run_diagnosis_overlay_uses_same_envelope_subset(monkeypatch):
     payload = json.dumps({
         "summary": "High drawdown is the main issue.",
-        "diagnosis": {"problem": "High drawdown", "cause": "Loss containment is too loose.", "weaknesses": ["stoploss"]},
-        "priorities": ["Tighten stoploss"],
-        "rationale": ["Current downside controls allow losses to compound."],
-        "parameter_suggestions": [{"name": "stoploss", "value": -0.1, "reason": "Reduce downside."}],
-        "code_change_summary": "Review exit guards if stoploss tightening is insufficient.",
-        "recommended_next_step": "parameter_candidate",
+        "suggestions": [
+            {
+                "key": "stoploss",
+                "direction": "decrease",
+                "delta": 0.02,
+                "reason": "Cut losers sooner to reduce drawdown.",
+                "evidence": ["high_drawdown"],
+                "confidence": 0.72,
+            }
+        ],
         "confidence": 0.76,
     })
     fake_dispatch = _FakeDispatch(payload)
@@ -85,10 +89,15 @@ def test_analyze_run_diagnosis_overlay_uses_same_envelope_subset(monkeypatch):
             diagnosis={"primary_flags": [{"rule": "high_drawdown"}]},
             summary_metrics={"max_drawdown_pct": 22.5},
             linked_version=None,
+            run_id="bt-1",
+            trades=[],
+            results_per_pair=[],
+            request_snapshot={},
         )
     )
 
     assert result["ai_status"] == "ready"
     assert result["summary"] == "High drawdown is the main issue."
+    assert result["suggestions"][0]["key"] == "stoploss"
     assert result["parameter_suggestions"][0]["name"] == "stoploss"
     assert result["provider"] == "huggingface"

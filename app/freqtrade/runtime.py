@@ -1,4 +1,4 @@
-import os
+﻿import os
 import signal
 import threading
 import uuid
@@ -1169,6 +1169,10 @@ async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
                     diagnosis=diagnosis,
                     summary_metrics=summary_metrics,
                     linked_version=linked_version,
+                    run_id=run.run_id,
+                    trades=trades,
+                    results_per_pair=results_per_pair,
+                    request_snapshot=run.request_snapshot or {},
                 )
             except Exception:
                 ai_payload = _default_ai_payload("unavailable")
@@ -1185,6 +1189,8 @@ async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
         "summary_available": summary_available,
         "diagnosis_status": _derive_diagnosis_status(run, summary_state),
         "summary_metrics": summary_metrics,
+        "trades": trades,
+        "results_per_pair": results_per_pair,
         "summary": summary,
         "diagnosis": diagnosis,
         "ai": ai_payload,
@@ -1305,6 +1311,10 @@ async def create_backtest_run_proposal_candidate(run_id: str, payload: ProposalC
                 diagnosis=diagnosis,
                 summary_metrics=summary_metrics,
                 linked_version=linked_version,
+                run_id=run.run_id,
+                trades=trades,
+                results_per_pair=results_per_pair,
+                request_snapshot=run.request_snapshot or {},
             )
         except Exception:
             ai_payload = _default_ai_payload("unavailable")
@@ -1332,6 +1342,7 @@ async def create_backtest_run_proposal_candidate(run_id: str, payload: ProposalC
         candidate_mode=payload.candidate_mode.value,
         action_type=payload.action_type.value if payload.action_type else None,
         candidate_parameters=payload.parameters,
+        candidate_suggestions=payload.suggestions,
         candidate_code=payload.code,
         candidate_summary=payload.summary,
     )
@@ -1470,6 +1481,7 @@ async def validate_data(payload: dict):
         },
         "results": results,
     }
+
 
 
 
