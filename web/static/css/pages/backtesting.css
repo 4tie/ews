@@ -124,6 +124,7 @@
 .sidebar-tools {
   border: 1px solid var(--bt-border);
   background: var(--bt-subpanel-bg);
+  min-height: 120px;
 }
 
 .sidebar-tools__header {
