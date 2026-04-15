@@ -39,7 +39,6 @@ const elements = {
   listContainer: document.getElementById("version-list"),
   countEl: document.getElementById("version-count"),
   detailsContainer: document.getElementById("version-details-panel"),
-  lineageContainer: document.getElementById("lineage-tree"),
 };
 
 function escapeHtml(value) {
@@ -270,14 +269,6 @@ function renderPage() {
     pendingAction: state.pendingAction,
     onAction: handleVersionAction,
     onCompareTargetChange: handleCompareTargetChange,
-  });
-
-  renderVersionLineageView({
-    container: elements.lineageContainer,
-    versions: state.versions,
-    selectedVersionId: state.selectedVersionId,
-    activeVersionId: state.activeVersionId,
-    onSelect: handleSelectVersion,
   });
 }
 
@@ -768,7 +759,14 @@ async function handleCompare() {
   diffSection?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function handleVersionAction(action) {
+function handleSelectVersion(versionId) {
+  state.selectedVersionId = String(versionId || "").trim();
+  state.selectedCompareVersionId = "";
+  syncUrlState();
+  void loadVersionDetail({ compareToVersionId: null, silent: false });
+}
+
+function handleVersionAction(action, extra) {
   if (!state.versionDetail?.version) return;
 
   if (action === "compare") {
@@ -789,6 +787,11 @@ function handleVersionAction(action) {
   }
   if (action === "rollback") {
     void handleRollback();
+    return;
+  }
+  if (action === "select-version") {
+    handleSelectVersion(extra);
+    return;
   }
 }
 
