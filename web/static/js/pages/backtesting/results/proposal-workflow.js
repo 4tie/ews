@@ -837,11 +837,145 @@ async function ensureCompareLoaded() {
   }
 }
 
+function resolveSourceItem(sourceKind, sourceIndex) {
+  const index = Number(sourceIndex);
+  if (sourceKind === "deterministic_action") {
+    const actions = Array.isArray(latestPayload?.diagnosis?.proposal_actions) ? latestPayload.diagnosis.proposal_actions : [];
+    return actions[index] || null;
+  }
+  if (sourceKind === "ranked_issue") {
+    const issues = Array.isArray(latestPayload?.diagnosis?.ranked_issues) ? latestPayload.diagnosis.ranked_issues : [];
+    return issues[index] || null;
+  }
+  if (sourceKind === "parameter_hint") {
+    const hints = Array.isArray(latestPayload?.diagnosis?.parameter_hints) ? latestPayload.diagnosis.parameter_hints : [];
+    return hints[index] || null;
+  }
+  if (sourceKind === "ai_parameter_suggestion") {
+    const aiSuggestionsV2 = latestPayload?.ai?.ai_status === "ready" && Array.isArray(latestPayload?.ai?.suggestions)
+      ? latestPayload.ai.suggestions
+      : [];
+    const aiSuggestionsLegacy = latestPayload?.ai?.ai_status === "ready" && Array.isArray(latestPayload?.ai?.parameter_suggestions)
+      ? latestPayload.ai.parameter_suggestions
+      : [];
+    const suggestions = aiSuggestionsV2.length ? aiSuggestionsV2 : aiSuggestionsLegacy;
+    return suggestions[index] || null;
+  }
+  return null;
+}
+
+function openCandidatePreviewDialog({ sourceKind, sourceItem, actionType }) {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    // Build preview content based on source type
+    const title = sourceItem?.label || sourceItem?.rule || sourceItem?.name || sourceItem?.parameter || sourceItem?.key || "Candidate Preview";
+    const summary = sourceItem?.summary || sourceItem?.message || sourceItem?.rationale || sourceItem?.reason || "No summary available.";
+
+    // Build fields to show
+    const fields = [];
+
+    if (actionType) {
+      fields.push(["Action Type", actionType]);
+    }
+
+    if (sourceItem?.action_type) {
+      fields.push(["Action", sourceItem.action_type]);
+    }
+
+    if (Array.isArray(sourceItem?.parameters) && sourceItem.parameters.length > 0) {
+      fields.push(["Parameters", sourceItem.parameters.join(", ")]);
+    }
+
+    if (sourceItem?.direction && sourceItem?.delta != null) {
+      fields.push(["Change", `${sourceItem.direction} ${sourceItem.delta}`]);
+    }
+
+    if (sourceItem?.value != null) {
+      fields.push(["Value", String(sourceItem.value)]);
+    }
+
+    if (sourceItem?.confidence != null) {
+      fields.push(["Confidence", Number(sourceItem.confidence).toFixed(2)]);
+    }
+
+    if (Array.isArray(sourceItem?.matched_rules) && sourceItem.matched_rules.length > 0) {
+      fields.push(["Matched Rules", sourceItem.matched_rules.join(", ")]);
+    }
+
+    if (sourceItem?.rule) {
+      fields.push(["Rule", sourceItem.rule]);
+    }
+
+    if (sourceItem?.severity) {
+      fields.push(["Severity", sourceItem.severity]);
+    }
+
+    const contextHtml = buildDecisionContextHtml({
+      title: `Create candidate from ${sourceKind.replace(/_/g, " ")}`,
+      fields,
+      note: summary,
+    });
+
+    const dialogBody = `
+      <form id="candidate-preview-form" class="proposal-note-dialog">
+        ${contextHtml}
+        <div class="proposal-note-dialog__note">
+          <strong>Note:</strong> This will create a new candidate version based on the current baseline run with the above changes applied.
+        </div>
+      </form>
+    `;
+
+    const dialogFooter = `
+      <button type="button" class="btn btn--ghost btn--sm" id="candidate-preview-cancel">Cancel</button>
+      <button type="button" class="btn btn--secondary btn--sm" id="candidate-preview-confirm">Create Candidate</button>
+    `;
+
+    const settle = (value) => {
+      if (settled) return;
+      settled = true;
+      closeModal();
+      resolve(value);
+    };
+
+    openModal({
+      title: "Preview Candidate Changes",
+      body: dialogBody,
+      footer: dialogFooter,
+      onClose: () => {
+        if (!settled) {
+          settled = true;
+          resolve(false);
+        }
+      },
+    });
+
+    document.getElementById("candidate-preview-cancel")?.addEventListener("click", () => settle(false));
+    document.getElementById("candidate-preview-confirm")?.addEventListener("click", () => settle(true));
+    document.getElementById("candidate-preview-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      settle(true);
+    });
+  });
+}
+
 async function handleCreateCandidate(sourceKind, sourceIndex, actionType) {
   const baselineRunId = currentBaselineRunId();
   if (!baselineRunId) {
     showToast("No baseline run is loaded for proposal creation.", "warning");
     return;
+  }
+
+  // Show preview dialog before creating
+  const sourceItem = resolveSourceItem(sourceKind, sourceIndex);
+  if (!sourceItem) {
+    showToast("Could not find source item for preview.", "error");
+    return;
+  }
+
+  const confirmed = await openCandidatePreviewDialog({ sourceKind, sourceItem, actionType });
+  if (!confirmed) {
+    return; // User cancelled
   }
 
   busyAction = `create:${sourceKind}:${sourceIndex}`;
