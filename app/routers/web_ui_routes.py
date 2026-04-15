@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 import os
@@ -29,4 +29,13 @@ async def settings_page(request: Request):
         request=request,
         name="pages/settings/index.html",
         context={"page": "settings", "title": "Settings"},
+    )
+
+
+@router.get("/versions")
+async def versions_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="pages/versions/index.html",
+        context={"page": "versions", "title": "Strategy Versions"},
     )

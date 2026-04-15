@@ -18,6 +18,13 @@ const _state = {
     selectedCandidateVersionId: null,
     selectedCandidateVersionBySourceRef: {},
   },
+  versions: {
+    list: [],
+    activeVersionId: null,
+    selectedVersionId: null,
+    status: "idle",
+    error: null,
+  },
   settings: {},
 };
 

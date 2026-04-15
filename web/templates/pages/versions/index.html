@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block page_css %}
+<link rel="stylesheet" href="/static/css/pages/versions.css" />
+{% endblock %}
+
+{% block content %}
+<div class="versions-workspace" id="versions-workspace">
+  <aside class="versions-sidebar">
+    <div class="versions-sidebar__header">
+      <h1 class="versions-sidebar__title">Strategy Versions</h1>
+      <p class="versions-sidebar__subtitle">Manage and track strategy versions</p>
+    </div>
+    
+    <div class="version-list-panel" id="version-list-panel">
+      <div class="version-list-panel__header">
+        <h2 class="version-list-panel__title">All Versions</h2>
+        <span id="version-count">0</span>
+      </div>
+      <div class="version-list" id="version-list">
+        <div class="versions-empty">
+          <div class="versions-empty__icon">📋</div>
+          <p class="versions-empty__title">No versions</p>
+          <p class="versions-empty__message">Select a strategy to view its versions</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="versions-main">
+    <div class="version-details-panel" id="version-details-panel">
+      <div class="version-details-panel__header">
+        <h2 class="version-details-panel__title" id="version-detail-title">Select a version</h2>
+        <div class="version-details-panel__actions" id="version-actions">
+        </div>
+      </div>
+      <div class="version-details-panel__body" id="version-details-body">
+        <div class="versions-empty">
+          <div class="versions-empty__icon">👈</div>
+          <p class="versions-empty__title">No version selected</p>
+          <p class="versions-empty__message">Select a version from the list to view its details</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="lineage-panel" id="lineage-panel">
+      <h3 class="lineage-panel__title">Version Lineage</h3>
+      <div class="lineage-tree" id="lineage-tree">
+        <div class="versions-empty">
+          <p class="versions-empty__message">Select a strategy to view version lineage</p>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script type="module" src="/static/js/pages/versions/version-list-panel.js"></script>
+<script type="module" src="/static/js/pages/versions/version-details-panel.js"></script>
+<script type="module" src="/static/js/pages/versions/version-lineage-view.js"></script>
+<script type="module" src="/static/js/pages/versions/index.js"></script>
+{% endblock %}
