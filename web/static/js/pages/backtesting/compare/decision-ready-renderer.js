@@ -489,5 +489,4 @@ export function renderDecisionReadyCompare(comparison, options = {}) {
   }
   
   return sections;
-  `;
 }

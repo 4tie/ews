@@ -388,7 +388,7 @@ function buildRunContext(run, title) {
   const section = el("section", { class: "results-context" });
   const profit = metrics?.profit_total_pct;
   const winRate = metrics?.win_rate;
-  const-dd = metrics?.max_drawdown_pct;
+  const dd = metrics?.max_drawdown_pct;
   section.innerHTML = `
     <div class="results-context__title">${escapeHtml(title)}</div>
     <div class="results-context__meta" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px;">
