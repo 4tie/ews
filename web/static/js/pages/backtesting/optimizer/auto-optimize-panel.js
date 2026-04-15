@@ -20,6 +20,8 @@ let pollTimer = null;
 let eventSource = null;
 let eventReconnectTimer = null;
 let busy = false;
+let paused = false;
+let pausedEventBuffer = [];
 let lastRecord = null;
 let optimizerEvents = [];
 let eventSignatures = new Set();
@@ -83,6 +85,15 @@ function stopEventStream() {
 function resetEventLog() {
   optimizerEvents = [];
   eventSignatures = new Set();
+  paused = false;
+  pausedEventBuffer = [];
+}
+
+function flushPausedEvents() {
+  if (!paused || pausedEventBuffer.length === 0) return;
+  while (pausedEventBuffer.length) {
+    optimizerEvents.push(pausedEventBuffer.shift());
+  }
 }
 
 function eventSignature(event) {
@@ -94,6 +105,12 @@ function appendOptimizerEvent(event) {
   const signature = eventSignature(event);
   if (eventSignatures.has(signature)) return;
   eventSignatures.add(signature);
+
+  if (paused) {
+    pausedEventBuffer.push(event);
+    return;
+  }
+
   optimizerEvents.push(event);
   render();
 }
@@ -678,11 +695,15 @@ function render() {
 
         <div class="action-group auto-opt-actions">
           <button class="btn btn--primary btn--sm" id="auto-opt-start" ${disabled ? "disabled" : ""}>Start Auto Optimize</button>
+          <button class="btn btn--secondary btn--sm" id="auto-opt-pause" ${!optimizerRunId ? "disabled" : ""}>
+            ${paused ? "Resume" : "Pause"}
+          </button>
           ${optimizerRunId ? `<span class="field-hint">Run: <code>${escapeHtml(optimizerRunId)}</code></span>` : ""}
         </div>
       </div>
 
       ${errorBlock}
+      ${paused ? `<div class="results-context__note auto-opt-note-block">Optimizer event display is paused. New events are buffered and will appear when you resume.</div>` : ""}
 
       <div class="auto-opt-section">
         <div class="auto-opt-section-title">How Auto Optimize works</div>
@@ -758,6 +779,15 @@ function render() {
       showToast(`Auto Optimize failed to start: ${escapeHtml(error?.message || String(error))}`, "error", 8000);
       render();
     }
+  });
+
+  root.querySelector("#auto-opt-pause")?.addEventListener("click", () => {
+    if (!optimizerRunId) return;
+    paused = !paused;
+    if (!paused) {
+      flushPausedEvents();
+    }
+    render();
   });
 }
 

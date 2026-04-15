@@ -207,3 +207,53 @@ async def rollback_to_checkpoint(optimizer_run_id: str, checkpoint_id: str):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Rollback failed: {str(exc)}") from exc
+
+
+@router.get("/runs/{optimizer_run_id}/logs/stream")
+async def stream_optimizer_logs(optimizer_run_id: str):
+    """Server-sent event stream for Auto Optimize run logs.
+    
+    Streams JSONL events from the optimizer run, similar to /stream endpoint
+    but specifically labeled for log display in UI.
+    """
+    if auto_optimize_service.get_run(optimizer_run_id) is None:
+        raise HTTPException(status_code=404, detail=f"Optimizer run {optimizer_run_id} not found")
+
+    async def log_generator():
+        yield f"data: {json.dumps({'event_type': 'logs_stream_started', 'optimizer_run_id': optimizer_run_id})}\n\n"
+
+        path = persistence.optimizer_events_path(optimizer_run_id)
+        last_pos = 0
+
+        while True:
+            if os.path.isfile(path):
+                try:
+                    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                        handle.seek(last_pos)
+                        for line in handle:
+                            text = line.strip()
+                            if text:
+                                yield f"data: {text}\n\n"
+                        last_pos = handle.tell()
+                except OSError:
+                    pass
+
+            record = auto_optimize_service.get_run(optimizer_run_id)
+            if record is not None and record.status.value in {"failed", "completed"}:
+                if os.path.isfile(path):
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                            handle.seek(last_pos)
+                            for line in handle:
+                                text = line.strip()
+                                if text:
+                                    yield f"data: {text}\n\n"
+                    except OSError:
+                        pass
+
+                yield f"data: {json.dumps({'event_type': 'logs_stream_done', 'optimizer_run_id': optimizer_run_id})}\n\n"
+                return
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(log_generator(), media_type="text/event-stream")
