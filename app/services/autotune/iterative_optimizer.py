@@ -37,6 +37,12 @@ class IterativeOptimizer:
     def stop(self) -> dict:
         """Signal the subprocess to stop."""
         self.is_running = False
+        stopped_at = now_iso()
+        run_meta = persistence.load_optimizer_run(self.run_id) or {"run_id": self.run_id}
+        run_meta["status"] = "stopped"
+        run_meta["updated_at"] = stopped_at
+        run_meta["completed_at"] = stopped_at
+        persistence.save_optimizer_run(self.run_id, run_meta)
         # TODO: send SIGTERM to running subprocess
         return {"run_id": self.run_id, "status": "stopped"}
 

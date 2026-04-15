@@ -1,5 +1,5 @@
 /**
- * state.js — Lightweight reactive application state store.
+ * state.js - Lightweight reactive application state store.
  */
 
 const _listeners = {};
@@ -16,6 +16,7 @@ const _state = {
     maxOpenTrades: "",
     lastResult: null,
     selectedCandidateVersionId: null,
+    selectedCandidateVersionBySourceRef: {},
   },
   optimizer: {
     isRunning: false,
@@ -68,3 +69,4 @@ function emit(path, value) {
 }
 
 window._appState = _state;
+

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * decision-ready-renderer.js - Shared baseline-vs-candidate compare rendering helpers.
  */
 
@@ -112,8 +112,6 @@ function renderDecisionSnapshot(comparison, options = {}) {
   const strongestPairLoss = strongestPair(pairRows, "regressed");
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
-  const requestDiff = versionDiff?.request_snapshot_diff || {};
-  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
 
   return `
     <section class="results-context compare-decision-section compare-snapshot-section">
@@ -273,8 +271,6 @@ function renderVersionDiff(comparison, options = {}) {
   const versionDiff = comparison?.version_diff || {};
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
-  const requestDiff = versionDiff?.request_snapshot_diff || {};
-  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
   const summaryText = versionDiff?.summary || "No persisted candidate summary is available.";
   const matchedRules = Array.isArray(versionDiff?.matched_rules) ? versionDiff.matched_rules : [];
 
@@ -318,8 +314,6 @@ function renderVersionDiff(comparison, options = {}) {
 function renderMetricTable(comparison, options = {}) {
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
-  const requestDiff = versionDiff?.request_snapshot_diff || {};
-  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
   const rows = Array.isArray(comparison?.metrics) ? comparison.metrics : [];
   const leftCurrency = comparison?.left?.summary_metrics?.stake_currency || "";
   const rightCurrency = comparison?.right?.summary_metrics?.stake_currency || leftCurrency;
@@ -372,8 +366,6 @@ function renderMetricTable(comparison, options = {}) {
 function renderPairTable(comparison, options = {}) {
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
-  const requestDiff = versionDiff?.request_snapshot_diff || {};
-  const compareWarnings = Array.isArray(requestDiff?.warnings) ? requestDiff.warnings : [];
   const pairs = comparison?.pairs || {};
   const rows = Array.isArray(pairs?.rows) ? pairs.rows : [];
   const topImprovements = Array.isArray(pairs?.top_improvements) ? pairs.top_improvements : [];
@@ -483,5 +475,3 @@ export function renderDecisionReadyCompare(comparison, options = {}) {
     ${renderSectionDetails('Diagnosis Delta', renderDiagnosisDelta(comparison), `${(comparison?.diagnosis_delta?.resolved_rules || []).length} resolved / ${(comparison?.diagnosis_delta?.new_rules || []).length} new`)}
   `;
 }
-
-

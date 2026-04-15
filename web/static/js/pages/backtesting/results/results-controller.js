@@ -144,7 +144,7 @@ function pendingWorkflowVersions(payload = latestResultsPayload) {
 
 function currentWorkflowVersion(payload = latestResultsPayload) {
   const pendingVersions = pendingWorkflowVersions(payload);
-  const selectedCandidateId = getSelectedCandidateVersionId();
+  const selectedCandidateId = getSelectedCandidateVersionId(payload?.run_id || "");
   const selectedPending = pendingVersions.find((version) => version?.version_id === selectedCandidateId);
   if (selectedPending) return selectedPending;
   if (pendingVersions[0]) return pendingVersions[0];
@@ -624,3 +624,4 @@ export function initResultsController() {
 
   renderWorkflowGuide(makeEmptyPayload(currentStrategy));
 }
+

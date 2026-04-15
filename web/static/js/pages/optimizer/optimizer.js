@@ -43,14 +43,22 @@ export function initOptimizer() {
     }
   });
 
-  stopBtn?.addEventListener("click", () => {
-    stopLogStream();
-    setState("optimizer.isRunning", false);
-    emit(EVENTS.OPTIMIZER_STOPPED);
-    setButtonLoading(startBtn, false);
-    if (stopBtn)  stopBtn.disabled  = true;
-    if (pauseBtn) pauseBtn.disabled = true;
-    showToast("Optimizer stopped.", "warning");
-    // TODO: send stop signal to backend
+  stopBtn?.addEventListener("click", async () => {
+    if (!_currentRunId) return;
+    if (stopBtn) stopBtn.disabled = true;
+
+    try {
+      await api.optimizer.stopRun(_currentRunId);
+      stopLogStream();
+      setState("optimizer.isRunning", false);
+      emit(EVENTS.OPTIMIZER_STOPPED);
+      setButtonLoading(startBtn, false);
+      if (stopBtn)  stopBtn.disabled  = true;
+      if (pauseBtn) pauseBtn.disabled = true;
+      showToast("Optimizer stopped.", "warning");
+    } catch (e) {
+      if (stopBtn) stopBtn.disabled = false;
+      showToast("Failed to stop optimizer: " + e.message, "error");
+    }
   });
 }

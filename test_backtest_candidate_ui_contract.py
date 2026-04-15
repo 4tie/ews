@@ -1,4 +1,4 @@
-﻿import re
+import re
 from pathlib import Path
 
 
@@ -136,8 +136,7 @@ def test_api_client_removed_deprecated_ai_chat_apply_methods():
 
     assert 'createProposalCandidate: (runId, data) => api.post(`/api/backtest/runs/${encodeURIComponent(runId)}/proposal-candidates`, data),' in source
     assert 'compareRuns: (leftRunId, rightRunId) => api.get(`/api/backtest/compare${toQuery({ left_run_id: leftRunId, right_run_id: rightRunId })}`),' in source
-
-
+    assert "aiEvolution" not in source
 def test_shared_drawer_and_workflow_use_canonical_candidate_and_compare_routes():
     drawer_source = SHARED_DRAWER.read_text(encoding="utf-8")
     workflow_source = PROPOSAL_WORKFLOW.read_text(encoding="utf-8")
@@ -156,12 +155,14 @@ def test_selected_candidate_state_is_shared_across_backtesting_surfaces():
     selection_source = CANDIDATE_SELECTION_STATE.read_text(encoding="utf-8")
 
     assert "selectedCandidateVersionId" in state_source
+    assert "selectedCandidateVersionBySourceRef" in state_source
+    assert 'getState("backtest.selectedCandidateVersionBySourceRef")' in selection_source
+    assert 'setState("backtest.selectedCandidateVersionBySourceRef", nextSelections);' in selection_source
+    assert "function workflowSourceRef(baselineRunId)" in selection_source
     assert 'getState("backtest.selectedCandidateVersionId")' in selection_source
-    assert 'setState("backtest.selectedCandidateVersionId", versionId ? String(versionId) : null);' in selection_source
+    assert 'setState("backtest.selectedCandidateVersionId", normalized);' in selection_source
     assert "export function getWorkflowCandidateVersions" in selection_source
     assert "backtest_run:" in selection_source
-
-
 def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_decision_ready_compare():
     source = PROPOSAL_WORKFLOW.read_text(encoding="utf-8")
 
@@ -188,7 +189,9 @@ def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_deci
     assert 'data-role="selected-candidate"' in source
     assert "Selected Candidate" in source
     assert "renderDecisionReadyCompare(compareState.data" in source
-    assert "setSelectedCandidateVersionId(response.candidate_version_id);" in source
+    assert "setSelectedCandidateVersionId(response.candidate_version_id, baselineRunId);" in source
+    assert 'getSelectedCandidateVersionId(currentBaselineRunId())' in source
+    assert 'setSelectedCandidateVersionId(target.value || null, currentBaselineRunId());' in source
     assert 'onState("backtest.selectedCandidateVersionId", () => {' in source
     assert "ensureSelectedCandidateVersion(versionsState.versions, currentBaselineRunId())" in source
     assert "Candidate Compare" in source
@@ -200,8 +203,6 @@ def test_proposal_workflow_uses_selected_candidate_state_decision_notes_and_deci
     assert "Loading persisted compare evidence for baseline" in source
     assert "Persisted compare evidence is unavailable:" in source
     assert "Use this evidence before choosing Accept as current strategy or Promote as new strategy variant." in source
-
-
 def test_compare_panel_is_workflow_aware_and_uses_shared_versions_store():
     source = COMPARE_PANEL.read_text(encoding="utf-8")
 
@@ -210,6 +211,8 @@ def test_compare_panel_is_workflow_aware_and_uses_shared_versions_store():
     assert "Selected Candidate" in source
     assert "renderDecisionReadyCompare(lastComparison" in source
     assert "getWorkflowCandidateVersions(versionsState.versions, workflowBaselineRunId())" in source
+    assert 'getSelectedCandidateVersionId(workflowBaselineRunId())' in source
+    assert 'setSelectedCandidateVersionId(value || null, workflowBaselineRunId());' in source
     assert "initPersistedVersionsStore" in source
     assert "subscribePersistedVersions(handleVersionsSnapshot)" in source
     assert 'onState("backtest.selectedCandidateVersionId", () => {' in source
@@ -226,8 +229,7 @@ def test_compare_panel_is_workflow_aware_and_uses_shared_versions_store():
     assert "Persisted compare evidence is unavailable for the selected runs:" in source
     assert "No persisted completed runs with saved summary artifacts are available to compare yet. Run a baseline backtest or candidate rerun first." in source
     assert "Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Delta is right minus left." in source
-
-
+    assert 'layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first."));\n      renderGenericCompare(layout);' not in source
 def test_decision_renderer_exposes_summary_first_diff_pair_and_diagnosis_sections():
     source = DECISION_RENDERER.read_text(encoding="utf-8")
 
@@ -333,9 +335,7 @@ def test_shared_drawer_explicitly_selects_the_created_candidate_version():
     source = SHARED_DRAWER.read_text(encoding="utf-8")
 
     assert 'import { setSelectedCandidateVersionId } from "../pages/backtesting/compare/candidate-selection-state.js";' in source
-    assert 'setSelectedCandidateVersionId(response.candidate_version_id);' in source
-
-
+    assert 'setSelectedCandidateVersionId(response.candidate_version_id, context.run_id);' in source
 def test_candidate_selection_state_filters_workflow_choices_to_pending_candidates_only():
     source = CANDIDATE_SELECTION_STATE.read_text(encoding="utf-8")
 
@@ -397,3 +397,4 @@ def test_settings_path_ux_accepts_explicit_freqtrade_paths_without_bad_derivatio
 
     assert "Freqtrade Path" in template
     assert "/home/user/freqtrade or /home/user/freqtrade/.venv/bin/freqtrade" in template
+

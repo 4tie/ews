@@ -1,4 +1,4 @@
-﻿/**
+/**
  * proposal-workflow.js - Run-scoped proposal, candidate, rerun, compare, and decision workflow.
  */
 
@@ -83,7 +83,7 @@ function syncWorkflowCandidateSelection() {
 }
 
 function currentCandidateVersion() {
-  const selectedVersionId = getSelectedCandidateVersionId();
+  const selectedVersionId = getSelectedCandidateVersionId(currentBaselineRunId());
   return getWorkflowVersions().find((version) => version?.version_id === selectedVersionId) || getWorkflowVersions()[0] || null;
 }
 
@@ -350,7 +350,7 @@ function renderCandidateSelector() {
   const versions = getWorkflowVersions();
   if (versions.length < 2) return "";
 
-  const selectedVersionId = getSelectedCandidateVersionId();
+  const selectedVersionId = getSelectedCandidateVersionId(currentBaselineRunId());
   return `
     <label class="setup-field compare-toolbar__field proposal-candidate-selector">
       <span class="form-label">Selected Candidate</span>
@@ -858,7 +858,7 @@ async function handleCreateCandidate(sourceKind, sourceIndex, actionType) {
     }
     const response = await api.backtest.createProposalCandidate(baselineRunId, payload);
     if (response?.candidate_version_id) {
-      setSelectedCandidateVersionId(response.candidate_version_id);
+      setSelectedCandidateVersionId(response.candidate_version_id, baselineRunId);
     }
     showToast(response?.candidate_version_id ? `Candidate ${response.candidate_version_id} created.` : "Candidate created.", "success");
     await refreshPersistedVersions(resolveStrategy(), { silent: true });
@@ -1046,7 +1046,7 @@ function handleRootChange(event) {
   const target = event.target;
   if (!(target instanceof HTMLSelectElement)) return;
   if (target.dataset.role !== "selected-candidate") return;
-  setSelectedCandidateVersionId(target.value || null);
+  setSelectedCandidateVersionId(target.value || null, currentBaselineRunId());
 }
 
 function handleRootClick(event) {
@@ -1109,4 +1109,3 @@ export function initProposalWorkflow() {
 
   render();
 }
-

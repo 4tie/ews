@@ -240,7 +240,7 @@ function render() {
     btn.addEventListener("click", () => {
       const versionId = btn.getAttribute("data-version-id") || "";
       if (!versionId) return;
-      setSelectedCandidateVersionId(versionId);
+      setSelectedCandidateVersionId(versionId, baselineRunId);
       showToast(`Selected candidate ${escapeHtml(versionId)} for compare/workflow.`, "success");
     });
   });
@@ -316,3 +316,4 @@ export function initAutoOptimizePanel() {
 
   render();
 }
+

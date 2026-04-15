@@ -1,4 +1,4 @@
-﻿import api from "../core/api.js";
+import api from "../core/api.js";
 import { getState, on as onState } from "../core/state.js";
 import { emit, on as onEvent, EVENTS } from "../core/events.js";
 import persistence, { KEYS } from "../core/persistence.js";
@@ -998,7 +998,7 @@ async function handleApplyAction(messageId, action) {
     });
     rememberCandidateOverlay(strategy, messageId, response);
     if (response?.candidate_version_id) {
-      setSelectedCandidateVersionId(response.candidate_version_id);
+      setSelectedCandidateVersionId(response.candidate_version_id, context.run_id);
     }
 
     if (state.latestResultsPayload) {
@@ -1132,5 +1132,3 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
-
-

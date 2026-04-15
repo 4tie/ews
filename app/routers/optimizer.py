@@ -44,6 +44,20 @@ async def create_optimizer_run(payload: OptimizationRunCreateRequest | Optimizer
     }
 
 
+@router.post("/runs/{run_id}/stop")
+async def stop_optimizer(run_id: str):
+    record = auto_optimize_service.stop_run(run_id)
+    if record is not None:
+        return {"run_id": run_id, "status": "stopped"}
+
+    legacy = persistence.load_optimizer_run(run_id)
+    if isinstance(legacy, dict) and legacy.get("run_id"):
+        optimizer = IterativeOptimizer(run_id)
+        return optimizer.stop()
+
+    raise HTTPException(status_code=404, detail=f"Optimizer run {run_id} not found")
+
+
 @router.get("/runs/{optimizer_run_id}")
 async def get_optimizer_run(optimizer_run_id: str):
     record = auto_optimize_service.get_run(optimizer_run_id)

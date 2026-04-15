@@ -12,3 +12,5 @@ app/app/storage/
 # Freqtrade artifacts
 user_data/backtest_results/
 *.log
+.venv/
+.venv

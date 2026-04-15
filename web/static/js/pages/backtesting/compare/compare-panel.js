@@ -1,4 +1,4 @@
-﻿/**
+/**
  * compare-panel.js - Baseline-versus-candidate compare in workflow mode, generic two-run compare otherwise.
  */
 
@@ -79,7 +79,7 @@ function workflowMissingLinkedCandidates() {
 }
 
 function workflowCandidateVersion() {
-  const selected = getSelectedCandidateVersionId();
+  const selected = getSelectedCandidateVersionId(workflowBaselineRunId());
   return workflowCandidateVersions().find((version) => version?.version_id === selected) || workflowCandidateVersions()[0] || null;
 }
 
@@ -340,11 +340,11 @@ function buildWorkflowToolbar() {
   toolbar.appendChild(buildSelectField({
     label: "Selected Candidate",
     id: "compare-selected-candidate",
-    value: getSelectedCandidateVersionId(),
+    value: getSelectedCandidateVersionId(workflowBaselineRunId()),
     disabled: versionsState.status === "loading" || !workflowCandidateVersions().length,
     options: workflowCandidateVersions().map((version) => ({ value: version.version_id, label: formatWorkflowCandidateOption(version) })),
     onChange: (value) => {
-      setSelectedCandidateVersionId(value || null);
+      setSelectedCandidateVersionId(value || null, workflowBaselineRunId());
     },
   }));
   return toolbar;
@@ -352,8 +352,8 @@ function buildWorkflowToolbar() {
 
 function buildContextGrid(comparison, { leftTitle = "Left run", rightTitle = "Right run" } = {}) {
   const grid = el("div", { class: "compare-context-grid" });
-  grid.appendChild(buildRunContext(comparison?.left, leftTitle));
-  grid.appendChild(buildRunContext(comparison?.right, rightTitle));
+  grid.appendChild(buildRunContext(comparison?.baseline || comparison?.left, leftTitle));
+  grid.appendChild(buildRunContext(comparison?.candidate || comparison?.right, rightTitle));
   return grid;
 }
 
@@ -482,11 +482,9 @@ function renderComparePanel() {
       renderWorkflowCompare(layout);
     } else {
       layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first."));
-      renderGenericCompare(layout);
     }
   } else {
     renderGenericCompare(layout);
   }
   compareArea.appendChild(layout);
 }
-

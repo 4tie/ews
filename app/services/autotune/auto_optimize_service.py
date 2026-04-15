@@ -38,6 +38,7 @@ class AutoOptimizeService:
     def __init__(self) -> None:
         self._persistence = PersistenceService()
         self._tasks: dict[str, asyncio.Task] = {}
+        self._stop_requests: set[str] = set()
 
     def _persist_record(self, record: OptimizationRunRecord) -> None:
         payload = record.model_dump(mode="json")
@@ -64,6 +65,7 @@ class AutoOptimizeService:
 
         def _cleanup(done: asyncio.Task) -> None:
             self._tasks.pop(optimizer_run_id, None)
+            self._stop_requests.discard(optimizer_run_id)
             try:
                 done.result()
             except Exception:
@@ -226,6 +228,91 @@ class AutoOptimizeService:
         meta = dict(meta)
         meta["nodes"] = nodes
         return OptimizationRunRecord(**meta)
+
+    def _stop_running_backtests(self, record: OptimizationRunRecord) -> list[str]:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        run_ids: list[str] = []
+        for node in record.nodes:
+            if node.status != "running" or not node.run_id:
+                continue
+            run_id = str(node.run_id)
+            run_ids.append(run_id)
+            if loop is not None:
+                loop.create_task(freqtrade_runtime.stop_backtest_run(run_id))
+        return run_ids
+
+    def _mark_running_nodes_stopped(
+        self,
+        optimizer_run_id: str,
+        nodes: list[OptimizationNodeRecord],
+    ) -> None:
+        stopped_at = now_iso()
+        for node in nodes:
+            if node.status != "running":
+                continue
+            node.status = "stopped"
+            node.updated_at = stopped_at
+            node.completed_at = stopped_at
+            node.error = node.error or OptimizationError(
+                error_code="candidate_run_stopped",
+                error_stage="candidate_backtest",
+                message="Candidate backtest stopped by user request",
+                optimizer_run_id=optimizer_run_id,
+                run_id=str(node.run_id) if node.run_id else None,
+                node_id=node.node_id,
+                details={
+                    "version_id": node.candidate_version_id,
+                    "candidate_descriptor": node.candidate_descriptor,
+                },
+                suggested_fix=None,
+            )
+
+    def _finalize_stop_requested(
+        self,
+        record: OptimizationRunRecord,
+        *,
+        nodes: list[OptimizationNodeRecord],
+    ) -> None:
+        self._finalize(
+            record,
+            nodes=nodes,
+            result_kind=OptimizationResultKind.HARD_STOP_TRIGGERED,
+            completion_reason=OptimizationCompletionReason.HARD_STOP_TRIGGERED,
+            event_type="optimizer_hard_stop_triggered",
+            hard_stop_reason="stop_requested",
+        )
+
+    def stop_run(self, optimizer_run_id: str) -> OptimizationRunRecord | None:
+        record = self.get_run(optimizer_run_id)
+        if record is None:
+            return None
+
+        if record.status in {OptimizationRunStatus.COMPLETED, OptimizationRunStatus.FAILED}:
+            self._stop_requests.discard(optimizer_run_id)
+            return record
+
+        self._stop_requests.add(optimizer_run_id)
+        stopped_child_run_ids = self._stop_running_backtests(record)
+        self._emit(
+            optimizer_run_id,
+            "optimizer_stop_requested",
+            stopped_child_run_ids=stopped_child_run_ids,
+        )
+
+        task = self._tasks.get(optimizer_run_id)
+        if task is not None and not task.done():
+            task.cancel()
+            return record
+
+        nodes = list(record.nodes or [])
+        self._mark_running_nodes_stopped(optimizer_run_id, nodes)
+        self._finalize_stop_requested(record, nodes=nodes)
+        return self.get_run(optimizer_run_id)
+
     def _norm_json(self, payload: dict[str, Any]) -> str:
         return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
@@ -603,6 +690,7 @@ class AutoOptimizeService:
             finalists=[f.model_dump(mode="json") for f in record.finalists],
             near_misses=[m.model_dump(mode="json") for m in record.near_misses],
         )
+        self._stop_requests.discard(record.optimizer_run_id)
 
     async def _run_optimizer(self, optimizer_run_id: str) -> None:
         record = self.get_run(optimizer_run_id)
@@ -1002,6 +1090,13 @@ class AutoOptimizeService:
                 completion_reason=OptimizationCompletionReason.NO_PROFITABLE_FINALISTS,
                 event_type="optimizer_completed_no_finalists",
             )
+            return
+
+        except asyncio.CancelledError:
+            self._mark_running_nodes_stopped(optimizer_run_id, nodes)
+            record.nodes = nodes
+            record.updated_at = now_iso()
+            self._finalize_stop_requested(record, nodes=nodes)
             return
 
         except Exception as exc:
