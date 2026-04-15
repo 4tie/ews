@@ -1,8 +1,6 @@
-"""Freqtrade-specific backend ownership root."""
+﻿"""Freqtrade-specific backend ownership root."""
 
-from app.freqtrade.cli_service import FreqtradeCLIService, FreqtradeCliService
-from app.freqtrade.engine import FreqtradeEngine
-from app.freqtrade.result_parser import FreqtradeResultParser
+from importlib import import_module
 
 __all__ = [
     "FreqtradeCLIService",
@@ -10,3 +8,16 @@ __all__ = [
     "FreqtradeEngine",
     "FreqtradeResultParser",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"FreqtradeCLIService", "FreqtradeCliService"}:
+        module = import_module("app.freqtrade.cli_service")
+        return getattr(module, name)
+    if name == "FreqtradeEngine":
+        module = import_module("app.freqtrade.engine")
+        return getattr(module, name)
+    if name == "FreqtradeResultParser":
+        module = import_module("app.freqtrade.result_parser")
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
