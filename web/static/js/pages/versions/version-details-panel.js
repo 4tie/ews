@@ -238,7 +238,10 @@ function renderLinkedRunsTable(linkedRuns) {
             <th>Completed</th>
             <th>Profit</th>
             <th>Trades</th>
-            <th>Drawdown</th>
+            <th>
+              Drawdown
+              <button type="button" class="btn btn--ghost btn--xs version-rollback-config-btn" data-action="rollback-config" title="Rollback strategy config">Rollback Config</button>
+            </th>
           </tr>
         </thead>
         <tbody>

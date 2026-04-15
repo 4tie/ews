@@ -4,6 +4,7 @@
 
 import api from "../../../core/api.js";
 import showToast from "../../../components/toast.js";
+import { openModal, closeModal } from "../../../components/modal.js";
 import { on, EVENTS } from "../../../core/events.js";
 import { formatPct } from "../../../core/utils.js";
 import { getLatestResultsPayload } from "../results/results-controller.js";
@@ -28,16 +29,60 @@ function bindSaveAction() {
   if (saveBound || !saveBtn) return;
 
   saveBtn.addEventListener("click", async () => {
-    const name = prompt("Config name:");
-    if (!name?.trim()) return;
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div class="form-group">
+        <label class="form-label" for="config-name-input">Config Name</label>
+        <input class="form-input" type="text" id="config-name-input" placeholder="Enter a name for this configuration" autofocus />
+        <div class="field-hint">Save your current strategy, timeframe, pairs, and time range settings.</div>
+      </div>
+    `;
 
-    try {
-      await api.backtest.saveConfig({ name: name.trim(), data: collectCurrentConfigData() });
-      showToast(`Config "${name.trim()}" saved.`, "success");
-      await loadConfigs();
-    } catch (e) {
-      showToast("Save failed: " + e.message, "error");
+    const footer = `
+      <button class="btn btn--secondary" id="modal-cancel">Cancel</button>
+      <button class="btn btn--primary" id="modal-save">Save Config</button>
+    `;
+
+    openModal({
+      title: "Save Configuration",
+      body,
+      footer,
+      onClose: () => {
+        document.getElementById("modal-cancel")?.removeEventListener("click", closeModal);
+        document.getElementById("modal-save")?.removeEventListener("click", handleSave);
+      }
+    });
+
+    const nameInput = document.getElementById("config-name-input");
+    const cancelBtn = document.getElementById("modal-cancel");
+    const saveBtn = document.getElementById("modal-save");
+
+    cancelBtn?.addEventListener("click", closeModal);
+
+    async function handleSave() {
+      const name = nameInput?.value?.trim();
+      if (!name) {
+        showToast("Please enter a config name.", "error");
+        return;
+      }
+
+      try {
+        await api.backtest.saveConfig({ name, data: collectCurrentConfigData() });
+        showToast(`Config "${name}" saved.`, "success");
+        closeModal();
+        await loadConfigs();
+      } catch (e) {
+        showToast("Save failed: " + e.message, "error");
+      }
     }
+
+    saveBtn?.addEventListener("click", handleSave);
+    nameInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handleSave();
+      if (e.key === "Escape") closeModal();
+    });
+
+    saveBound = true;
   });
 
   saveBound = true;

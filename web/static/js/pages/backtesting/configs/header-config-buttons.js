@@ -24,15 +24,57 @@ export function collectCurrentConfigData() {
 }
 
 async function onSaveConfig() {
-  const name = prompt("Save config as:");
-  if (!name?.trim()) return;
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="form-group">
+      <label class="form-label" for="header-config-name-input">Config Name</label>
+      <input class="form-input" type="text" id="header-config-name-input" placeholder="Enter a name for this configuration" autofocus />
+      <div class="field-hint">Save your current strategy, timeframe, pairs, and time range settings.</div>
+    </div>
+  `;
 
-  try {
-    await api.backtest.saveConfig({ name: name.trim(), data: collectCurrentConfigData() });
-    showToast(`Config "${name.trim()}" saved.`, "success");
-  } catch (e) {
-    showToast("Save failed: " + e.message, "error");
+  const footer = `
+    <button class="btn btn--secondary" id="modal-cancel">Cancel</button>
+    <button class="btn btn--primary" id="modal-save">Save Config</button>
+  `;
+
+  openModal({
+    title: "Save Configuration",
+    body,
+    footer,
+    onClose: () => {
+      document.getElementById("modal-cancel")?.removeEventListener("click", closeModal);
+      document.getElementById("modal-save")?.removeEventListener("click", handleSave);
+    }
+  });
+
+  const nameInput = document.getElementById("header-config-name-input");
+  const cancelBtn = document.getElementById("modal-cancel");
+  const saveBtn = document.getElementById("modal-save");
+
+  cancelBtn?.addEventListener("click", closeModal);
+
+  async function handleSave() {
+    const name = nameInput?.value?.trim();
+    if (!name) {
+      showToast("Please enter a config name.", "error");
+      return;
+    }
+
+    try {
+      await api.backtest.saveConfig({ name, data: collectCurrentConfigData() });
+      showToast(`Config "${name}" saved.`, "success");
+      closeModal();
+    } catch (e) {
+      showToast("Save failed: " + e.message, "error");
+    }
   }
+
+  saveBtn?.addEventListener("click", handleSave);
+  nameInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleSave();
+    if (e.key === "Escape") closeModal();
+  });
 }
 
 async function onLoadConfig() {
@@ -49,20 +91,32 @@ async function onLoadConfig() {
     return;
   }
 
-  const listHtml = configs.map((name) =>
-    `<button class="btn btn--ghost btn--sm config-pick-btn" data-name="${name}" style="display:block;width:100%;text-align:left;margin-bottom:4px">${name}</button>`
-  ).join("");
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="form-group">
+      <label class="form-label">Select a configuration to load</label>
+      <div class="config-list" id="config-pick-list">
+        ${configs.map((name) =>
+          `<button class="btn btn--ghost btn--sm config-pick-btn" data-name="${name}">${name}</button>`
+        ).join("")}
+      </div>
+    </div>
+  `;
+
+  const footer = `
+    <button class="btn btn--secondary" id="modal-cancel">Cancel</button>
+  `;
 
   openModal({
-    title: "Load Config",
-    body: `<div id="config-pick-list">${listHtml}</div>`,
-    footer: `<button class="btn btn--ghost btn--sm" id="modal-cancel-btn">Cancel</button>`,
+    title: "Load Configuration",
+    body,
+    footer,
   });
 
-  document.getElementById("modal-cancel-btn")?.addEventListener("click", closeModal);
+  document.getElementById("modal-cancel")?.addEventListener("click", closeModal);
 
   document.getElementById("config-pick-list")?.addEventListener("click", async (e) => {
-    const name = e.target.dataset.name;
+    const name = e.target.closest(".config-pick-btn")?.dataset.name;
     if (!name) return;
 
     closeModal();

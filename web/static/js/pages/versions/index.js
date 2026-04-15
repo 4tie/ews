@@ -811,6 +811,10 @@ function handleVersionAction(action, extra) {
     void handleRollback();
     return;
   }
+  if (action === "rollback-config") {
+    void handleRollback();
+    return;
+  }
   if (action === "select-version") {
     handleSelectVersion(extra);
     return;

@@ -831,9 +831,6 @@
 }
 
 .version-copy-btn {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
   padding: 0.4rem 0.8rem;
   border: 1px solid color-mix(in srgb, var(--color-border) 90%, transparent);
   border-radius: var(--radius-sm);
@@ -843,11 +840,20 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  z-index: 10;
+  position: relative;
+  pointer-events: auto;
 }
 
 .version-copy-btn:hover {
   background: var(--color-accent);
   color: var(--color-bg);
+}
+
+.version-rollback-config-btn {
+  margin-left: var(--space-2);
+  padding: 0.2rem 0.6rem;
+  font-size: var(--text-xs);
 }
 
 .version-code-block {
@@ -1598,13 +1604,22 @@
 }
 .versions-snapshots {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: var(--space-3);
 }
 
 .versions-snapshot-panel {
   display: grid;
   gap: var(--space-3);
+}
+
+.versions-snapshot-panel__actions {
+  margin-top: var(--space-2);
+  pointer-events: auto;
+}
+
+.versions-snapshot-panel > *:not(.versions-snapshot-panel__actions) {
+  pointer-events: none;
 }
 
 .versions-snapshot-panel__header {

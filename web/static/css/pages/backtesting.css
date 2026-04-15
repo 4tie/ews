@@ -148,6 +148,16 @@
   background: var(--color-surface);
 }
 
+.sidebar-tool-card--center {
+  text-align: center;
+}
+
+.btn--full-width {
+  width: 100%;
+  display: block;
+  box-sizing: border-box;
+}
+
 .info-block {
   min-height: 72px;
   padding: var(--space-3);
@@ -319,6 +329,21 @@
 /* Configs panel */
 .configs-panel { display: flex; flex-direction: column; gap: var(--space-4); }
 .configs-list  { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* Config list in modal */
+#config-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+#config-pick-list .config-pick-btn {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+}
 
 .config-item {
   display: flex;
