@@ -1,10 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from app.models.backtest_models import BacktestRunRecord
+from app.core.models.backtest_models import BacktestRunRecord
 
 
 class EngineError(RuntimeError):
@@ -47,16 +47,22 @@ class BacktestEngine(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def run_backtest(self, payload: dict[str, Any], prepared: dict[str, Any] | None = None) -> dict[str, Any]:
+    def run_backtest(
+        self, payload: dict[str, Any], prepared: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         raise NotImplementedError
 
-    def resolve_backtest_raw_result_path(self, run_record: BacktestRunRecord) -> str | None:
+    def resolve_backtest_raw_result_path(
+        self, run_record: BacktestRunRecord
+    ) -> str | None:
         return run_record.raw_result_path
 
     def prepare_download_data(self, payload: dict[str, Any]) -> dict[str, Any]:
         raise EngineFeatureNotSupported(self.engine_id, "download-data")
 
-    def run_download_data(self, prepared: dict[str, Any], log_path: str | None = None) -> dict[str, Any]:
+    def run_download_data(
+        self, prepared: dict[str, Any], log_path: str | None = None
+    ) -> dict[str, Any]:
         raise EngineFeatureNotSupported(self.engine_id, "download-data")
 
     def validate_data(

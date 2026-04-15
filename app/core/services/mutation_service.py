@@ -8,6 +8,7 @@ Parameter-only quick actions) MUST go through this service to ensure:
 - Reversibility (Accept/Rollback)
 - Backtest/evolution reruns track exact version_id used
 """
+
 from __future__ import annotations
 
 import difflib
@@ -18,8 +19,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from app.freqtrade.paths import live_strategy_file, strategy_config_file
-from app.models.optimizer_models import (
+from app.core.freqtrade.paths import live_strategy_file, strategy_config_file
+from app.core.models.optimizer_models import (
     ChangeType,
     MutationRequest,
     MutationResult,
@@ -27,9 +28,9 @@ from app.models.optimizer_models import (
     VersionAuditEvent,
     VersionStatus,
 )
-from app.services.config_service import ConfigService
-from app.utils.json_io import read_json, write_json
-from app.utils.paths import (
+from app.core.services.config_service import ConfigService
+from app.core.utils.json_io import read_json, write_json
+from app.core.utils.paths import (
     storage_dir,
     strategy_active_version_file,
     strategy_version_file,
@@ -40,6 +41,7 @@ from app.utils.paths import (
 @dataclass
 class MutationContext:
     """Context passed through the mutation pipeline."""
+
     request: MutationRequest
     version: StrategyVersion
     success: bool
@@ -63,7 +65,9 @@ class StrategyMutationService:
         version_dir = strategy_versions_dir(strategy_name)
         os.makedirs(version_dir, exist_ok=True)
 
-    def _load_version_from_disk(self, strategy_name: str, version_id: str) -> Optional[StrategyVersion]:
+    def _load_version_from_disk(
+        self, strategy_name: str, version_id: str
+    ) -> Optional[StrategyVersion]:
         """Load version from disk."""
         version_file = strategy_version_file(strategy_name, version_id)
         if not os.path.exists(version_file):
@@ -84,10 +88,13 @@ class StrategyMutationService:
         """Set active version reference."""
         self._ensure_version_dir(version.strategy_name)
         active_file = strategy_active_version_file(version.strategy_name)
-        write_json(active_file, {
-            "version_id": version.version_id,
-            "updated_at": datetime.now().isoformat(),
-        })
+        write_json(
+            active_file,
+            {
+                "version_id": version.version_id,
+                "updated_at": datetime.now().isoformat(),
+            },
+        )
 
     def _get_active_version_id(self, strategy_name: str) -> Optional[str]:
         """Get the active version ID."""
@@ -108,19 +115,19 @@ class StrategyMutationService:
     def _write_live_artifacts(self, version_id: str) -> dict[str, Any]:
         """
         SOLE AUTHORITY for writing to live strategy files.
-        
+
         This is the ONLY path that modifies:
         - {user_data}/strategies/{strategy_name}.py
         - {user_data}/config/{strategy_name}.json
-        
+
         Called exclusively from:
         - accept_version() - after status + artifact validation gates
         - rollback_version() - after artifact validation gates
-        
+
         Caller must validate:
         - Version status is correct (accept checks CANDIDATE, rollback checks any)
         - Version has valid code_snapshot in lineage
-        
+
         This ensures no side-channel writes or bypasses of promotion path.
         """
         resolved = self.resolve_effective_artifacts(version_id)
@@ -131,9 +138,15 @@ class StrategyMutationService:
         if not strategy_name:
             raise ValueError(f"Version {version_id} did not resolve to a strategy name")
         if not isinstance(code_snapshot, str) or not code_snapshot.strip():
-            raise ValueError(f"Version {version_id} does not resolve to a strategy code snapshot")
-        if parameters_snapshot is not None and not isinstance(parameters_snapshot, dict):
-            raise ValueError(f"Version {version_id} resolved to an invalid parameters snapshot")
+            raise ValueError(
+                f"Version {version_id} does not resolve to a strategy code snapshot"
+            )
+        if parameters_snapshot is not None and not isinstance(
+            parameters_snapshot, dict
+        ):
+            raise ValueError(
+                f"Version {version_id} resolved to an invalid parameters snapshot"
+            )
 
         paths = self._live_artifact_paths(strategy_name)
         os.makedirs(os.path.dirname(paths["strategy_file"]), exist_ok=True)
@@ -152,17 +165,23 @@ class StrategyMutationService:
             "parameters_written": isinstance(parameters_snapshot, dict),
         }
 
-    def _archive_active_version(self, strategy_name: str, *, except_version_id: str | None = None) -> Optional[str]:
+    def _archive_active_version(
+        self, strategy_name: str, *, except_version_id: str | None = None
+    ) -> Optional[str]:
         active_id = self._get_active_version_id(strategy_name)
         if active_id and active_id != except_version_id:
-            old_active = self.get_version(strategy_name, active_id) or self.get_version_by_id(active_id)
+            old_active = self.get_version(
+                strategy_name, active_id
+            ) or self.get_version_by_id(active_id)
             if old_active:
                 old_active.status = VersionStatus.ARCHIVED
                 self._save_version(old_active)
         return active_id
 
     @staticmethod
-    def _deep_merge_dicts(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    def _deep_merge_dicts(
+        base: dict[str, Any], overlay: dict[str, Any]
+    ) -> dict[str, Any]:
         """Merge nested parameter dictionaries with child values taking precedence."""
         merged = dict(base)
         for key, value in overlay.items():
@@ -181,9 +200,13 @@ class StrategyMutationService:
                 for key in sorted(value.keys(), key=lambda item: str(item))
             }
         if isinstance(value, list):
-            return [StrategyMutationService._normalize_diff_value(item) for item in value]
+            return [
+                StrategyMutationService._normalize_diff_value(item) for item in value
+            ]
         if isinstance(value, tuple):
-            return [StrategyMutationService._normalize_diff_value(item) for item in value]
+            return [
+                StrategyMutationService._normalize_diff_value(item) for item in value
+            ]
         if isinstance(value, float):
             return round(value, 12)
         return value
@@ -197,7 +220,9 @@ class StrategyMutationService:
         return "changed"
 
     @staticmethod
-    def _collect_parameter_diff_rows(before: Any, after: Any, path: str, rows: list[dict[str, Any]]) -> None:
+    def _collect_parameter_diff_rows(
+        before: Any, after: Any, path: str, rows: list[dict[str, Any]]
+    ) -> None:
         before_value = StrategyMutationService._normalize_diff_value(before)
         after_value = StrategyMutationService._normalize_diff_value(after)
 
@@ -236,7 +261,9 @@ class StrategyMutationService:
                 "path": path or "$",
                 "before": before_value,
                 "after": after_value,
-                "status": StrategyMutationService._classify_parameter_diff_row(before_value, after_value),
+                "status": StrategyMutationService._classify_parameter_diff_row(
+                    before_value, after_value
+                ),
             }
         )
 
@@ -275,14 +302,18 @@ class StrategyMutationService:
         version.audit_events = audit_events
 
     @staticmethod
-    def _validate_new_strategy_name(strategy_name: str, current_strategy_name: str | None = None) -> str:
+    def _validate_new_strategy_name(
+        strategy_name: str, current_strategy_name: str | None = None
+    ) -> str:
         normalized = str(strategy_name or "").strip()
         if not normalized:
             raise ValueError("New strategy name is required")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", normalized):
             raise ValueError("New strategy name must be a valid Python identifier")
         if current_strategy_name and normalized == str(current_strategy_name).strip():
-            raise ValueError("New strategy name must be different from the current strategy")
+            raise ValueError(
+                "New strategy name must be different from the current strategy"
+            )
         return normalized
 
     def _ensure_new_strategy_targets_available(self, strategy_name: str) -> None:
@@ -296,17 +327,25 @@ class StrategyMutationService:
         if os.path.exists(version_dir):
             collisions.append(version_dir)
         if collisions:
-            raise ValueError(f"New strategy target already exists: {', '.join(collisions)}")
+            raise ValueError(
+                f"New strategy target already exists: {', '.join(collisions)}"
+            )
 
     @staticmethod
-    def _rename_strategy_class(code_snapshot: str, source_strategy_name: str, new_strategy_name: str) -> str:
+    def _rename_strategy_class(
+        code_snapshot: str, source_strategy_name: str, new_strategy_name: str
+    ) -> str:
         if not isinstance(code_snapshot, str) or not code_snapshot.strip():
             raise ValueError("Resolved strategy code snapshot is empty")
 
-        class_pattern = re.compile(r"(^\s*class\s+)([A-Za-z_][A-Za-z0-9_]*)(\s*(?:\(|:))", re.MULTILINE)
+        class_pattern = re.compile(
+            r"(^\s*class\s+)([A-Za-z_][A-Za-z0-9_]*)(\s*(?:\(|:))", re.MULTILINE
+        )
         matches = list(class_pattern.finditer(code_snapshot))
         if not matches:
-            raise ValueError("Could not locate a strategy class definition in the resolved code snapshot")
+            raise ValueError(
+                "Could not locate a strategy class definition in the resolved code snapshot"
+            )
 
         target_match = None
         for match in matches:
@@ -382,10 +421,12 @@ class StrategyMutationService:
                 kind = "context"
                 text = line[1:]
 
-            current_block["lines"].append({
-                "kind": kind,
-                "text": text,
-            })
+            current_block["lines"].append(
+                {
+                    "kind": kind,
+                    "text": text,
+                }
+            )
             preview_line_count += 1
 
         if total_hunks > len(preview_blocks):
@@ -396,7 +437,9 @@ class StrategyMutationService:
             "preview_truncated": truncated,
         }
 
-    def normalize_source_metadata(self, version: StrategyVersion | None) -> dict[str, Any]:
+    def normalize_source_metadata(
+        self, version: StrategyVersion | None
+    ) -> dict[str, Any]:
         if version is None:
             return {
                 "source_kind": None,
@@ -414,14 +457,21 @@ class StrategyMutationService:
             matched_rules = []
 
         source_title = (
-            str(source_context.get("title") or source_context.get("chat_summary") or "").strip()
+            str(
+                source_context.get("title") or source_context.get("chat_summary") or ""
+            ).strip()
             or str(getattr(version, "summary", None) or "").strip()
             or str(getattr(version, "source_ref", None) or "").strip()
             or None
         )
         candidate_mode = str(source_context.get("candidate_mode") or "").strip() or None
         action_type = str(source_context.get("action_type") or "").strip() or None
-        rule = str(source_context.get("rule") or source_context.get("flag_rule") or "").strip() or None
+        rule = (
+            str(
+                source_context.get("rule") or source_context.get("flag_rule") or ""
+            ).strip()
+            or None
+        )
         source_index = source_context.get("source_index")
 
         return {
@@ -431,16 +481,30 @@ class StrategyMutationService:
             "source_index": source_index,
             "action_type": action_type,
             "rule": rule,
-            "matched_rules": [str(item).strip() for item in matched_rules if str(item).strip()],
+            "matched_rules": [
+                str(item).strip() for item in matched_rules if str(item).strip()
+            ],
         }
 
-    def resolve_compare_versions(self, left_version_id: str | None, right_version_id: str | None) -> dict[str, Any]:
-        baseline_version = self.get_version_by_id(left_version_id) if left_version_id else None
-        candidate_version = self.get_version_by_id(right_version_id) if right_version_id else None
+    def resolve_compare_versions(
+        self, left_version_id: str | None, right_version_id: str | None
+    ) -> dict[str, Any]:
+        baseline_version = (
+            self.get_version_by_id(left_version_id) if left_version_id else None
+        )
+        candidate_version = (
+            self.get_version_by_id(right_version_id) if right_version_id else None
+        )
         baseline_source = "run" if baseline_version is not None else None
 
-        if baseline_version is None and candidate_version is not None and candidate_version.parent_version_id:
-            fallback_version = self.get_version_by_id(candidate_version.parent_version_id)
+        if (
+            baseline_version is None
+            and candidate_version is not None
+            and candidate_version.parent_version_id
+        ):
+            fallback_version = self.get_version_by_id(
+                candidate_version.parent_version_id
+            )
             if fallback_version is not None:
                 baseline_version = fallback_version
                 baseline_source = "candidate_parent"
@@ -460,12 +524,18 @@ class StrategyMutationService:
         candidate_parameters = None
 
         if baseline_version is not None:
-            baseline_parameters = self.resolve_effective_artifacts(baseline_version.version_id).get("parameters_snapshot")
+            baseline_parameters = self.resolve_effective_artifacts(
+                baseline_version.version_id
+            ).get("parameters_snapshot")
         if candidate_version is not None:
-            candidate_parameters = self.resolve_effective_artifacts(candidate_version.version_id).get("parameters_snapshot")
+            candidate_parameters = self.resolve_effective_artifacts(
+                candidate_version.version_id
+            ).get("parameters_snapshot")
 
         rows: list[dict[str, Any]] = []
-        self._collect_parameter_diff_rows(baseline_parameters, candidate_parameters, "", rows)
+        self._collect_parameter_diff_rows(
+            baseline_parameters, candidate_parameters, "", rows
+        )
         rows.sort(key=lambda row: str(row.get("path") or ""))
         return rows
 
@@ -476,18 +546,33 @@ class StrategyMutationService:
     ) -> dict[str, Any]:
         baseline_code = ""
         candidate_code = ""
-        diff_ref = getattr(candidate_version, "diff_ref", None) if candidate_version is not None else None
+        diff_ref = (
+            getattr(candidate_version, "diff_ref", None)
+            if candidate_version is not None
+            else None
+        )
 
         if baseline_version is not None:
-            baseline_code = str(self.resolve_effective_artifacts(baseline_version.version_id).get("code_snapshot") or "")
+            baseline_code = str(
+                self.resolve_effective_artifacts(baseline_version.version_id).get(
+                    "code_snapshot"
+                )
+                or ""
+            )
         if candidate_version is not None:
-            candidate_code = str(self.resolve_effective_artifacts(candidate_version.version_id).get("code_snapshot") or "")
+            candidate_code = str(
+                self.resolve_effective_artifacts(candidate_version.version_id).get(
+                    "code_snapshot"
+                )
+                or ""
+            )
 
         preview = self._build_code_diff_preview(
             baseline_code,
             candidate_code,
             baseline_label=getattr(baseline_version, "version_id", None) or "baseline",
-            candidate_label=getattr(candidate_version, "version_id", None) or "candidate",
+            candidate_label=getattr(candidate_version, "version_id", None)
+            or "candidate",
         )
 
         if not baseline_code.strip() and not candidate_code.strip():
@@ -512,7 +597,9 @@ class StrategyMutationService:
                 "preview_truncated": False,
             }
 
-        added_lines, removed_lines = self._count_code_diff_lines(baseline_code, candidate_code)
+        added_lines, removed_lines = self._count_code_diff_lines(
+            baseline_code, candidate_code
+        )
         return {
             "changed": True,
             "added_lines": added_lines,
@@ -523,8 +610,12 @@ class StrategyMutationService:
             "preview_truncated": preview["preview_truncated"],
         }
 
-    def build_version_compare_payload(self, left_version_id: str | None, right_version_id: str | None) -> dict[str, Any]:
-        resolved_versions = self.resolve_compare_versions(left_version_id, right_version_id)
+    def build_version_compare_payload(
+        self, left_version_id: str | None, right_version_id: str | None
+    ) -> dict[str, Any]:
+        resolved_versions = self.resolve_compare_versions(
+            left_version_id, right_version_id
+        )
         baseline_version = resolved_versions["baseline_version"]
         candidate_version = resolved_versions["candidate_version"]
         source_metadata = self.normalize_source_metadata(candidate_version)
@@ -532,7 +623,9 @@ class StrategyMutationService:
         versions = {
             "baseline_version_id": getattr(baseline_version, "version_id", None),
             "candidate_version_id": getattr(candidate_version, "version_id", None),
-            "candidate_parent_version_id": getattr(candidate_version, "parent_version_id", None),
+            "candidate_parent_version_id": getattr(
+                candidate_version, "parent_version_id", None
+            ),
             "baseline_version_source": resolved_versions.get("baseline_version_source"),
         }
         version_diff = {
@@ -540,13 +633,17 @@ class StrategyMutationService:
             "source_kind": source_metadata["source_kind"],
             "source_title": source_metadata["source_title"],
             "candidate_mode": source_metadata["candidate_mode"],
-            "change_type": getattr(getattr(candidate_version, "change_type", None), "value", None),
+            "change_type": getattr(
+                getattr(candidate_version, "change_type", None), "value", None
+            ),
             "summary": getattr(candidate_version, "summary", None),
             "source_index": source_metadata["source_index"],
             "action_type": source_metadata["action_type"],
             "rule": source_metadata["rule"],
             "matched_rules": source_metadata["matched_rules"],
-            "parameter_diff_rows": self.build_parameter_diff_rows(baseline_version, candidate_version),
+            "parameter_diff_rows": self.build_parameter_diff_rows(
+                baseline_version, candidate_version
+            ),
             "code_diff": self.summarize_code_diff(baseline_version, candidate_version),
         }
         return {
@@ -589,7 +686,9 @@ class StrategyMutationService:
 
         while current is not None:
             if current.version_id in seen:
-                raise ValueError(f"Version lineage cycle detected at {current.version_id}")
+                raise ValueError(
+                    f"Version lineage cycle detected at {current.version_id}"
+                )
 
             seen.add(current.version_id)
             lineage.append(current.version_id)
@@ -599,10 +698,17 @@ class StrategyMutationService:
                     f"Version lineage crosses strategies: {version_id} -> {current.version_id}"
                 )
 
-            if code_snapshot is None and isinstance(current.code_snapshot, str) and current.code_snapshot.strip():
+            if (
+                code_snapshot is None
+                and isinstance(current.code_snapshot, str)
+                and current.code_snapshot.strip()
+            ):
                 code_snapshot = current.code_snapshot
 
-            if isinstance(current.parameters_snapshot, dict) and current.parameters_snapshot:
+            if (
+                isinstance(current.parameters_snapshot, dict)
+                and current.parameters_snapshot
+            ):
                 parameter_layers.append(current.parameters_snapshot)
 
             parent_version_id = current.parent_version_id
@@ -691,7 +797,9 @@ class StrategyMutationService:
             )
 
         try:
-            normalized_strategy_name = self._validate_new_strategy_name(new_strategy_name or "", source_version.strategy_name)
+            normalized_strategy_name = self._validate_new_strategy_name(
+                new_strategy_name or "", source_version.strategy_name
+            )
             self._ensure_new_strategy_targets_available(normalized_strategy_name)
             artifacts = self.resolve_effective_artifacts(version_id)
             code_snapshot = self._rename_strategy_class(
@@ -700,7 +808,9 @@ class StrategyMutationService:
                 normalized_strategy_name,
             )
             parameters_snapshot = artifacts.get("parameters_snapshot")
-            if parameters_snapshot is not None and not isinstance(parameters_snapshot, dict):
+            if parameters_snapshot is not None and not isinstance(
+                parameters_snapshot, dict
+            ):
                 raise ValueError("Resolved parameters snapshot is invalid")
         except Exception as exc:
             return MutationResult(
@@ -710,7 +820,10 @@ class StrategyMutationService:
             )
 
         source_title = (
-            str((getattr(source_version, "source_context", None) or {}).get("title") or "").strip()
+            str(
+                (getattr(source_version, "source_context", None) or {}).get("title")
+                or ""
+            ).strip()
             or str(getattr(source_version, "summary", None) or "").strip()
             or f"Promoted from {source_version.strategy_name}:{source_version.version_id}"
         )
@@ -721,7 +834,9 @@ class StrategyMutationService:
                 summary=f"Promoted from {source_version.strategy_name}:{source_version.version_id}",
                 created_by="promote_as_new_strategy",
                 code=code_snapshot,
-                parameters=parameters_snapshot if isinstance(parameters_snapshot, dict) else None,
+                parameters=parameters_snapshot
+                if isinstance(parameters_snapshot, dict)
+                else None,
                 parent_version_id=None,
                 source_ref=f"strategy_version:{source_version.strategy_name}:{source_version.version_id}",
                 source_kind="promoted_strategy",
@@ -731,7 +846,9 @@ class StrategyMutationService:
                     "source_strategy_name": source_version.strategy_name,
                     "source_version_id": source_version.version_id,
                     "new_strategy_name": normalized_strategy_name,
-                    "candidate_mode": (getattr(source_version, "source_context", None) or {}).get("candidate_mode"),
+                    "candidate_mode": (
+                        getattr(source_version, "source_context", None) or {}
+                    ).get("candidate_mode"),
                 },
             )
         )
@@ -744,7 +861,9 @@ class StrategyMutationService:
 
         promoted_note = str(notes or "").strip()
         if promoted_note:
-            promoted_note = f"Promoted as new strategy {normalized_strategy_name}. {promoted_note}"
+            promoted_note = (
+                f"Promoted as new strategy {normalized_strategy_name}. {promoted_note}"
+            )
         else:
             promoted_note = f"Promoted as new strategy {normalized_strategy_name}."
         self._append_audit_event(
@@ -761,7 +880,9 @@ class StrategyMutationService:
             message=f"Version {version_id} promoted as new strategy {normalized_strategy_name}",
         )
 
-    def accept_version(self, version_id: str, notes: Optional[str] = None) -> MutationResult:
+    def accept_version(
+        self, version_id: str, notes: Optional[str] = None
+    ) -> MutationResult:
         """Promote a candidate version to active and write its live artifacts."""
         version = self.get_version_by_id(version_id)
         if not version:
@@ -781,8 +902,13 @@ class StrategyMutationService:
         # Gate 1: Ensure valid artifacts before touching live files
         try:
             artifacts = self.resolve_effective_artifacts(version_id)
-            if not isinstance(artifacts.get("code_snapshot"), str) or not artifacts.get("code_snapshot", "").strip():
-                raise ValueError(f"Version {version_id} does not resolve to a valid code snapshot")
+            if (
+                not isinstance(artifacts.get("code_snapshot"), str)
+                or not artifacts.get("code_snapshot", "").strip()
+            ):
+                raise ValueError(
+                    f"Version {version_id} does not resolve to a valid code snapshot"
+                )
         except Exception as exc:
             return MutationResult(
                 version_id=version_id,
@@ -799,21 +925,28 @@ class StrategyMutationService:
                 message=f"Version {version_id} could not be promoted: {exc}",
             )
 
-        active_id = self._archive_active_version(version.strategy_name, except_version_id=version.version_id)
+        active_id = self._archive_active_version(
+            version.strategy_name, except_version_id=version.version_id
+        )
         version.status = VersionStatus.ACTIVE
         version.promoted_from_version_id = active_id
         version.promoted_at = datetime.now().isoformat()
-        self._append_audit_event(version, "accepted", note=notes, from_version_id=active_id)
+        self._append_audit_event(
+            version, "accepted", note=notes, from_version_id=active_id
+        )
         self._save_version(version)
         self._set_active_version(version)
 
         return MutationResult(
             version_id=version_id,
             status="accepted",
-            message=f"Version {version_id} promoted to active" + (f": {notes}" if notes else ""),
+            message=f"Version {version_id} promoted to active"
+            + (f": {notes}" if notes else ""),
         )
 
-    def rollback_version(self, target_version_id: str, reason: Optional[str] = None) -> MutationResult:
+    def rollback_version(
+        self, target_version_id: str, reason: Optional[str] = None
+    ) -> MutationResult:
         """Rollback to an accepted prior version and restore its live artifacts."""
         target_version = self.get_version_by_id(target_version_id)
         if not target_version:
@@ -823,7 +956,11 @@ class StrategyMutationService:
                 message=f"Version {target_version_id} not found",
             )
 
-        if target_version.status in {VersionStatus.CANDIDATE, VersionStatus.DRAFT, VersionStatus.REJECTED}:
+        if target_version.status in {
+            VersionStatus.CANDIDATE,
+            VersionStatus.DRAFT,
+            VersionStatus.REJECTED,
+        }:
             return MutationResult(
                 version_id=target_version_id,
                 status="error",
@@ -835,8 +972,13 @@ class StrategyMutationService:
         # Gate 1: Ensure valid artifacts before touching live files
         try:
             artifacts = self.resolve_effective_artifacts(target_version_id)
-            if not isinstance(artifacts.get("code_snapshot"), str) or not artifacts.get("code_snapshot", "").strip():
-                raise ValueError(f"Version {target_version_id} does not resolve to a valid code snapshot")
+            if (
+                not isinstance(artifacts.get("code_snapshot"), str)
+                or not artifacts.get("code_snapshot", "").strip()
+            ):
+                raise ValueError(
+                    f"Version {target_version_id} does not resolve to a valid code snapshot"
+                )
         except Exception as exc:
             return MutationResult(
                 version_id=target_version_id,
@@ -860,17 +1002,22 @@ class StrategyMutationService:
         target_version.status = VersionStatus.ACTIVE
         target_version.promoted_from_version_id = current_active
         target_version.promoted_at = datetime.now().isoformat()
-        self._append_audit_event(target_version, "rolled_back", note=reason, from_version_id=current_active)
+        self._append_audit_event(
+            target_version, "rolled_back", note=reason, from_version_id=current_active
+        )
         self._save_version(target_version)
         self._set_active_version(target_version)
 
         return MutationResult(
             version_id=target_version_id,
             status="rolled_back",
-            message=f"Rolled back to {target_version_id}" + (f": {reason}" if reason else ""),
+            message=f"Rolled back to {target_version_id}"
+            + (f": {reason}" if reason else ""),
         )
 
-    def reject_version(self, version_id: str, reason: Optional[str] = None) -> MutationResult:
+    def reject_version(
+        self, version_id: str, reason: Optional[str] = None
+    ) -> MutationResult:
         """Reject a candidate version without changing the active version."""
         version = self.get_version_by_id(version_id)
         if not version:
@@ -891,7 +1038,8 @@ class StrategyMutationService:
             return MutationResult(
                 version_id=version_id,
                 status="rejected",
-                message=f"Version {version_id} is already rejected" + (f": {reason}" if reason else ""),
+                message=f"Version {version_id} is already rejected"
+                + (f": {reason}" if reason else ""),
             )
 
         if version.status != VersionStatus.CANDIDATE:
@@ -908,10 +1056,13 @@ class StrategyMutationService:
         return MutationResult(
             version_id=version_id,
             status="rejected",
-            message=f"Version {version_id} rejected" + (f": {reason}" if reason else ""),
+            message=f"Version {version_id} rejected"
+            + (f": {reason}" if reason else ""),
         )
 
-    def get_version(self, strategy_name: str, version_id: str) -> Optional[StrategyVersion]:
+    def get_version(
+        self, strategy_name: str, version_id: str
+    ) -> Optional[StrategyVersion]:
         """Get a specific version."""
         if version_id in self._cache:
             return self._cache[version_id]
@@ -924,7 +1075,9 @@ class StrategyMutationService:
             return None
         return self.get_version(strategy_name, active_id)
 
-    def list_versions(self, strategy_name: str, include_archived: bool = False) -> List[StrategyVersion]:
+    def list_versions(
+        self, strategy_name: str, include_archived: bool = False
+    ) -> List[StrategyVersion]:
         """List all versions for a strategy."""
         version_dir = strategy_versions_dir(strategy_name)
         if not os.path.exists(version_dir):
@@ -939,7 +1092,9 @@ class StrategyMutationService:
 
             version_id = fname[:-5]
             version = self.get_version(strategy_name, version_id)
-            if version and (include_archived or version.status != VersionStatus.ARCHIVED):
+            if version and (
+                include_archived or version.status != VersionStatus.ARCHIVED
+            ):
                 versions.append(version)
 
         return sorted(versions, key=lambda v: v.created_at, reverse=True)

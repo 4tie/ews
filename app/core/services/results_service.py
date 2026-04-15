@@ -1,14 +1,14 @@
-﻿import glob
+import glob
 import json
 import os
 from typing import Any, Optional
 
 from app.engines.resolver import result_parser_from_id
-from app.models.backtest_models import BacktestRunRecord
-from app.freqtrade.paths import strategy_results_dir, user_data_results_dir
+from app.core.models.backtest_models import BacktestRunRecord
+from app.core.freqtrade.paths import strategy_results_dir, user_data_results_dir
 from app.core.services.mutation_service import mutation_service
 from app.core.services.diagnosis_service import diagnosis_service
-from app.utils.json_io import read_json, write_json
+from app.core.utils.json_io import read_json, write_json
 
 
 class ResultsService:
@@ -1024,4 +1024,3 @@ class ResultsService:
         if not os.path.isdir(base):
             return []
         return [d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))]
-

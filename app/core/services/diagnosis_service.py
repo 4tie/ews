@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from app.models.backtest_models import BacktestRunRecord
-from app.models.optimizer_models import StrategyVersion
-from app.utils.datetime_utils import parse_timerange
+from app.core.models.backtest_models import BacktestRunRecord
+from app.core.models.optimizer_models import StrategyVersion
+from app.core.utils.datetime_utils import parse_timerange
 
 RULE_VERSION = "freqtrade-run-diagnosis-v1"
 _SEVERITY_ORDER = {"critical": 2, "warning": 1}
@@ -13,35 +13,40 @@ _SEVERITY_ORDER = {"critical": 2, "warning": 1}
 _HINTS: dict[str, dict[str, Any]] = {
     "negative_profit": {
         "parameters": ["minimal_roi", "stoploss", "trailing_stop"],
-        "rationale": "Negative return usually points to weak exits or insufficient downside control."
+        "rationale": "Negative return usually points to weak exits or insufficient downside control.",
     },
     "low_sample_size": {
         "parameters": ["timeframe", "entry thresholds", "pair whitelist"],
-        "rationale": "Very low trade counts make the result unstable and often indicate over-restrictive entries or narrow market coverage."
+        "rationale": "Very low trade counts make the result unstable and often indicate over-restrictive entries or narrow market coverage.",
     },
     "low_win_rate": {
         "parameters": ["entry thresholds", "stoploss", "sell signal guards"],
-        "rationale": "Low win rate often reflects loose entries or exits that realize losses too frequently."
+        "rationale": "Low win rate often reflects loose entries or exits that realize losses too frequently.",
     },
     "high_drawdown": {
         "parameters": ["stoploss", "max_open_trades", "protections"],
-        "rationale": "Large drawdowns suggest position sizing or loss containment needs tightening."
+        "rationale": "Large drawdowns suggest position sizing or loss containment needs tightening.",
     },
     "overtrading": {
         "parameters": ["pair whitelist", "max_open_trades", "entry filters"],
-        "rationale": "Too many trades per pair per day usually signals noisy entries or insufficient trade selection."
+        "rationale": "Too many trades per pair per day usually signals noisy entries or insufficient trade selection.",
     },
     "long_hold_time": {
         "parameters": ["minimal_roi", "exit signal timing", "unclog logic"],
-        "rationale": "Long average hold times usually indicate exits are arriving too late or positions are getting stuck."
+        "rationale": "Long average hold times usually indicate exits are arriving too late or positions are getting stuck.",
     },
     "pair_dragger": {
         "parameters": ["pair whitelist", "protections", "entry filters"],
-        "rationale": "One persistently weak pair can drag portfolio performance and often needs filtering or tailored risk controls."
+        "rationale": "One persistently weak pair can drag portfolio performance and often needs filtering or tailored risk controls.",
     },
     "exit_inefficiency": {
-        "parameters": ["minimal_roi", "stoploss", "trailing_stop", "exit signal timing"],
-        "rationale": "Exit inefficiency is usually improved by faster profit capture, earlier loss cuts, or less permissive stop behavior."
+        "parameters": [
+            "minimal_roi",
+            "stoploss",
+            "trailing_stop",
+            "exit signal timing",
+        ],
+        "rationale": "Exit inefficiency is usually improved by faster profit capture, earlier loss cuts, or less permissive stop behavior.",
     },
 }
 
@@ -122,11 +127,17 @@ class DiagnosisService:
         flags: list[dict[str, Any]] = []
 
         request_snapshot = request_snapshot or {}
-        schema_version = request_snapshot_schema_version if request_snapshot_schema_version is not None else 0
+        schema_version = (
+            request_snapshot_schema_version
+            if request_snapshot_schema_version is not None
+            else 0
+        )
         summary_metrics = summary_metrics or {}
         summary_block = summary_block or {}
         trades = [trade for trade in trades or [] if isinstance(trade, dict)]
-        results_per_pair = [row for row in results_per_pair or [] if isinstance(row, dict)]
+        results_per_pair = [
+            row for row in results_per_pair or [] if isinstance(row, dict)
+        ]
 
         total_trades = self._to_int(summary_metrics.get("total_trades"))
         pair_count = self._to_int(summary_metrics.get("pair_count"))
@@ -137,22 +148,34 @@ class DiagnosisService:
             if isinstance(pairs, list):
                 pair_count = len([pair for pair in pairs if pair])
 
-        facts["profit_total_pct"] = self._rounded(summary_metrics.get("profit_total_pct"))
+        facts["profit_total_pct"] = self._rounded(
+            summary_metrics.get("profit_total_pct")
+        )
         facts["win_rate_pct"] = self._rounded(summary_metrics.get("win_rate"))
         facts["total_trades"] = total_trades
         facts["pair_count"] = pair_count
         facts["drawdown_pct"] = self._rounded(summary_metrics.get("max_drawdown_pct"))
-        facts["avg_duration_hours"] = self._derive_avg_duration_hours(summary_block, trades)
-        facts["avg_win_duration_hours"], facts["avg_loss_duration_hours"] = self._derive_win_loss_duration_hours(summary_block, trades)
+        facts["avg_duration_hours"] = self._derive_avg_duration_hours(
+            summary_block, trades
+        )
+        facts["avg_win_duration_hours"], facts["avg_loss_duration_hours"] = (
+            self._derive_win_loss_duration_hours(summary_block, trades)
+        )
 
         worst_pair = self._derive_worst_pair(results_per_pair)
         facts["worst_pair"] = worst_pair.get("pair")
         facts["worst_pair_profit_pct"] = worst_pair.get("profit_pct")
         facts["worst_pair_trades"] = worst_pair.get("trades")
 
-        backtest_days = self._derive_backtest_days(trades, summary_metrics, request_snapshot)
+        backtest_days = self._derive_backtest_days(
+            trades, summary_metrics, request_snapshot
+        )
         facts["trades_per_day"] = self._divide(total_trades, backtest_days)
-        facts["trades_per_day_per_pair"] = self._divide(facts["trades_per_day"], max(pair_count or 0, 1)) if facts["trades_per_day"] is not None else None
+        facts["trades_per_day_per_pair"] = (
+            self._divide(facts["trades_per_day"], max(pair_count or 0, 1))
+            if facts["trades_per_day"] is not None
+            else None
+        )
 
         mfe_stats = self._derive_mfe_capture(trades)
         facts["avg_mfe_captured_pct"] = mfe_stats.get("avg_mfe_captured_pct")
@@ -176,7 +199,9 @@ class DiagnosisService:
         self._evaluate_overtrading(facts, backtest_days, flags, evidence, insufficient)
         self._evaluate_long_hold_time(facts, flags, evidence, insufficient)
         self._evaluate_pair_dragger(facts, flags, evidence, insufficient)
-        self._evaluate_exit_inefficiency(facts, mfe_stats, stop_stats, flags, evidence, insufficient)
+        self._evaluate_exit_inefficiency(
+            facts, mfe_stats, stop_stats, flags, evidence, insufficient
+        )
 
         ranked = sorted(
             flags,
@@ -232,7 +257,8 @@ class DiagnosisService:
                 if existing is None:
                     existing = {
                         "action_type": action_type,
-                        "label": spec.get("label") or action_type.replace("_", " ").title(),
+                        "label": spec.get("label")
+                        or action_type.replace("_", " ").title(),
                         "summary": spec.get("summary") or issue.get("message") or rule,
                         "message": issue.get("message") or spec.get("summary") or rule,
                         "severity": issue.get("severity") or "warning",
@@ -256,47 +282,141 @@ class DiagnosisService:
         actual = self._to_number(facts.get("profit_total_pct"))
         evidence["negative_profit"] = {"profit_total_pct": actual}
         if actual is None:
-            insufficient["negative_profit"] = self._insufficient(["profit_total_pct"], "Persisted summary metrics did not expose total profit percent.")
+            insufficient["negative_profit"] = self._insufficient(
+                ["profit_total_pct"],
+                "Persisted summary metrics did not expose total profit percent.",
+            )
             return
         if actual < -5:
-            flags.append(self._flag("negative_profit", "critical", actual, 0.0, -5.0, -5.0 - actual, f"Total profit is {actual:.2f}% and is below the critical threshold."))
+            flags.append(
+                self._flag(
+                    "negative_profit",
+                    "critical",
+                    actual,
+                    0.0,
+                    -5.0,
+                    -5.0 - actual,
+                    f"Total profit is {actual:.2f}% and is below the critical threshold.",
+                )
+            )
         elif actual < 0:
-            flags.append(self._flag("negative_profit", "warning", actual, 0.0, -5.0, 0.0 - actual, f"Total profit is {actual:.2f}% and is below break-even."))
+            flags.append(
+                self._flag(
+                    "negative_profit",
+                    "warning",
+                    actual,
+                    0.0,
+                    -5.0,
+                    0.0 - actual,
+                    f"Total profit is {actual:.2f}% and is below break-even.",
+                )
+            )
 
     def _evaluate_low_sample_size(self, facts, flags, evidence, insufficient) -> None:
         actual = self._to_number(facts.get("total_trades"))
         evidence["low_sample_size"] = {"total_trades": actual}
         if actual is None:
-            insufficient["low_sample_size"] = self._insufficient(["total_trades"], "Persisted summary metrics did not expose total trade count.")
+            insufficient["low_sample_size"] = self._insufficient(
+                ["total_trades"],
+                "Persisted summary metrics did not expose total trade count.",
+            )
             return
         if actual < 10:
-            flags.append(self._flag("low_sample_size", "critical", actual, 30.0, 10.0, 10.0 - actual, f"Only {int(actual)} trades were recorded, which is critically undersampled."))
+            flags.append(
+                self._flag(
+                    "low_sample_size",
+                    "critical",
+                    actual,
+                    30.0,
+                    10.0,
+                    10.0 - actual,
+                    f"Only {int(actual)} trades were recorded, which is critically undersampled.",
+                )
+            )
         elif actual < 30:
-            flags.append(self._flag("low_sample_size", "warning", actual, 30.0, 10.0, 30.0 - actual, f"Only {int(actual)} trades were recorded, which is a weak sample."))
+            flags.append(
+                self._flag(
+                    "low_sample_size",
+                    "warning",
+                    actual,
+                    30.0,
+                    10.0,
+                    30.0 - actual,
+                    f"Only {int(actual)} trades were recorded, which is a weak sample.",
+                )
+            )
 
     def _evaluate_low_win_rate(self, facts, flags, evidence, insufficient) -> None:
         actual = self._to_number(facts.get("win_rate_pct"))
         evidence["low_win_rate"] = {"win_rate_pct": actual}
         if actual is None:
-            insufficient["low_win_rate"] = self._insufficient(["win_rate_pct"], "Persisted summary metrics did not expose win rate percent.")
+            insufficient["low_win_rate"] = self._insufficient(
+                ["win_rate_pct"],
+                "Persisted summary metrics did not expose win rate percent.",
+            )
             return
         if actual < 35:
-            flags.append(self._flag("low_win_rate", "critical", actual, 45.0, 35.0, 35.0 - actual, f"Win rate is {actual:.2f}% and is below the critical threshold."))
+            flags.append(
+                self._flag(
+                    "low_win_rate",
+                    "critical",
+                    actual,
+                    45.0,
+                    35.0,
+                    35.0 - actual,
+                    f"Win rate is {actual:.2f}% and is below the critical threshold.",
+                )
+            )
         elif actual < 45:
-            flags.append(self._flag("low_win_rate", "warning", actual, 45.0, 35.0, 45.0 - actual, f"Win rate is {actual:.2f}% and is below the preferred range."))
+            flags.append(
+                self._flag(
+                    "low_win_rate",
+                    "warning",
+                    actual,
+                    45.0,
+                    35.0,
+                    45.0 - actual,
+                    f"Win rate is {actual:.2f}% and is below the preferred range.",
+                )
+            )
 
     def _evaluate_high_drawdown(self, facts, flags, evidence, insufficient) -> None:
         actual = self._to_number(facts.get("drawdown_pct"))
         evidence["high_drawdown"] = {"drawdown_pct": actual}
         if actual is None:
-            insufficient["high_drawdown"] = self._insufficient(["drawdown_pct"], "Persisted summary metrics did not expose max drawdown percent.")
+            insufficient["high_drawdown"] = self._insufficient(
+                ["drawdown_pct"],
+                "Persisted summary metrics did not expose max drawdown percent.",
+            )
             return
         if actual > 25:
-            flags.append(self._flag("high_drawdown", "critical", actual, 15.0, 25.0, actual - 25.0, f"Max drawdown reached {actual:.2f}% and breached the critical threshold."))
+            flags.append(
+                self._flag(
+                    "high_drawdown",
+                    "critical",
+                    actual,
+                    15.0,
+                    25.0,
+                    actual - 25.0,
+                    f"Max drawdown reached {actual:.2f}% and breached the critical threshold.",
+                )
+            )
         elif actual > 15:
-            flags.append(self._flag("high_drawdown", "warning", actual, 15.0, 25.0, actual - 15.0, f"Max drawdown reached {actual:.2f}% and is elevated."))
+            flags.append(
+                self._flag(
+                    "high_drawdown",
+                    "warning",
+                    actual,
+                    15.0,
+                    25.0,
+                    actual - 15.0,
+                    f"Max drawdown reached {actual:.2f}% and is elevated.",
+                )
+            )
 
-    def _evaluate_overtrading(self, facts, backtest_days, flags, evidence, insufficient) -> None:
+    def _evaluate_overtrading(
+        self, facts, backtest_days, flags, evidence, insufficient
+    ) -> None:
         actual = self._to_number(facts.get("trades_per_day_per_pair"))
         evidence["overtrading"] = {
             "trades_per_day": facts.get("trades_per_day"),
@@ -312,26 +432,75 @@ class DiagnosisService:
         if backtest_days is None:
             missing.append("backtest_days")
         if missing:
-            insufficient["overtrading"] = self._insufficient(missing, "Overtrading requires trade count, pair count, and an observable backtest date range.")
+            insufficient["overtrading"] = self._insufficient(
+                missing,
+                "Overtrading requires trade count, pair count, and an observable backtest date range.",
+            )
             return
         if actual is None:
-            insufficient["overtrading"] = self._insufficient(["trades_per_day_per_pair"], "Overtrading ratio could not be derived from the available run data.")
+            insufficient["overtrading"] = self._insufficient(
+                ["trades_per_day_per_pair"],
+                "Overtrading ratio could not be derived from the available run data.",
+            )
             return
         if actual > 3.0:
-            flags.append(self._flag("overtrading", "critical", actual, 1.5, 3.0, actual - 3.0, f"Trades per day per pair is {actual:.2f}, which is critically high."))
+            flags.append(
+                self._flag(
+                    "overtrading",
+                    "critical",
+                    actual,
+                    1.5,
+                    3.0,
+                    actual - 3.0,
+                    f"Trades per day per pair is {actual:.2f}, which is critically high.",
+                )
+            )
         elif actual > 1.5:
-            flags.append(self._flag("overtrading", "warning", actual, 1.5, 3.0, actual - 1.5, f"Trades per day per pair is {actual:.2f}, which is above the preferred pace."))
+            flags.append(
+                self._flag(
+                    "overtrading",
+                    "warning",
+                    actual,
+                    1.5,
+                    3.0,
+                    actual - 1.5,
+                    f"Trades per day per pair is {actual:.2f}, which is above the preferred pace.",
+                )
+            )
 
     def _evaluate_long_hold_time(self, facts, flags, evidence, insufficient) -> None:
         actual = self._to_number(facts.get("avg_duration_hours"))
         evidence["long_hold_time"] = {"avg_duration_hours": actual}
         if actual is None:
-            insufficient["long_hold_time"] = self._insufficient(["avg_duration_hours"], "Average hold time could not be derived from the persisted summary or trades.")
+            insufficient["long_hold_time"] = self._insufficient(
+                ["avg_duration_hours"],
+                "Average hold time could not be derived from the persisted summary or trades.",
+            )
             return
         if actual > 24:
-            flags.append(self._flag("long_hold_time", "critical", actual, 12.0, 24.0, actual - 24.0, f"Average hold time is {actual:.2f} hours and is critically long."))
+            flags.append(
+                self._flag(
+                    "long_hold_time",
+                    "critical",
+                    actual,
+                    12.0,
+                    24.0,
+                    actual - 24.0,
+                    f"Average hold time is {actual:.2f} hours and is critically long.",
+                )
+            )
         elif actual > 12:
-            flags.append(self._flag("long_hold_time", "warning", actual, 12.0, 24.0, actual - 12.0, f"Average hold time is {actual:.2f} hours and is longer than preferred."))
+            flags.append(
+                self._flag(
+                    "long_hold_time",
+                    "warning",
+                    actual,
+                    12.0,
+                    24.0,
+                    actual - 12.0,
+                    f"Average hold time is {actual:.2f} hours and is longer than preferred.",
+                )
+            )
 
     def _evaluate_pair_dragger(self, facts, flags, evidence, insufficient) -> None:
         profit_pct = self._to_number(facts.get("worst_pair_profit_pct"))
@@ -349,12 +518,27 @@ class DiagnosisService:
         if trades is None:
             missing.append("worst_pair_trades")
         if missing:
-            insufficient["pair_dragger"] = self._insufficient(missing, "Per-pair breakdown data is required to identify a consistent dragger pair.")
+            insufficient["pair_dragger"] = self._insufficient(
+                missing,
+                "Per-pair breakdown data is required to identify a consistent dragger pair.",
+            )
             return
         if profit_pct <= -5 and trades >= 5:
-            flags.append(self._flag("pair_dragger", "warning", profit_pct, -5.0, None, abs(profit_pct + 5.0), f"{facts.get('worst_pair')} is down {profit_pct:.2f}% across {int(trades)} trades and is dragging the run."))
+            flags.append(
+                self._flag(
+                    "pair_dragger",
+                    "warning",
+                    profit_pct,
+                    -5.0,
+                    None,
+                    abs(profit_pct + 5.0),
+                    f"{facts.get('worst_pair')} is down {profit_pct:.2f}% across {int(trades)} trades and is dragging the run.",
+                )
+            )
 
-    def _evaluate_exit_inefficiency(self, facts, mfe_stats, stop_stats, flags, evidence, insufficient) -> None:
+    def _evaluate_exit_inefficiency(
+        self, facts, mfe_stats, stop_stats, flags, evidence, insufficient
+    ) -> None:
         avg_win = self._to_number(facts.get("avg_win_duration_hours"))
         avg_loss = self._to_number(facts.get("avg_loss_duration_hours"))
         avg_mfe_captured = self._to_number(facts.get("avg_mfe_captured_pct"))
@@ -395,7 +579,10 @@ class DiagnosisService:
             distances.append(1.0)
 
         if missing:
-            insufficient["exit_inefficiency"] = self._insufficient(missing, "Exit inefficiency uses win/loss duration split, MFE capture, and late-stop evidence when available.")
+            insufficient["exit_inefficiency"] = self._insufficient(
+                missing,
+                "Exit inefficiency uses win/loss duration split, MFE capture, and late-stop evidence when available.",
+            )
 
         if not (duration_trigger or mfe_trigger or stop_trigger):
             return
@@ -407,22 +594,30 @@ class DiagnosisService:
             reasons.append(f"only {avg_mfe_captured:.2f}% of available MFE is captured")
         if stop_trigger:
             reasons.append("losing trades exceed the configured stop depth before exit")
-        flags.append(self._flag(
-            "exit_inefficiency",
-            "warning",
-            {
-                "avg_loss_duration_hours": avg_loss,
-                "avg_win_duration_hours": avg_win,
-                "avg_mfe_captured_pct": avg_mfe_captured,
-                "late_stop_flag": late_stop_flag,
-            },
-            {"loss_vs_win_duration_ratio": 1.3, "avg_mfe_captured_pct": 60.0, "late_stop_flag": True},
-            None,
-            max(distances) if distances else 0.0,
-            "Exit behavior looks inefficient because " + "; ".join(reasons) + ".",
-        ))
+        flags.append(
+            self._flag(
+                "exit_inefficiency",
+                "warning",
+                {
+                    "avg_loss_duration_hours": avg_loss,
+                    "avg_win_duration_hours": avg_win,
+                    "avg_mfe_captured_pct": avg_mfe_captured,
+                    "late_stop_flag": late_stop_flag,
+                },
+                {
+                    "loss_vs_win_duration_ratio": 1.3,
+                    "avg_mfe_captured_pct": 60.0,
+                    "late_stop_flag": True,
+                },
+                None,
+                max(distances) if distances else 0.0,
+                "Exit behavior looks inefficient because " + "; ".join(reasons) + ".",
+            )
+        )
 
-    def _derive_avg_duration_hours(self, summary_block: dict[str, Any], trades: list[dict[str, Any]]) -> float | None:
+    def _derive_avg_duration_hours(
+        self, summary_block: dict[str, Any], trades: list[dict[str, Any]]
+    ) -> float | None:
         summary_seconds = self._to_number(summary_block.get("holding_avg_s"))
         if summary_seconds is not None:
             return self._rounded(summary_seconds / 3600.0)
@@ -437,13 +632,19 @@ class DiagnosisService:
             return None
         return self._rounded(sum(durations) / len(durations))
 
-    def _derive_win_loss_duration_hours(self, summary_block: dict[str, Any], trades: list[dict[str, Any]]) -> tuple[float | None, float | None]:
+    def _derive_win_loss_duration_hours(
+        self, summary_block: dict[str, Any], trades: list[dict[str, Any]]
+    ) -> tuple[float | None, float | None]:
         win_seconds = self._to_number(summary_block.get("winner_holding_avg_s"))
         loss_seconds = self._to_number(summary_block.get("loser_holding_avg_s"))
         if win_seconds is not None or loss_seconds is not None:
             return (
-                self._rounded((win_seconds / 3600.0) if win_seconds is not None else None),
-                self._rounded((loss_seconds / 3600.0) if loss_seconds is not None else None),
+                self._rounded(
+                    (win_seconds / 3600.0) if win_seconds is not None else None
+                ),
+                self._rounded(
+                    (loss_seconds / 3600.0) if loss_seconds is not None else None
+                ),
             )
 
         win_text = summary_block.get("winner_holding_avg")
@@ -470,7 +671,9 @@ class DiagnosisService:
         loss_avg = (sum(losers) / len(losers)) if losers else None
         return self._rounded(win_avg), self._rounded(loss_avg)
 
-    def _derive_worst_pair(self, results_per_pair: list[dict[str, Any]]) -> dict[str, Any]:
+    def _derive_worst_pair(
+        self, results_per_pair: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         worst = {"pair": None, "profit_pct": None, "trades": None}
         for row in results_per_pair:
             pair = row.get("key") or row.get("pair")
@@ -491,7 +694,9 @@ class DiagnosisService:
                 }
         return worst
 
-    def _derive_backtest_days(self, trades, summary_metrics, request_snapshot) -> float | None:
+    def _derive_backtest_days(
+        self, trades, summary_metrics, request_snapshot
+    ) -> float | None:
         timestamps = []
         for trade in trades:
             open_ts = self._trade_timestamp(trade, "open")
@@ -504,12 +709,18 @@ class DiagnosisService:
         if len(timestamps) >= 2:
             return max((max(timestamps) - min(timestamps)) / 86400.0, 1.0)
 
-        timerange = request_snapshot.get("timerange") or summary_metrics.get("timerange")
+        timerange = request_snapshot.get("timerange") or summary_metrics.get(
+            "timerange"
+        )
         if isinstance(timerange, str) and timerange:
             try:
                 start_token, end_token = parse_timerange(timerange)
-                start = datetime.strptime(start_token, "%Y%m%d").replace(tzinfo=timezone.utc)
-                end = datetime.strptime(end_token, "%Y%m%d").replace(tzinfo=timezone.utc)
+                start = datetime.strptime(start_token, "%Y%m%d").replace(
+                    tzinfo=timezone.utc
+                )
+                end = datetime.strptime(end_token, "%Y%m%d").replace(
+                    tzinfo=timezone.utc
+                )
                 return max((end - start).total_seconds() / 86400.0, 1.0)
             except ValueError:
                 return None
@@ -523,7 +734,13 @@ class DiagnosisService:
             open_rate = self._to_number(trade.get("open_rate"))
             max_rate = self._to_number(trade.get("max_rate"))
             profit_ratio = self._trade_profit_ratio(trade)
-            if open_rate is None or max_rate is None or profit_ratio is None or open_rate <= 0 or max_rate <= open_rate:
+            if (
+                open_rate is None
+                or max_rate is None
+                or profit_ratio is None
+                or open_rate <= 0
+                or max_rate <= open_rate
+            ):
                 continue
             available_pct = ((max_rate - open_rate) / open_rate) * 100.0
             if available_pct <= 0:
@@ -551,7 +768,12 @@ class DiagnosisService:
             stop_loss_ratio = self._to_number(trade.get("stop_loss_ratio"))
             if profit_ratio is None or profit_ratio >= 0:
                 continue
-            if open_rate is None or min_rate is None or stop_loss_ratio is None or open_rate <= 0:
+            if (
+                open_rate is None
+                or min_rate is None
+                or stop_loss_ratio is None
+                or open_rate <= 0
+            ):
                 continue
             adverse_pct = abs(((min_rate - open_rate) / open_rate) * 100.0)
             stop_loss_pct = abs(stop_loss_ratio * 100.0)
@@ -576,10 +798,13 @@ class DiagnosisService:
         }
 
     def _count_pairs(self, results_per_pair: list[dict[str, Any]]) -> int | None:
-        count = len([
-            row for row in results_per_pair
-            if str(row.get("key") or row.get("pair") or "") != "TOTAL"
-        ])
+        count = len(
+            [
+                row
+                for row in results_per_pair
+                if str(row.get("key") or row.get("pair") or "") != "TOTAL"
+            ]
+        )
         return count or None
 
     def _trade_timestamp(self, trade: dict[str, Any], mode: str) -> float | None:
@@ -650,7 +875,16 @@ class DiagnosisService:
 
         return day_count * 24.0 + hours + (minutes / 60.0) + (seconds / 3600.0)
 
-    def _flag(self, rule, severity, actual, warning_threshold, critical_threshold, threshold_distance, message) -> dict[str, Any]:
+    def _flag(
+        self,
+        rule,
+        severity,
+        actual,
+        warning_threshold,
+        critical_threshold,
+        threshold_distance,
+        message,
+    ) -> dict[str, Any]:
         return {
             "rule": rule,
             "severity": severity,
