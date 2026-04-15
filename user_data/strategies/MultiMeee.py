@@ -1,16 +1,13 @@
-# MultiMa Strategy V2
-# Author: @Mablue (Masoud Azizi)
-# github: https://github.com/mablue/
+
 
 import json
 import os
+from functools import reduce
+
+import pandas as pd
+import talib.abstract as ta
 from freqtrade.strategy import IntParameter, IStrategy
 from pandas import DataFrame
-
-import talib.abstract as ta
-import freqtrade.vendor.qtpylib.indicators as qtpylib
-from functools import reduce
-import pandas as pd
 
 
 def load_config_params():
@@ -113,6 +110,10 @@ class MultiMeee(IStrategy):
         1, gap_max, default=CONFIG_PARAMS.get("sell_ma_gap", 66), space="sell"
     )
 
+    @staticmethod
+    def _tema_column_name(period: int) -> str:
+        return f"tema_{int(period)}"
+
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         needed_periods = set()
 
@@ -124,29 +125,32 @@ class MultiMeee(IStrategy):
 
         new_cols = {}
         for period in needed_periods:
-            if period > 1 and period not in dataframe.columns:
-                new_cols[period] = ta.TEMA(dataframe, timeperiod=int(period))
+            if period > 1:
+                col_name = self._tema_column_name(period)
+                if col_name not in dataframe.columns:
+                    new_cols[col_name] = ta.TEMA(dataframe, timeperiod=int(period))
 
         if new_cols:
             dataframe = pd.concat(
                 [dataframe, DataFrame(new_cols, index=dataframe.index)], axis=1
             )
-        print(" ", metadata["pair"], end="\t\r")
 
+        print(" ", metadata["pair"], end="\t\r")
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         conditions = []
 
         for ma_count in range(self.buy_ma_count.value):
-            key = ma_count * self.buy_ma_gap.value
-            past_key = (ma_count - 1) * self.buy_ma_gap.value
-            if (
-                past_key > 1
-                and key in dataframe.keys()
-                and past_key in dataframe.keys()
-            ):
-                conditions.append(dataframe[key] < dataframe[past_key])
+            key_period = ma_count * self.buy_ma_gap.value
+            past_key_period = (ma_count - 1) * self.buy_ma_gap.value
+
+            if past_key_period > 1:
+                key = self._tema_column_name(key_period)
+                past_key = self._tema_column_name(past_key_period)
+
+                if key in dataframe.columns and past_key in dataframe.columns:
+                    conditions.append(dataframe[key] < dataframe[past_key])
 
         if conditions:
             dataframe.loc[reduce(lambda x, y: x & y, conditions), "enter_long"] = 1
@@ -156,14 +160,15 @@ class MultiMeee(IStrategy):
         conditions = []
 
         for ma_count in range(self.sell_ma_count.value):
-            key = ma_count * self.sell_ma_gap.value
-            past_key = (ma_count - 1) * self.sell_ma_gap.value
-            if (
-                past_key > 1
-                and key in dataframe.keys()
-                and past_key in dataframe.keys()
-            ):
-                conditions.append(dataframe[key] > dataframe[past_key])
+            key_period = ma_count * self.sell_ma_gap.value
+            past_key_period = (ma_count - 1) * self.sell_ma_gap.value
+
+            if past_key_period > 1:
+                key = self._tema_column_name(key_period)
+                past_key = self._tema_column_name(past_key_period)
+
+                if key in dataframe.columns and past_key in dataframe.columns:
+                    conditions.append(dataframe[key] > dataframe[past_key])
 
         if conditions:
             dataframe.loc[reduce(lambda x, y: x | y, conditions), "exit_long"] = 1
