@@ -7,12 +7,18 @@ from app.models.optimizer_models import ChangeType, StrategyVersion, VersionStat
 from app.services import results_service as results_module
 
 
-def _run_record(run_id: str, summary_path: str | None, *, version_id: str | None = None) -> BacktestRunRecord:
+def _run_record(
+    run_id: str,
+    summary_path: str | None,
+    *,
+    version_id: str | None = None,
+    strategy: str = "TestStrat",
+) -> BacktestRunRecord:
     return BacktestRunRecord(
         run_id=run_id,
-        strategy="TestStrat",
+        strategy=strategy,
         version_id=version_id,
-        request_snapshot={"pairs": ["BTC/USDT", "ETH/USDT"]},
+        request_snapshot={"strategy": strategy, "pairs": ["BTC/USDT", "ETH/USDT"]},
         request_snapshot_schema_version=1,
         trigger_source=BacktestTriggerSource.MANUAL,
         created_at="2026-01-01T00:00:00",
@@ -45,10 +51,11 @@ def _summary_payload(
     wins: int,
     *,
     pair_rows: list[dict],
+    strategy: str = "TestStrat",
 ) -> dict:
     return {
-        "TestStrat": {
-            "strategy_name": "TestStrat",
+        strategy: {
+            "strategy_name": strategy,
             "results_per_pair": [
                 *pair_rows,
                 {
@@ -83,11 +90,12 @@ def _version(
     source_kind: str | None = None,
     source_context: dict | None = None,
     diff_ref: str | None = None,
+    strategy_name: str = "TestStrat",
 ) -> StrategyVersion:
     return StrategyVersion(
         version_id=version_id,
         parent_version_id=parent_version_id,
-        strategy_name="TestStrat",
+        strategy_name=strategy_name,
         created_at="2026-01-01T00:00:00",
         created_by="tester",
         change_type=change_type,
@@ -281,6 +289,81 @@ def test_compare_backtest_runs_adds_version_diff_pair_deltas_and_diagnosis_delta
         "worst_pair_before": "ETH/USDT",
         "worst_pair_after": "ETH/USDT",
     }
+
+
+def test_compare_backtest_runs_supports_different_strategies(monkeypatch, tmp_path):
+    (tmp_path / "TestStrat").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "AltStrat").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(results_module, "strategy_results_dir", lambda strategy, user_data_path=None: str(tmp_path / strategy))
+    service = results_module.ResultsService()
+
+    left_summary_path = tmp_path / "TestStrat" / "bt-left.summary.json"
+    right_summary_path = tmp_path / "AltStrat" / "bt-right.summary.json"
+    left_summary_path.write_text(
+        json.dumps(
+            _summary_payload(
+                1.0,
+                10.0,
+                5,
+                3,
+                pair_rows=[_pair_row("BTC/USDT", 1.0, 5, 3)],
+                strategy="TestStrat",
+            )
+        ),
+        encoding="utf-8",
+    )
+    right_summary_path.write_text(
+        json.dumps(
+            _summary_payload(
+                2.0,
+                20.0,
+                6,
+                4,
+                pair_rows=[_pair_row("BTC/USDT", 2.0, 6, 4)],
+                strategy="AltStrat",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    left_run = _run_record("bt-left", str(left_summary_path), version_id="v-test-live", strategy="TestStrat")
+    right_run = _run_record("bt-right", str(right_summary_path), version_id="v-alt-live", strategy="AltStrat")
+
+    versions = {
+        "v-test-live": _version("v-test-live", summary="Test baseline", strategy_name="TestStrat"),
+        "v-alt-live": _version("v-alt-live", summary="Alt baseline", strategy_name="AltStrat"),
+    }
+    artifacts = {
+        "v-test-live": {
+            "version_id": "v-test-live",
+            "strategy_name": "TestStrat",
+            "lineage": ["v-test-live"],
+            "code_snapshot": "class TestStrat:\n    pass\n",
+            "parameters_snapshot": {"stoploss": -0.2},
+        },
+        "v-alt-live": {
+            "version_id": "v-alt-live",
+            "strategy_name": "AltStrat",
+            "lineage": ["v-alt-live"],
+            "code_snapshot": "class AltStrat:\n    pass\n",
+            "parameters_snapshot": {"stoploss": -0.1},
+        },
+    }
+
+    monkeypatch.setattr(results_module.mutation_service, "get_version_by_id", lambda version_id: versions.get(version_id))
+    monkeypatch.setattr(results_module.mutation_service, "resolve_effective_artifacts", lambda version_id: artifacts[version_id])
+    monkeypatch.setattr(results_module.diagnosis_service, "diagnose_run", lambda **kwargs: {"facts": {}, "ranked_issues": []})
+
+    comparison = service.compare_backtest_runs(left_run, right_run)
+    profit_row = next(row for row in comparison["metrics"] if row["key"] == "profit_total_pct")
+
+    assert comparison["left"]["strategy"] == "TestStrat"
+    assert comparison["right"]["strategy"] == "AltStrat"
+    assert comparison["left"]["summary_metrics"]["strategy"] == "TestStrat"
+    assert comparison["right"]["summary_metrics"]["strategy"] == "AltStrat"
+    assert profit_row["delta"] == 1.0
+    assert comparison["versions"]["baseline_version_id"] == "v-test-live"
+    assert comparison["versions"]["candidate_version_id"] == "v-alt-live"
 
 
 def test_compare_backtest_runs_falls_back_to_candidate_parent_only_when_run_version_is_unavailable(monkeypatch, tmp_path):

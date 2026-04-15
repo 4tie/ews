@@ -24,7 +24,7 @@ import {
 } from "../results/persisted-versions-store.js";
 
 const compareArea = document.getElementById("compare-area");
-let persistedRunsState = { status: "idle", strategy: "", runs: [], error: null };
+let persistedRunsState = { status: "idle", strategy: "", runs: [], allRuns: [], error: null };
 let versionsState = { status: "idle", strategy: "", versions: [], activeVersionId: null, error: null };
 let comparableRuns = [];
 let latestResultsPayload = null;
@@ -76,6 +76,28 @@ function workflowHasLinkedCandidates() {
 
 function workflowMissingLinkedCandidates() {
   return workflowCandidatesLoaded() && workflowCandidateVersions().length === 0;
+}
+
+function workflowUsesGenericFallback() {
+  return workflowMissingLinkedCandidates()
+    || (workflowModeActive() && versionsState.status === "error");
+}
+
+function workflowFallbackNote() {
+  if (!workflowUsesGenericFallback()) return "";
+  if (versionsState.status === "error") {
+    return `Workflow-linked candidates could not be loaded: ${versionsState.error || "Unknown error"}. Generic compare is still available across persisted runs, including different strategies.`;
+  }
+  return "No persisted candidates are linked to the current baseline run yet. Generic compare is still available across persisted runs, including different strategies.";
+}
+
+function pinWorkflowBaselineFallbackSelection() {
+  const baselineRunId = workflowBaselineRunId();
+  if (!baselineRunId || !comparableRuns.some((run) => run?.run_id === baselineRunId)) {
+    return;
+  }
+  selectedLeftRunId = baselineRunId;
+  selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
 }
 
 function workflowCandidateVersion() {
@@ -137,6 +159,8 @@ function handleVersionsSnapshot(snapshot) {
   if (workflowModeActive()) {
     if (workflowHasLinkedCandidates()) {
       ensureSelectedCandidateVersion(versionsState.versions, workflowBaselineRunId());
+    } else if (workflowUsesGenericFallback()) {
+      pinWorkflowBaselineFallbackSelection();
     }
     renderComparePanel();
     void maybeLoadComparison();
@@ -159,16 +183,16 @@ function handleResultsLoaded(payload) {
 
 function handleRunsSnapshot(snapshot) {
   persistedRunsState = snapshot;
-  comparableRuns = Array.isArray(snapshot?.runs) ? snapshot.runs.filter((run) => run?.summary_available) : [];
+  comparableRuns = Array.isArray(snapshot?.allRuns)
+    ? snapshot.allRuns.filter((run) => run?.summary_available)
+    : Array.isArray(snapshot?.runs)
+      ? snapshot.runs.filter((run) => run?.summary_available)
+      : [];
   selectedLeftRunId = pickRetainedRunId(selectedLeftRunId, 0);
   selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
 
-  if (workflowMissingLinkedCandidates()) {
-    const baselineRunId = workflowBaselineRunId();
-    if (baselineRunId && comparableRuns.some((run) => run?.run_id === baselineRunId)) {
-      selectedLeftRunId = baselineRunId;
-      selectedRightRunId = pickRetainedRightRunId(selectedLeftRunId, selectedRightRunId);
-    }
+  if (workflowUsesGenericFallback()) {
+    pinWorkflowBaselineFallbackSelection();
   }
 
   if (workflowHasLinkedCandidates()) {
@@ -430,8 +454,12 @@ function renderWorkflowCompare(layout) {
   layout.appendChild(el("div", { class: "compare-note" }, "Use Compare after rerun and before any version decision. Decision evidence is grounded in persisted run summaries, request snapshots, and version artifacts only. Review it before choosing Accept as current strategy or Promote as new strategy variant."));
 }
 
-function renderGenericCompare(layout) {
+function renderGenericCompare(layout, { note = "" } = {}) {
   layout.appendChild(buildGenericToolbar());
+
+  if (note) {
+    layout.appendChild(el("div", { class: "compare-note" }, note));
+  }
 
   if (persistedRunsState.status === "loading" && !persistedRunsState.runs.length) {
     layout.appendChild(el("div", { class: "info-empty" }, "Loading persisted backtest runs for compare..."));
@@ -477,14 +505,10 @@ function renderComparePanel() {
 
   const layout = el("div", { class: "compare-layout" });
 
-  if (workflowModeActive()) {
-    if (workflowHasLinkedCandidates() || versionsState.status !== "ready") {
-      renderWorkflowCompare(layout);
-    } else {
-      layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first."));
-    }
+  if (workflowModeActive() && !workflowUsesGenericFallback()) {
+    renderWorkflowCompare(layout);
   } else {
-    renderGenericCompare(layout);
+    renderGenericCompare(layout, { note: workflowFallbackNote() });
   }
   compareArea.appendChild(layout);
 }

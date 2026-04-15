@@ -398,3 +398,18 @@ def test_settings_path_ux_accepts_explicit_freqtrade_paths_without_bad_derivatio
     assert "Freqtrade Path" in template
     assert "/home/user/freqtrade or /home/user/freqtrade/.venv/bin/freqtrade" in template
 
+
+def test_auto_optimize_panel_surfaces_explained_timeline_logs():
+    panel_source = (ROOT / "web" / "static" / "js" / "pages" / "backtesting" / "optimizer" / "auto-optimize-panel.js").read_text(encoding="utf-8")
+    css_source = (ROOT / "web" / "static" / "css" / "pages" / "backtesting.css").read_text(encoding="utf-8")
+
+    assert "How Auto Optimize works" in panel_source
+    assert "Auto Optimize Timeline" in panel_source
+    assert "api.optimizer.streamEvents" in panel_source
+    assert "candidate_seeds_prepared" in panel_source
+    assert "optimizer_attempt_completed" in panel_source
+    assert "Every persisted optimizer event is listed in order" in panel_source
+
+    assert ".auto-opt-event" in css_source
+    assert ".auto-opt-explainer" in css_source
+    assert ".auto-opt-timeline__list" in css_source

@@ -76,6 +76,75 @@ function buildResultsPayload(runId, versionId) {
   };
 }
 
+function buildComparePayload(leftRun, rightRun) {
+  return {
+    left: leftRun,
+    right: rightRun,
+    metrics: [
+      {
+        key: 'profit_total_pct',
+        label: 'Total Profit %',
+        format: 'pct',
+        left: 1,
+        right: 2,
+        delta: 1,
+        classification: 'improved',
+        reason: 'Higher profit is better.',
+      },
+    ],
+    versions: {},
+    version_diff: {
+      baseline_version_id: leftRun.version_id,
+      candidate_version_id: rightRun.version_id,
+      candidate_parent_version_id: null,
+      baseline_version_source: 'run',
+      source_kind: null,
+      source_title: null,
+      candidate_mode: null,
+      change_type: null,
+      summary: null,
+      action_type: null,
+      rule: null,
+      matched_rules: [],
+      parameter_diff_rows: [],
+      code_diff: {
+        changed: false,
+        added_lines: 0,
+        removed_lines: 0,
+        diff_ref: null,
+        summary: 'No persisted code changes were detected between baseline and candidate.',
+        preview_blocks: [],
+        preview_truncated: false,
+      },
+      request_snapshot_diff: {
+        warnings: [],
+        rows: [],
+        summary: { changed: 0 },
+      },
+    },
+    pairs: {
+      rows: [],
+      summary: {
+        improved_count: 0,
+        regressed_count: 0,
+        changed_count: 0,
+        neutral_count: 0,
+      },
+      top_improvements: [],
+      top_regressions: [],
+      worst_pair_change: { before: {}, after: {} },
+      pair_dragger_evidence: { status: 'none', before: {}, after: {} },
+    },
+    diagnosis_delta: {
+      resolved_rules: [],
+      new_rules: [],
+      persistent_rules: [],
+      worst_pair_before: null,
+      worst_pair_after: null,
+    },
+  };
+}
+
 function buildThread(runId, versionId) {
   return {
     strategy_name: 'TestStrat',
@@ -191,11 +260,31 @@ async function emitResultsLoaded(page, payload) {
   }, payload);
 }
 
-test('workflow compare stays workflow-only when the baseline has no candidates', async ({ page }) => {
+test('workflow compare falls back to generic compare when the baseline has no candidates', async ({ page }) => {
+  const baselineRun = buildRun('bt-base', 'v-live');
+  const altRun = buildRun('bt-alt', 'v-alt', {
+    strategy: 'AltStrat',
+    summary_metrics: {
+      strategy: 'AltStrat',
+      trade_start: '2026-01-02T00:00:00',
+      trade_end: '2026-01-02T01:00:00',
+      timeframe: '4h',
+      stake_currency: 'USDT',
+    },
+    request_snapshot: {
+      strategy: 'AltStrat',
+      timeframe: '4h',
+      timerange: '20260201-20260228',
+      exchange: 'kraken',
+      pairs: ['SOL/USDT'],
+      config_path: 'user_data/alt-config.json',
+      extra_flags: [],
+    },
+  });
   const state = {
-    runs: [buildRun('bt-base', 'v-live')],
+    runs: [baselineRun, altRun],
     versions: [],
-    comparePayload: {},
+    comparePayload: buildComparePayload(baselineRun, altRun),
     thread: buildThread('bt-base', 'v-live'),
   };
 
@@ -204,9 +293,12 @@ test('workflow compare stays workflow-only when the baseline has no candidates',
 
   await page.locator('#results-tabs [data-tab="compare"]').click();
 
-  await expect(page.locator('#compare-area')).toContainText('No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first.');
-  await expect(page.locator('#compare-left-run')).toHaveCount(0);
-  await expect(page.locator('#compare-right-run')).toHaveCount(0);
+  await expect(page.locator('#compare-area')).toContainText('Generic compare is still available across persisted runs, including different strategies.');
+  await expect(page.locator('#compare-left-run')).toHaveCount(1);
+  await expect(page.locator('#compare-right-run')).toHaveCount(1);
+  await expect(page.locator('#compare-left-run')).toHaveValue('bt-base');
+  await expect(page.locator('#compare-right-run')).toHaveValue('bt-alt');
+  await expect(page.locator('#compare-area')).toContainText('AltStrat');
 });
 
 test('selected candidate stays pinned per baseline run', async ({ page }) => {

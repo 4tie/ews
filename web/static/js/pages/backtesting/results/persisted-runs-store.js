@@ -11,6 +11,7 @@ const snapshot = {
   status: "idle",
   strategy: "",
   runs: [],
+  allRuns: [],
   error: null,
 };
 
@@ -39,6 +40,7 @@ export function getPersistedRunsSnapshot() {
   return {
     ...snapshot,
     runs: Array.isArray(snapshot.runs) ? [...snapshot.runs] : [],
+    allRuns: Array.isArray(snapshot.allRuns) ? [...snapshot.allRuns] : [],
   };
 }
 
@@ -52,12 +54,14 @@ export async function refreshPersistedRuns() {
   emitChange();
 
   try {
-    const { runs = [] } = await api.backtest.listRuns(strategy ? { strategy } : {});
+    const { runs = [] } = await api.backtest.listRuns();
     if (currentRequestId !== requestId) return;
 
+    const allRuns = Array.isArray(runs) ? runs : [];
     snapshot.status = "ready";
     snapshot.strategy = strategy;
-    snapshot.runs = Array.isArray(runs) ? runs : [];
+    snapshot.allRuns = allRuns;
+    snapshot.runs = strategy ? allRuns.filter((run) => run?.strategy === strategy) : allRuns;
     snapshot.error = null;
     emitChange();
   } catch (error) {
@@ -66,6 +70,7 @@ export async function refreshPersistedRuns() {
     snapshot.status = "error";
     snapshot.strategy = strategy;
     snapshot.runs = [];
+    snapshot.allRuns = [];
     snapshot.error = error?.message || String(error);
     emitChange();
   }

@@ -12,9 +12,22 @@ from app.utils.paths import (
     optimizer_runs_dir,
     resolve_safe,
 )
+from app.models.optimizer_models import ChangeType, MutationRequest
 
 
 class PersistenceService:
+    def __init__(self):
+        # Lazy import to avoid circular dependency
+        self._mutation_service = None
+
+    @property
+    def mutation_service(self):
+        """Lazy-load mutation_service to avoid circular imports."""
+        if self._mutation_service is None:
+            from app.services.mutation_service import StrategyMutationService
+            self._mutation_service = StrategyMutationService()
+        return self._mutation_service
+
     def save_optimizer_run(self, run_id: str, data: dict) -> None:
         path = resolve_safe(optimizer_runs_dir(), run_id, "run_meta.json")
         write_json(path, data)
@@ -91,11 +104,88 @@ class PersistenceService:
         path = resolve_safe(optimizer_runs_dir(), run_id, "checkpoints", f"{checkpoint_id}.json")
         return read_json(path, fallback={})
 
-    def rollback(self, run_id: str, checkpoint_id: str) -> dict:
-        """Load and return checkpoint data as the new active state."""
+    def rollback(self, run_id: str, checkpoint_id: str, strategy_name: str) -> dict:
+        """
+        Rollback to a checkpoint: load it, create ROLLBACK version, accept it, and return promoted version.
+        
+        Steps:
+        1. Load checkpoint from disk
+        2. Extract parameters and metadata
+        3. Create ROLLBACK version via mutation_service (with checkpoint_id as source_ref)
+        4. Accept ROLLBACK version (promote to ACTIVE)
+        5. Return promoted version for UI display
+        """
+        # Step 1: Load checkpoint
         checkpoint = self.load_checkpoint(run_id, checkpoint_id)
-        # TODO: apply rollback logic - re-activate this checkpoint's params
-        return {"run_id": run_id, "checkpoint_id": checkpoint_id, "data": checkpoint}
+        if not checkpoint:
+            return {
+                "status": "error",
+                "message": f"Checkpoint {checkpoint_id} not found in run {run_id}",
+            }
+
+        # Step 2: Extract parameters following EVOLUTION checkpoint pattern
+        # Checkpoints store: {"params": {...}, "profit_pct": float, "epoch": int, ...}
+        # Versions expect: {"hyperopt_params": {...}, "profit_pct": float}
+        params = checkpoint.get("params", {})
+        profit_pct = checkpoint.get("profit_pct", 0.0)
+        
+        wrapped_parameters = {
+            "hyperopt_params": params,
+            "profit_pct": profit_pct,
+        }
+
+        # Step 3: Create ROLLBACK version
+        mutation_request = MutationRequest(
+            strategy_name=strategy_name,
+            change_type=ChangeType.ROLLBACK,
+            summary=f"Rollback to checkpoint {checkpoint_id} (epoch {checkpoint.get('epoch', '?')}, profit {profit_pct:.2f}%)",
+            created_by="optimizer",
+            parameters=wrapped_parameters,
+            source_ref=checkpoint_id,
+            source_kind="checkpoint",
+            source_context={
+                "run_id": run_id,
+                "epoch": checkpoint.get("epoch"),
+                "profit_pct": profit_pct,
+            },
+        )
+        
+        mutation_result = self.mutation_service.create_mutation(mutation_request)
+        if mutation_result.status != "created":
+            return {
+                "status": "error",
+                "message": f"Failed to create ROLLBACK version: {mutation_result.message}",
+            }
+
+        # Step 4: Accept the ROLLBACK version (promote to ACTIVE)
+        version_id = mutation_result.version_id
+        accept_result = self.mutation_service.accept_version(
+            version_id,
+            notes=f"Rolled back to checkpoint {checkpoint_id}"
+        )
+        if accept_result.status != "accepted":
+            return {
+                "status": "error",
+                "message": f"Failed to accept ROLLBACK version: {accept_result.message}",
+            }
+
+        # Step 5: Load and return the promoted version for UI
+        promoted_version = self.mutation_service.get_version_by_id(version_id)
+        if not promoted_version:
+            return {
+                "status": "error",
+                "message": f"Promoted version {version_id} not found after acceptance",
+            }
+
+        return {
+            "status": "rolled_back",
+            "run_id": run_id,
+            "checkpoint_id": checkpoint_id,
+            "version_id": version_id,
+            "strategy_name": strategy_name,
+            "promoted_version": promoted_version.model_dump(),
+            "message": f"Successfully rolled back to checkpoint {checkpoint_id}",
+        }
 
     def save_ai_chat_thread(self, strategy_name: str, data: dict) -> None:
         write_json(ai_chat_thread_file(strategy_name), data)

@@ -124,6 +124,19 @@ def test_optimizer_auto_optimize_can_create_and_fetch_run(monkeypatch, tmp_path)
     assert payload["baseline_run_id"] == baseline_run_id
     assert payload["baseline_version_id"] == "v-baseline"
 
+    events_path = paths["data_root"] / "optimizer_runs" / optimizer_run_id / "events.log"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert events
+
+    created_event = events[0]
+    assert created_event["event_type"] == "optimizer_run_created"
+    assert created_event["baseline_version_id"] == "v-baseline"
+    assert created_event["attempts"] == 2
+    assert created_event["beam_width"] == 2
+    assert created_event["branch_factor"] == 2
+    assert created_event["thresholds"]["min_profit_total_pct"] == 0.5
+    assert created_event["hard_stops"]["max_total_nodes"] == 10
+
 
 def test_optimizer_runs_endpoint_still_accepts_legacy_payload(monkeypatch, tmp_path):
     _configure_storage(monkeypatch, tmp_path)

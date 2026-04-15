@@ -101,7 +101,7 @@ def test_optimizer_dedup_signature_is_normalized(monkeypatch, tmp_path):
 
 
 def test_optimizer_loop_creates_candidates_dedups_and_finalists(monkeypatch, tmp_path):
-    _configure_storage(monkeypatch, tmp_path)
+    paths = _configure_storage(monkeypatch, tmp_path)
 
     strategy = "TestStrat"
 
@@ -274,3 +274,23 @@ def test_optimizer_loop_creates_candidates_dedups_and_finalists(monkeypatch, tmp
         version = mutation_service.get_version_by_id(finalist.version_id)
         assert version is not None
         assert version.source_ref == f"backtest_run:{baseline_run_id}"
+
+    events_path = paths["data_root"] / "optimizer_runs" / run.optimizer_run_id / "events.log"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    event_types = [event["event_type"] for event in events]
+
+    assert "optimizer_parent_diagnosis_loaded" in event_types
+    assert "candidate_seeds_prepared" in event_types
+    assert "optimizer_attempt_completed" in event_types
+
+    seed_event = next(event for event in events if event["event_type"] == "candidate_seeds_prepared")
+    assert seed_event["seed_count"] >= 1
+    assert seed_event["seeds"]
+
+    created_event = next(event for event in events if event["event_type"] == "candidate_version_created")
+    assert created_event["parameter_change_count"] >= 1
+    assert created_event["parameter_changes"]
+
+    final_event = next(event for event in events if event["event_type"] == "optimizer_completed")
+    assert final_event["total_nodes"] >= 1
+    assert final_event["best_score"] is not None

@@ -58,6 +58,89 @@ class AutoOptimizeService:
         }
         self._persistence.append_optimizer_event(optimizer_run_id, payload)
 
+    def _preview_value(self, value: Any) -> Any:
+        if value is None or isinstance(value, (bool, int, str)):
+            return value
+        if isinstance(value, float):
+            return round(value, 6)
+        if isinstance(value, dict):
+            preview: dict[str, Any] = {}
+            items = list(value.items())
+            for key, item in items[:5]:
+                preview[str(key)] = self._preview_value(item)
+            if len(items) > 5:
+                preview["..."] = f"+{len(items) - 5} more"
+            return preview
+        if isinstance(value, list):
+            preview = [self._preview_value(item) for item in value[:5]]
+            if len(value) > 5:
+                preview.append(f"... +{len(value) - 5} more")
+            return preview
+        return str(value)
+
+    def _diff_parameter_changes(self, before: Any, after: Any, prefix: str = "") -> list[dict[str, Any]]:
+        if before == after:
+            return []
+
+        if isinstance(before, dict) and isinstance(after, dict):
+            changes: list[dict[str, Any]] = []
+            keys = sorted(set(before.keys()) | set(after.keys()), key=lambda value: str(value))
+            for key in keys:
+                path = f"{prefix}.{key}" if prefix else str(key)
+                changes.extend(self._diff_parameter_changes(before.get(key), after.get(key), path))
+            return changes
+
+        return [
+            {
+                "path": prefix or "value",
+                "before": self._preview_value(before),
+                "after": self._preview_value(after),
+            }
+        ]
+
+    def _summarize_parameter_changes(
+        self,
+        before: dict[str, Any] | None,
+        after: dict[str, Any] | None,
+        *,
+        limit: int = 8,
+    ) -> dict[str, Any]:
+        changes = self._diff_parameter_changes(before or {}, after or {})
+        return {
+            "parameter_change_count": len(changes),
+            "parameter_changes": changes[:limit],
+            "parameter_changes_truncated": len(changes) > limit,
+        }
+
+    def _summarize_frontier(self, nodes: list[OptimizationNodeRecord]) -> list[dict[str, Any]]:
+        return [
+            {
+                "node_id": str(node.node_id),
+                "candidate_descriptor": node.candidate_descriptor,
+                "version_id": str(node.candidate_version_id) if node.candidate_version_id else None,
+                "run_id": str(node.run_id) if node.run_id else None,
+                "score": round(float(node.score), 6) if node.score is not None else None,
+                "constraint_passed": bool(node.constraint_passed),
+            }
+            for node in nodes
+        ]
+
+    def _summarize_seed_bundle(
+        self,
+        base_params: dict[str, Any],
+        seeds: list[tuple[str, dict[str, Any]]],
+        *,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        summarized: list[dict[str, Any]] = []
+        for descriptor, params in seeds[:limit]:
+            change_summary = self._summarize_parameter_changes(base_params, params, limit=4)
+            summarized.append({
+                "candidate_descriptor": descriptor,
+                **change_summary,
+            })
+        return summarized
+
     def _start_task(self, optimizer_run_id: str) -> None:
         loop = asyncio.get_running_loop()
         task = loop.create_task(self._run_optimizer(optimizer_run_id))
@@ -207,6 +290,13 @@ class AutoOptimizeService:
             optimizer_run_id,
             "optimizer_run_created",
             baseline_run_id=request.baseline_run_id,
+            baseline_version_id=baseline_run.version_id,
+            attempts=request.attempts,
+            beam_width=request.beam_width,
+            branch_factor=request.branch_factor,
+            include_ai_suggestions=request.include_ai_suggestions,
+            thresholds=request.thresholds.model_dump(mode="json"),
+            hard_stops=hard_stops.model_dump(mode="json"),
         )
         return record
 
@@ -681,6 +771,7 @@ class AutoOptimizeService:
         record.updated_at = record.completed_at
         record.nodes = nodes
         self._persist_record(record)
+        best_score = max((float(node.score) for node in nodes if node.score is not None), default=None)
         self._emit(
             record.optimizer_run_id,
             event_type,
@@ -689,6 +780,11 @@ class AutoOptimizeService:
             hard_stop_reason=hard_stop_reason,
             finalists=[f.model_dump(mode="json") for f in record.finalists],
             near_misses=[m.model_dump(mode="json") for m in record.near_misses],
+            total_nodes=len(nodes),
+            completed_nodes=len([node for node in nodes if node.status == "completed"]),
+            failed_nodes=len([node for node in nodes if node.status == "failed"]),
+            deduped_nodes=len([node for node in nodes if node.status == "deduped"]),
+            best_score=best_score,
         )
         self._stop_requests.discard(record.optimizer_run_id)
 
@@ -768,16 +864,24 @@ class AutoOptimizeService:
             for attempt_index in range(1, int(record.attempts) + 1):
                 frontier = self._frontier(nodes, beam_width=int(record.beam_width), expanded=expanded)
                 if not frontier:
+                    self._emit(
+                        optimizer_run_id,
+                        "optimizer_no_frontier_remaining",
+                        attempt_index=attempt_index,
+                        expanded_node_count=len(expanded),
+                        completed_node_count=len([node for node in nodes if node.status == "completed"]),
+                    )
                     break
 
+                best_before = best_score
                 self._emit(
                     optimizer_run_id,
                     "optimizer_attempt_started",
                     attempt_index=attempt_index,
                     frontier_node_ids=[n.node_id for n in frontier],
+                    frontier_nodes=self._summarize_frontier(frontier),
+                    best_score_before=best_before,
                 )
-
-                best_before = best_score
 
                 for parent in frontier:
                     if record.hard_stops.max_total_nodes is not None and len(nodes) >= int(record.hard_stops.max_total_nodes):
@@ -829,6 +933,19 @@ class AutoOptimizeService:
 
                     diagnosis = diag_payload.get("diagnosis") if isinstance(diag_payload, dict) else {}
                     ai_payload = diag_payload.get("ai") if isinstance(diag_payload, dict) else {}
+                    actions = diagnosis.get("proposal_actions") if isinstance(diagnosis, dict) else []
+                    suggestions = ai_payload.get("parameter_suggestions") if isinstance(ai_payload, dict) else []
+                    self._emit(
+                        optimizer_run_id,
+                        "optimizer_parent_diagnosis_loaded",
+                        attempt_index=attempt_index,
+                        parent_node_id=parent.node_id,
+                        parent_run_id=parent_run_id,
+                        parent_version_id=parent_version_id,
+                        proposal_action_count=len(actions) if isinstance(actions, list) else 0,
+                        ai_status=str(ai_payload.get("ai_status") or "unavailable") if isinstance(ai_payload, dict) else "unavailable",
+                        ai_suggestion_count=len(suggestions) if isinstance(suggestions, list) else 0,
+                    )
 
                     base_params = self._resolve_base_params(baseline.strategy, str(parent_version_id))
                     seeds = self._candidate_seeds(
@@ -838,8 +955,31 @@ class AutoOptimizeService:
                         branch_factor=int(record.branch_factor),
                         include_ai=bool(record.include_ai_suggestions),
                     )
+                    candidate_seeds = seeds[: int(record.branch_factor)]
+                    if not candidate_seeds:
+                        self._emit(
+                            optimizer_run_id,
+                            "optimizer_parent_no_candidate_seeds",
+                            attempt_index=attempt_index,
+                            parent_node_id=parent.node_id,
+                            parent_run_id=parent_run_id,
+                            parent_version_id=parent_version_id,
+                            branch_factor=int(record.branch_factor),
+                        )
+                        continue
 
-                    for seed_index, (descriptor, params) in enumerate(seeds[: int(record.branch_factor)]):
+                    self._emit(
+                        optimizer_run_id,
+                        "candidate_seeds_prepared",
+                        attempt_index=attempt_index,
+                        parent_node_id=parent.node_id,
+                        parent_run_id=parent_run_id,
+                        parent_version_id=parent_version_id,
+                        seed_count=len(candidate_seeds),
+                        seeds=self._summarize_seed_bundle(base_params, candidate_seeds),
+                    )
+
+                    for seed_index, (descriptor, params) in enumerate(candidate_seeds):
                         if record.hard_stops.max_total_nodes is not None and len(nodes) >= int(record.hard_stops.max_total_nodes):
                             break
 
@@ -885,6 +1025,10 @@ class AutoOptimizeService:
                             self._emit(
                                 optimizer_run_id,
                                 "candidate_deduped",
+                                attempt_index=attempt_index,
+                                parent_node_id=parent.node_id,
+                                parent_run_id=parent_run_id,
+                                parent_version_id=parent_version_id,
                                 node_id=node.node_id,
                                 dedup_signature=signature,
                                 dedup_reason=node.dedup_reason,
@@ -893,6 +1037,7 @@ class AutoOptimizeService:
                             continue
 
                         seen.add(signature)
+                        change_summary = self._summarize_parameter_changes(base_params, params)
 
                         mutation = mutation_service.create_mutation(
                             MutationRequest(
@@ -944,10 +1089,17 @@ class AutoOptimizeService:
                         self._emit(
                             optimizer_run_id,
                             "candidate_version_created",
+                            attempt_index=attempt_index,
+                            parent_node_id=parent.node_id,
+                            parent_run_id=parent_run_id,
+                            parent_version_id=parent_version_id,
                             node_id=node.node_id,
                             version_id=version_id,
                             candidate_descriptor=descriptor,
                             dedup_signature=signature,
+                            parameter_change_count=change_summary["parameter_change_count"],
+                            parameter_changes=change_summary["parameter_changes"],
+                            parameter_changes_truncated=change_summary["parameter_changes_truncated"],
                         )
 
                         rs = record.request_snapshot or {}
@@ -1004,9 +1156,12 @@ class AutoOptimizeService:
                         self._emit(
                             optimizer_run_id,
                             "backtest_run_launched",
+                            attempt_index=attempt_index,
+                            parent_node_id=parent.node_id,
                             node_id=node.node_id,
                             run_id=run_id,
                             version_id=version_id,
+                            candidate_descriptor=descriptor,
                         )
 
                         _, metrics, run_error = await self._wait_summary_ready(str(run_id))
@@ -1045,8 +1200,12 @@ class AutoOptimizeService:
                             self._emit(
                                 optimizer_run_id,
                                 "candidate_run_completed",
+                                attempt_index=attempt_index,
+                                parent_node_id=parent.node_id,
                                 node_id=node.node_id,
                                 run_id=run_id,
+                                version_id=version_id,
+                                candidate_descriptor=descriptor,
                                 summary_metrics=node.summary_metrics,
                                 score=node.score,
                                 constraint_passed=node.constraint_passed,
@@ -1057,10 +1216,31 @@ class AutoOptimizeService:
                         record.updated_at = now_iso()
                         self._persist_record(record)
 
-                if best_score is not None and (best_before is None or best_score > best_before):
+                improved = best_score is not None and (best_before is None or best_score > best_before)
+                if improved:
                     consecutive_no_improve = 0
                 else:
                     consecutive_no_improve += 1
+
+                attempt_nodes = [
+                    node
+                    for node in nodes
+                    if str(node.node_id).startswith(f"node-{optimizer_run_id}-{attempt_index}-")
+                ]
+                self._emit(
+                    optimizer_run_id,
+                    "optimizer_attempt_completed",
+                    attempt_index=attempt_index,
+                    improved=improved,
+                    best_score_before=best_before,
+                    best_score_after=best_score,
+                    consecutive_no_improve=consecutive_no_improve,
+                    cumulative_failed_runs=failed_runs,
+                    attempt_node_count=len(attempt_nodes),
+                    attempt_completed_nodes=len([node for node in attempt_nodes if node.status == "completed"]),
+                    attempt_failed_nodes=len([node for node in attempt_nodes if node.status == "failed"]),
+                    attempt_deduped_nodes=len([node for node in attempt_nodes if node.status == "deduped"]),
+                )
 
                 if consecutive_no_improve >= int(record.hard_stops.max_consecutive_no_improvement_attempts or 3):
                     self._finalize(

@@ -131,5 +131,21 @@ async def get_checkpoints(run_id: str):
 @router.post("/runs/{run_id}/rollback/{checkpoint_id}")
 async def rollback_to_checkpoint(run_id: str, checkpoint_id: str):
     """Roll back a legacy optimizer run to a specific checkpoint."""
-    result = persistence.rollback(run_id, checkpoint_id)
-    return {"run_id": run_id, "checkpoint_id": checkpoint_id, "status": "rolled_back", "data": result}
+    # Load run metadata to get strategy_name
+    run_meta = persistence.load_optimizer_run(run_id)
+    if not run_meta:
+        raise HTTPException(status_code=404, detail=f"Optimizer run {run_id} not found")
+    
+    # Extract strategy from payload
+    payload = run_meta.get("payload", {})
+    strategy_name = payload.get("strategy")
+    if not strategy_name:
+        raise HTTPException(status_code=400, detail="Strategy name not found in optimizer run metadata")
+    
+    # Call rollback with strategy_name
+    result = persistence.rollback(run_id, checkpoint_id, strategy_name)
+    
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    
+    return result
