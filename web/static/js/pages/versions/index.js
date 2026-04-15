@@ -2,22 +2,35 @@ import { initVersionListPanel } from "./version-list-panel.js";
 import { initVersionDetailsPanel } from "./version-details-panel.js";
 import { initVersionLineageView } from "./version-lineage-view.js";
 import { getState, setState } from "../../core/state.js";
-import { loadOptions } from "../backtesting/setup/options-loader.js";
+import api from "../../core/api.js";
+
+async function loadStrategies() {
+  try {
+    const response = await api.backtest.options();
+    const strategies = response?.strategies || [];
+    setState("backtest.availableStrategies", strategies);
+    
+    // Get saved strategy or use first available
+    let strategy = getState("backtest.strategy");
+    if (!strategy && strategies.length > 0) {
+      strategy = strategies[0];
+    }
+    if (strategy) {
+      setState("backtest.strategy", strategy);
+    }
+    console.log("[versions] Strategies loaded:", strategies.length);
+    return strategy;
+  } catch (error) {
+    console.error("[versions] Failed to load strategies:", error);
+    return "";
+  }
+}
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Ensure options are loaded first
-  const optionsResult = await loadOptions({ persistBacktestSelections: false });
+  console.log("Versions page initializing...");
   
-  setState("backtest.availableStrategies", Array.isArray(optionsResult.strategies) ? [...optionsResult.strategies] : []);
-  if (!getState("backtest.strategy") && optionsResult.selected.strategy) {
-    setState("backtest.strategy", optionsResult.selected.strategy);
-  }
-  if (!getState("backtest.timeframe") && optionsResult.selected.timeframe) {
-    setState("backtest.timeframe", optionsResult.selected.timeframe);
-  }
-  if (!getState("backtest.exchange") && optionsResult.selected.exchange) {
-    setState("backtest.exchange", optionsResult.selected.exchange);
-  }
+  // Load strategies from API
+  await loadStrategies();
 
   initVersionListPanel();
   initVersionDetailsPanel();
