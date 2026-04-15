@@ -1,16 +1,45 @@
+# Python caches and test artifacts
 __pycache__/
 *.py[cod]
 *.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local environment
 .env
 .env.local
+.venv/
+.venv
+venv/
 
 # App state (settings, runs, versions, cache)
 data/
 app/storage/
 app/app/storage/
 
-# Freqtrade artifacts
+# Freqtrade runtime artifacts
 user_data/backtest_results/
+user_data/data/
+
+# Local tooling and generated evidence
+.amazonq/
+.kilo/
+.local/
+.playwright-cli/
+attached_assets/
+output/
+test-results/
+node_modules/
+
+# Logs
 *.log
-.venv/
-.venv
+
+# Editor / OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
