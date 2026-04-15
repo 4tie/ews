@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.freqtrade.io/schema.json",
   "strategy": "MultiMa",
-  "max_open_trades": 4,
+  "max_open_trades": 2,
   "stake_currency": "USDT",
   "stake_amount": "unlimited",
   "tradable_balance_ratio": 1,
   "fiat_display_currency": "USD",
   "dry_run": true,
-  "dry_run_wallet": 50,
+  "dry_run_wallet": 80,
   "trading_mode": "spot",
   "timeframe": "5m",
   "cancel_open_orders_on_exit": true,
@@ -34,9 +34,7 @@
     "method": "StaticPairList",
     "pair_whitelist": [
       "ETH/USDT",
-      "OP/USDT",
-      "DOGE/USDT", 
-      "DOT/USDT"    
+      "ADA/USDT"  
   	
     ],
     "pair_blacklist": [],
