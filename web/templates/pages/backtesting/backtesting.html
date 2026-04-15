@@ -138,7 +138,7 @@
                 <div class="info-block" id="data-download-output">
                   <span class="muted">No download in progress.</span>
                 </div>
-                <button class="btn btn--secondary btn--sm" id="btn-download-data">Download Data</button>
+                <div class="field-hint">Use the run controls to start a download when validation finds missing candles.</div>
               </div>
             </div>
           </section>
@@ -156,6 +156,7 @@
           </div>
         </div>
         <div class="action-group">
+          <button class="btn btn--secondary btn--lg" id="btn-download-data">Download Data</button>
           <button class="btn btn--primary btn--lg" id="btn-run-backtest">Run Backtest</button>
           <button class="btn btn--danger btn--lg" id="btn-stop-backtest" disabled>Stop</button>
         </div>
@@ -289,3 +290,4 @@
 <script type="module" src="/static/js/pages/backtesting/bootstrap.js"></script>
 <script type="module" src="/static/js/pages/backtesting/index.js"></script>
 {% endblock %}
+
