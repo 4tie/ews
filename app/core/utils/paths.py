@@ -1,0 +1,130 @@
+"""Filesystem path helpers for the Optimizer app.
+
+Canonical layout:
+- App-owned state (settings, saved configs, run metadata, versions, cache): `./data/`
+
+Use `resolve_safe` for joining untrusted input.
+"""
+
+import os
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+APP_DIR = os.path.join(BASE_DIR, "app")
+
+DATA_DIR = os.path.join(BASE_DIR, "data")
+STORAGE_DIR = DATA_DIR
+
+LEGACY_STORAGE_DIRS = (
+    os.path.join(APP_DIR, "storage"),
+    os.path.join(APP_DIR, "app", "storage"),
+)
+
+SAVED_CONFIGS_DIR = os.path.join(STORAGE_DIR, "saved_configs")
+SETTINGS_DIR = os.path.join(STORAGE_DIR, "settings")
+OPTIMIZER_RUNS_DIR = os.path.join(STORAGE_DIR, "optimizer_runs")
+BACKTEST_RUNS_DIR = os.path.join(STORAGE_DIR, "backtest_runs")
+DOWNLOAD_RUNS_DIR = os.path.join(STORAGE_DIR, "download_runs")
+AI_CHAT_THREADS_DIR = os.path.join(STORAGE_DIR, "ai_chat_threads")
+AI_CHAT_JOBS_DIR = os.path.join(STORAGE_DIR, "ai_chat_jobs")
+STRATEGY_VERSIONS_ROOT_DIR = os.path.join(STORAGE_DIR, "versions")
+CACHE_DIR = os.path.join(STORAGE_DIR, "cache")
+
+
+def resolve_safe(base: str, *parts: str) -> str:
+    """Join paths and ensure the result stays within the base directory.
+
+    Uses `os.path.commonpath` instead of naive prefix matching.
+    """
+    if not base:
+        raise ValueError("Base path must be a non-empty string")
+
+    base_real = os.path.realpath(base)
+    target = os.path.realpath(os.path.join(base_real, *parts))
+
+    base_check = os.path.normcase(base_real)
+    target_check = os.path.normcase(target)
+    try:
+        common = os.path.commonpath([base_check, target_check])
+    except ValueError as exc:
+        raise ValueError(f"Path traversal detected: {target}") from exc
+
+    if common != base_check:
+        raise ValueError(f"Path traversal detected: {target}")
+
+    return target
+
+
+def app_dir() -> str:
+    """Returns the path to the app directory (BASE_DIR/app)."""
+    return APP_DIR
+
+
+def data_dir() -> str:
+    """Returns the path to the app data directory (BASE_DIR/data)."""
+    return DATA_DIR
+
+
+def legacy_storage_dirs() -> tuple[str, ...]:
+    """Returns legacy (pre-data/) storage roots."""
+    return LEGACY_STORAGE_DIRS
+
+
+def storage_dir() -> str:
+    """Returns the path to the app storage directory (BASE_DIR/data)."""
+    return STORAGE_DIR
+
+
+def saved_configs_dir() -> str:
+    return SAVED_CONFIGS_DIR
+
+
+def settings_dir() -> str:
+    return SETTINGS_DIR
+
+
+def optimizer_runs_dir() -> str:
+    return OPTIMIZER_RUNS_DIR
+
+
+def backtest_runs_dir() -> str:
+    return BACKTEST_RUNS_DIR
+
+
+def download_runs_dir() -> str:
+    return DOWNLOAD_RUNS_DIR
+
+
+def ai_chat_threads_dir() -> str:
+    return AI_CHAT_THREADS_DIR
+
+
+def ai_chat_thread_dir(strategy_name: str) -> str:
+    return resolve_safe(AI_CHAT_THREADS_DIR, strategy_name)
+
+
+def ai_chat_thread_file(strategy_name: str) -> str:
+    return resolve_safe(ai_chat_thread_dir(strategy_name), "thread.json")
+
+
+def ai_chat_jobs_dir() -> str:
+    return AI_CHAT_JOBS_DIR
+
+
+def ai_chat_job_file(job_id: str) -> str:
+    return resolve_safe(AI_CHAT_JOBS_DIR, f"{job_id}.json")
+
+
+def strategy_versions_dir(strategy_name: str) -> str:
+    return resolve_safe(STRATEGY_VERSIONS_ROOT_DIR, strategy_name)
+
+
+def strategy_version_file(strategy_name: str, version_id: str) -> str:
+    return os.path.join(strategy_versions_dir(strategy_name), f"{version_id}.json")
+
+
+def strategy_active_version_file(strategy_name: str) -> str:
+    return os.path.join(strategy_versions_dir(strategy_name), "active_version.json")
+
+
+def cache_dir() -> str:
+    return CACHE_DIR
