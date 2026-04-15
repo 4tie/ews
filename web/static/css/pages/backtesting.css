@@ -671,6 +671,212 @@
   color: #f59e0b;
 }
 
+.diagnosis-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.diagnosis-severity-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.diagnosis-severity-badge--critical {
+  color: #fb7185;
+  border-color: color-mix(in srgb, #fb7185 50%, transparent);
+  background: color-mix(in srgb, #fb7185 12%, transparent);
+}
+
+.diagnosis-severity-badge--warning {
+  color: #f59e0b;
+  border-color: color-mix(in srgb, #f59e0b 50%, transparent);
+  background: color-mix(in srgb, #f59e0b 12%, transparent);
+}
+
+.diagnosis-severity-badge--info {
+  color: #3b82f6;
+  border-color: color-mix(in srgb, #3b82f6 50%, transparent);
+  background: color-mix(in srgb, #3b82f6 12%, transparent);
+}
+
+.diagnosis-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+
+.diagnosis-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+}
+
+.diagnosis-summary-item__label {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.diagnosis-summary-item__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.diagnosis-summary-item--positive .diagnosis-summary-item__value {
+  color: #2dd4bf;
+}
+
+.diagnosis-summary-item--negative .diagnosis-summary-item__value {
+  color: #fb7185;
+}
+
+.diagnosis-issue-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+}
+
+.diagnosis-issue-card--critical {
+  border-color: color-mix(in srgb, #fb7185 40%, var(--color-border));
+}
+
+.diagnosis-issue-card--warning {
+  border-color: color-mix(in srgb, #f59e0b 40%, var(--color-border));
+}
+
+.diagnosis-issue-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.diagnosis-issue-card__title {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.diagnosis-issue-card__message {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.diagnosis-issue-card__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.diagnosis-issue-card__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+}
+
+.diagnosis-issue-card__metric-label {
+  color: var(--color-text-muted);
+}
+
+.diagnosis-issue-card__metric-value {
+  font-family: var(--font-mono);
+}
+
+.diagnosis-metric-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diagnosis-metric-bar__track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.diagnosis-metric-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.diagnosis-metric-bar__fill--ok {
+  background: #2dd4bf;
+}
+
+.diagnosis-metric-bar__fill--warning {
+  background: #f59e0b;
+}
+
+.diagnosis-metric-bar__fill--critical {
+  background: #fb7185;
+}
+
+.diagnosis-metric-bar__labels {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.diagnosis-action-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+}
+
+.diagnosis-action-card__title {
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.diagnosis-action-card__summary {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.diagnosis-action-card__rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.diagnosis-action-card__rule {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+}
+
 @keyframes btFadeUp {
   from {
     opacity: 0;

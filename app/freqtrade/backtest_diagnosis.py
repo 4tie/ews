@@ -3,15 +3,19 @@ Backtest diagnosis and AI analysis orchestration.
 
 Handles diagnosis status derivation, AI payload defaults, and diagnosis context assembly.
 """
+
 from typing import Any
 
 from fastapi import HTTPException
 
+from app.engines.resolver import result_parser_from_id
 from app.freqtrade.backtest_process import _load_run_record
 from app.models.backtest_models import BacktestRunRecord, BacktestRunStatus
 from app.services.mutation_service import mutation_service
 from app.services.results.diagnosis_service import diagnosis_service
-from app.services.results.strategy_intelligence_service import analyze_run_diagnosis_overlay
+from app.services.results.strategy_intelligence_service import (
+    analyze_run_diagnosis_overlay,
+)
 from app.services.results_service import ResultsService
 
 results_svc = ResultsService()
@@ -76,15 +80,39 @@ async def get_backtest_run_diagnosis(run_id: str, include_ai: bool = False):
     summary_state = results_svc.load_run_summary_state(run)
     summary_available = summary_state.get("state") == "ready"
     summary = summary_state.get("summary") if summary_available else None
-    summary_block = results_svc.extract_run_summary_block(summary, run.strategy) if summary else None
-    summary_metrics = results_svc._normalize_summary_metrics(summary, run.strategy) if summary else None
-    trades = summary_block.get("trades") if isinstance(summary_block, dict) and isinstance(summary_block.get("trades"), list) else []
-    results_per_pair = (
-        summary_block.get("results_per_pair")
-        if isinstance(summary_block, dict) and isinstance(summary_block.get("results_per_pair"), list)
+    summary_block = (
+        results_svc.extract_run_summary_block(summary, run.strategy)
+        if summary
+        else None
+    )
+    summary_metrics = (
+        results_svc._normalize_summary_metrics(summary, run.strategy)
+        if summary
+        else None
+    )
+    trades = (
+        summary_block.get("trades")
+        if isinstance(summary_block, dict)
+        and isinstance(summary_block.get("trades"), list)
         else []
     )
-    linked_version = mutation_service.get_version_by_id(run.version_id) if run.version_id else None
+    results_per_pair = (
+        summary_block.get("results_per_pair")
+        if isinstance(summary_block, dict)
+        and isinstance(summary_block.get("results_per_pair"), list)
+        else []
+    )
+    if not trades and run.raw_result_path:
+        try:
+            parser = result_parser_from_id(getattr(run, "engine", None))
+            trades = parser.load_trades_from_raw_result(
+                run.raw_result_path, run.strategy
+            )
+        except Exception:
+            pass
+    linked_version = (
+        mutation_service.get_version_by_id(run.version_id) if run.version_id else None
+    )
 
     diagnosis = diagnosis_service.empty_diagnosis()
     if summary_available:

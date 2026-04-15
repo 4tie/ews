@@ -1,4 +1,4 @@
-﻿import glob
+import glob
 import json
 import os
 from typing import Any, Optional
@@ -36,22 +36,87 @@ class ResultsService:
             return "removed"
         return "same" if left_value == right_value else "changed"
 
-    def _build_request_snapshot_diff(self, left_run: BacktestRunRecord, right_run: BacktestRunRecord) -> dict[str, Any]:
-        left_snapshot = left_run.request_snapshot if isinstance(left_run.request_snapshot, dict) else {}
-        right_snapshot = right_run.request_snapshot if isinstance(right_run.request_snapshot, dict) else {}
+    def _build_request_snapshot_diff(
+        self, left_run: BacktestRunRecord, right_run: BacktestRunRecord
+    ) -> dict[str, Any]:
+        left_snapshot = (
+            left_run.request_snapshot
+            if isinstance(left_run.request_snapshot, dict)
+            else {}
+        )
+        right_snapshot = (
+            right_run.request_snapshot
+            if isinstance(right_run.request_snapshot, dict)
+            else {}
+        )
 
         specs: list[dict[str, Any]] = [
-            {"key": "strategy", "label": "Strategy", "critical": True, "source": "record"},
-            {"key": "version_id", "label": "Version", "critical": False, "source": "record"},
-            {"key": "trigger_source", "label": "Trigger Source", "critical": False, "source": "record"},
-            {"key": "exchange", "label": "Exchange", "critical": True, "source": "snapshot"},
-            {"key": "timeframe", "label": "Timeframe", "critical": True, "source": "snapshot"},
-            {"key": "timerange", "label": "Timerange", "critical": True, "source": "snapshot"},
-            {"key": "pairs", "label": "Pairs", "critical": True, "source": "snapshot_list_set"},
-            {"key": "max_open_trades", "label": "Max Open Trades", "critical": False, "source": "snapshot"},
-            {"key": "dry_run_wallet", "label": "Dry Run Wallet", "critical": False, "source": "snapshot"},
-            {"key": "config_path", "label": "Config Path", "critical": False, "source": "snapshot"},
-            {"key": "extra_flags", "label": "Extra Flags", "critical": False, "source": "snapshot_list_set"},
+            {
+                "key": "strategy",
+                "label": "Strategy",
+                "critical": True,
+                "source": "record",
+            },
+            {
+                "key": "version_id",
+                "label": "Version",
+                "critical": False,
+                "source": "record",
+            },
+            {
+                "key": "trigger_source",
+                "label": "Trigger Source",
+                "critical": False,
+                "source": "record",
+            },
+            {
+                "key": "exchange",
+                "label": "Exchange",
+                "critical": True,
+                "source": "snapshot",
+            },
+            {
+                "key": "timeframe",
+                "label": "Timeframe",
+                "critical": True,
+                "source": "snapshot",
+            },
+            {
+                "key": "timerange",
+                "label": "Timerange",
+                "critical": True,
+                "source": "snapshot",
+            },
+            {
+                "key": "pairs",
+                "label": "Pairs",
+                "critical": True,
+                "source": "snapshot_list_set",
+            },
+            {
+                "key": "max_open_trades",
+                "label": "Max Open Trades",
+                "critical": False,
+                "source": "snapshot",
+            },
+            {
+                "key": "dry_run_wallet",
+                "label": "Dry Run Wallet",
+                "critical": False,
+                "source": "snapshot",
+            },
+            {
+                "key": "config_path",
+                "label": "Config Path",
+                "critical": False,
+                "source": "snapshot",
+            },
+            {
+                "key": "extra_flags",
+                "label": "Extra Flags",
+                "critical": False,
+                "source": "snapshot_list_set",
+            },
         ]
 
         rows: list[dict[str, Any]] = []
@@ -59,7 +124,9 @@ class ResultsService:
         changed_count = 0
         critical_changed_count = 0
 
-        def _value(run: BacktestRunRecord, snapshot: dict[str, Any], spec: dict[str, Any]) -> Any:
+        def _value(
+            run: BacktestRunRecord, snapshot: dict[str, Any], spec: dict[str, Any]
+        ) -> Any:
             key = spec["key"]
             source = spec["source"]
             if source == "record":
@@ -73,8 +140,12 @@ class ResultsService:
             label = spec["label"]
             critical = bool(spec.get("critical"))
             source = spec.get("source")
-            left_raw = self._normalize_compare_value(_value(left_run, left_snapshot, spec))
-            right_raw = self._normalize_compare_value(_value(right_run, right_snapshot, spec))
+            left_raw = self._normalize_compare_value(
+                _value(left_run, left_snapshot, spec)
+            )
+            right_raw = self._normalize_compare_value(
+                _value(right_run, right_snapshot, spec)
+            )
 
             left_value = left_raw
             right_value = right_raw
@@ -127,6 +198,7 @@ class ResultsService:
             "warnings": warnings,
             "rows": rows,
         }
+
     def _run_result_paths(self, strategy: str, run_id: str) -> dict:
         base = strategy_results_dir(strategy)
         os.makedirs(base, exist_ok=True)
@@ -155,7 +227,9 @@ class ResultsService:
                 return number
         return None
 
-    def _resolve_strategy_block(self, summary: dict | None, strategy: str | None = None) -> tuple[str | None, dict | None]:
+    def _resolve_strategy_block(
+        self, summary: dict | None, strategy: str | None = None
+    ) -> tuple[str | None, dict | None]:
         if not isinstance(summary, dict):
             return None, None
 
@@ -171,7 +245,11 @@ class ResultsService:
         return strategy, None
 
     def _find_total_row(self, strategy_block: dict | None) -> dict | None:
-        rows = strategy_block.get("results_per_pair") if isinstance(strategy_block, dict) else None
+        rows = (
+            strategy_block.get("results_per_pair")
+            if isinstance(strategy_block, dict)
+            else None
+        )
         if not isinstance(rows, list):
             return None
         for row in rows:
@@ -181,7 +259,9 @@ class ResultsService:
                 return row
         return None
 
-    def _extract_trade_range(self, trades: list | None) -> tuple[str | None, str | None]:
+    def _extract_trade_range(
+        self, trades: list | None
+    ) -> tuple[str | None, str | None]:
         if not isinstance(trades, list) or not trades:
             return None, None
 
@@ -209,7 +289,9 @@ class ResultsService:
 
         start = min(entries, key=lambda item: item["open_ts"])
         end = max(entries, key=lambda item: item["close_ts"])
-        return start.get("open") or start.get("close"), end.get("close") or end.get("open")
+        return start.get("open") or start.get("close"), end.get("close") or end.get(
+            "open"
+        )
 
     def _trade_timestamp(self, value: Any) -> float | None:
         if not value:
@@ -227,9 +309,13 @@ class ResultsService:
         try:
             common = os.path.commonpath([base, target])
         except ValueError as exc:
-            raise ValueError(f"summary path is outside strategy results directory: {path}") from exc
+            raise ValueError(
+                f"summary path is outside strategy results directory: {path}"
+            ) from exc
         if common != base:
-            raise ValueError(f"summary path is outside strategy results directory: {path}")
+            raise ValueError(
+                f"summary path is outside strategy results directory: {path}"
+            )
         return os.path.realpath(path)
 
     def _read_json_strict(self, path: str) -> dict:
@@ -244,7 +330,9 @@ class ResultsService:
             return {"state": "missing", "summary": None, "error": None}
 
         try:
-            summary_path = self._assert_within_strategy_results(run_record.strategy, run_record.summary_path)
+            summary_path = self._assert_within_strategy_results(
+                run_record.strategy, run_record.summary_path
+            )
         except ValueError as exc:
             return {
                 "state": "load_failed",
@@ -270,20 +358,30 @@ class ResultsService:
         state = self.load_run_summary_state(run_record)
         return state.get("summary") if state.get("state") == "ready" else None
 
-    def extract_run_summary_block(self, summary: dict | None, strategy: str | None = None) -> dict | None:
+    def extract_run_summary_block(
+        self, summary: dict | None, strategy: str | None = None
+    ) -> dict | None:
         _, block = self._resolve_strategy_block(summary, strategy)
         return block if isinstance(block, dict) else None
 
-    def _normalize_summary_metrics(self, summary: dict | None, strategy: str | None = None) -> dict | None:
+    def _normalize_summary_metrics(
+        self, summary: dict | None, strategy: str | None = None
+    ) -> dict | None:
         strategy_name, block = self._resolve_strategy_block(summary, strategy)
         if not isinstance(block, dict):
             return None
 
         total = self._find_total_row(block)
-        rows = block.get("results_per_pair") if isinstance(block.get("results_per_pair"), list) else []
+        rows = (
+            block.get("results_per_pair")
+            if isinstance(block.get("results_per_pair"), list)
+            else []
+        )
         trades = block.get("trades") if isinstance(block.get("trades"), list) else []
 
-        profit_total_pct = self._to_number(total.get("profit_total_pct") if total else None)
+        profit_total_pct = self._to_number(
+            total.get("profit_total_pct") if total else None
+        )
         if profit_total_pct is None:
             profit_total_pct = self._to_number(block.get("profit_total_pct"))
         if profit_total_pct is None:
@@ -292,7 +390,9 @@ class ResultsService:
                 ratio = self._to_number(block.get("profit_total"))
             profit_total_pct = ratio * 100 if ratio is not None else None
 
-        profit_total_abs = self._to_number(total.get("profit_total_abs") if total else None)
+        profit_total_abs = self._to_number(
+            total.get("profit_total_abs") if total else None
+        )
         if profit_total_abs is None:
             profit_total_abs = self._to_number(block.get("profit_total_abs"))
 
@@ -313,7 +413,9 @@ class ResultsService:
                 win_rate = (wins / total_trades) * 100
 
         max_drawdown_pct = None
-        drawdown_account = self._to_number(total.get("max_drawdown_account") if total else None)
+        drawdown_account = self._to_number(
+            total.get("max_drawdown_account") if total else None
+        )
         if drawdown_account is None:
             drawdown_account = self._to_number(block.get("max_drawdown_account"))
         if drawdown_account is not None:
@@ -327,7 +429,9 @@ class ResultsService:
                 if drawdown_ratio is not None:
                     max_drawdown_pct = abs(drawdown_ratio * 100)
 
-        max_drawdown_abs = self._to_number(total.get("max_drawdown_abs") if total else None)
+        max_drawdown_abs = self._to_number(
+            total.get("max_drawdown_abs") if total else None
+        )
         if max_drawdown_abs is None:
             max_drawdown_abs = self._to_number(block.get("max_drawdown_abs"))
 
@@ -339,7 +443,8 @@ class ResultsService:
             [
                 row
                 for row in rows
-                if isinstance(row, dict) and str(row.get("key") or row.get("pair") or "") != "TOTAL"
+                if isinstance(row, dict)
+                and str(row.get("key") or row.get("pair") or "") != "TOTAL"
             ]
         )
 
@@ -357,28 +462,45 @@ class ResultsService:
             "pair_count": pair_count,
             "max_drawdown_pct": max_drawdown_pct,
             "max_drawdown_abs": max_drawdown_abs,
-            "sharpe": self._first_number(total.get("sharpe") if total else None, block.get("sharpe"), block.get("sharpe_ratio")),
-            "sortino": self._first_number(total.get("sortino") if total else None, block.get("sortino"), block.get("sortino_ratio")),
-            "calmar": self._first_number(total.get("calmar") if total else None, block.get("calmar")),
-            "avg_duration": (total or {}).get("duration_avg") or block.get("holding_avg"),
+            "sharpe": self._first_number(
+                total.get("sharpe") if total else None,
+                block.get("sharpe"),
+                block.get("sharpe_ratio"),
+            ),
+            "sortino": self._first_number(
+                total.get("sortino") if total else None,
+                block.get("sortino"),
+                block.get("sortino_ratio"),
+            ),
+            "calmar": self._first_number(
+                total.get("calmar") if total else None, block.get("calmar")
+            ),
+            "avg_duration": (total or {}).get("duration_avg")
+            or block.get("holding_avg"),
             "trade_start": trade_start,
             "trade_end": trade_end,
         }
 
-    def summarize_backtest_run(self, run_record: BacktestRunRecord, progress: dict[str, Any] | None = None) -> dict:
+    def summarize_backtest_run(
+        self, run_record: BacktestRunRecord, progress: dict[str, Any] | None = None
+    ) -> dict:
         payload = run_record.model_dump(mode="json")
         summary_metrics = None
         summary_state = {"state": "missing", "summary": None, "error": None}
         if getattr(run_record, "engine", "freqtrade") == "freqtrade":
             summary_state = self.load_run_summary_state(run_record)
             if summary_state.get("state") == "ready":
-                summary_metrics = self._normalize_summary_metrics(summary_state.get("summary"), run_record.strategy)
+                summary_metrics = self._normalize_summary_metrics(
+                    summary_state.get("summary"), run_record.strategy
+                )
         payload["summary_available"] = summary_state.get("state") == "ready"
         payload["summary_metrics"] = summary_metrics
         payload["progress"] = progress
         return payload
 
-    def _build_compare_run_context(self, run_record: BacktestRunRecord) -> dict[str, Any]:
+    def _build_compare_run_context(
+        self, run_record: BacktestRunRecord
+    ) -> dict[str, Any]:
         summary_state = {"state": "missing", "summary": None, "error": None}
         summary = None
         summary_block = None
@@ -387,8 +509,12 @@ class ResultsService:
             summary_state = self.load_run_summary_state(run_record)
             if summary_state.get("state") == "ready":
                 summary = summary_state.get("summary")
-                summary_block = self.extract_run_summary_block(summary, run_record.strategy)
-                summary_metrics = self._normalize_summary_metrics(summary, run_record.strategy)
+                summary_block = self.extract_run_summary_block(
+                    summary, run_record.strategy
+                )
+                summary_metrics = self._normalize_summary_metrics(
+                    summary, run_record.strategy
+                )
 
         view = run_record.model_dump(mode="json")
         view["summary_available"] = summary_state.get("state") == "ready"
@@ -405,11 +531,31 @@ class ResultsService:
 
     def _build_compare_diagnosis(self, context: dict[str, Any]) -> dict[str, Any]:
         run_record = context["run"]
-        summary_block = context.get("summary_block") if isinstance(context.get("summary_block"), dict) else {}
-        summary_metrics = context.get("summary_metrics") if isinstance(context.get("summary_metrics"), dict) else {}
-        trades = summary_block.get("trades") if isinstance(summary_block.get("trades"), list) else []
-        results_per_pair = summary_block.get("results_per_pair") if isinstance(summary_block.get("results_per_pair"), list) else []
-        linked_version = mutation_service.get_version_by_id(run_record.version_id) if run_record.version_id else None
+        summary_block = (
+            context.get("summary_block")
+            if isinstance(context.get("summary_block"), dict)
+            else {}
+        )
+        summary_metrics = (
+            context.get("summary_metrics")
+            if isinstance(context.get("summary_metrics"), dict)
+            else {}
+        )
+        trades = (
+            summary_block.get("trades")
+            if isinstance(summary_block.get("trades"), list)
+            else []
+        )
+        results_per_pair = (
+            summary_block.get("results_per_pair")
+            if isinstance(summary_block.get("results_per_pair"), list)
+            else []
+        )
+        linked_version = (
+            mutation_service.get_version_by_id(run_record.version_id)
+            if run_record.version_id
+            else None
+        )
         return diagnosis_service.diagnose_run(
             run_record=run_record,
             summary_metrics=summary_metrics,
@@ -442,7 +588,14 @@ class ResultsService:
         if number is None or number == 0:
             return "neutral"
 
-        if key in {"profit_total_pct", "profit_total_abs", "win_rate", "sharpe", "sortino", "calmar"}:
+        if key in {
+            "profit_total_pct",
+            "profit_total_abs",
+            "win_rate",
+            "sharpe",
+            "sortino",
+            "calmar",
+        }:
             return "improved" if number > 0 else "regressed"
         if key == "max_drawdown_pct":
             return "improved" if number < 0 else "regressed"
@@ -511,7 +664,12 @@ class ResultsService:
         right_diagnosis: dict[str, Any],
     ) -> dict[str, Any]:
         def collect(block: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-            rows = block.get("results_per_pair") if isinstance(block, dict) and isinstance(block.get("results_per_pair"), list) else []
+            rows = (
+                block.get("results_per_pair")
+                if isinstance(block, dict)
+                and isinstance(block.get("results_per_pair"), list)
+                else []
+            )
             pairs: dict[str, dict[str, Any]] = {}
             for row in rows:
                 if not isinstance(row, dict):
@@ -547,10 +705,16 @@ class ResultsService:
             pair_reason = "No persisted pair delta was detected."
             if profit_delta not in (None, 0):
                 pair_classification = "improved" if profit_delta > 0 else "regressed"
-                pair_reason = "Per-pair profit improved." if profit_delta > 0 else "Per-pair profit regressed."
+                pair_reason = (
+                    "Per-pair profit improved."
+                    if profit_delta > 0
+                    else "Per-pair profit regressed."
+                )
             elif win_rate_delta not in (None, 0) or trades_delta not in (None, 0):
                 pair_classification = "changed"
-                pair_reason = "Per-pair win rate or trade count changed without a profit delta."
+                pair_reason = (
+                    "Per-pair win rate or trade count changed without a profit delta."
+                )
 
             rows.append(
                 {
@@ -567,13 +731,27 @@ class ResultsService:
                 }
             )
 
-        scored_rows = [row for row in rows if self._to_number(row.get("delta", {}).get("profit_total_pct")) is not None]
+        scored_rows = [
+            row
+            for row in rows
+            if self._to_number(row.get("delta", {}).get("profit_total_pct")) is not None
+        ]
         top_improvements = sorted(
-            [row for row in scored_rows if self._to_number(row["delta"]["profit_total_pct"]) not in (None, 0) and float(row["delta"]["profit_total_pct"]) > 0],
+            [
+                row
+                for row in scored_rows
+                if self._to_number(row["delta"]["profit_total_pct"]) not in (None, 0)
+                and float(row["delta"]["profit_total_pct"]) > 0
+            ],
             key=lambda item: (-float(item["delta"]["profit_total_pct"]), item["pair"]),
         )[:5]
         top_regressions = sorted(
-            [row for row in scored_rows if self._to_number(row["delta"]["profit_total_pct"]) not in (None, 0) and float(row["delta"]["profit_total_pct"]) < 0],
+            [
+                row
+                for row in scored_rows
+                if self._to_number(row["delta"]["profit_total_pct"]) not in (None, 0)
+                and float(row["delta"]["profit_total_pct"]) < 0
+            ],
             key=lambda item: (float(item["delta"]["profit_total_pct"]), item["pair"]),
         )[:5]
 
@@ -589,10 +767,18 @@ class ResultsService:
             pair_dragger_status = "none"
 
         summary = {
-            "improved_count": sum(1 for row in rows if row.get("classification") == "improved"),
-            "regressed_count": sum(1 for row in rows if row.get("classification") == "regressed"),
-            "changed_count": sum(1 for row in rows if row.get("classification") == "changed"),
-            "neutral_count": sum(1 for row in rows if row.get("classification") == "neutral"),
+            "improved_count": sum(
+                1 for row in rows if row.get("classification") == "improved"
+            ),
+            "regressed_count": sum(
+                1 for row in rows if row.get("classification") == "regressed"
+            ),
+            "changed_count": sum(
+                1 for row in rows if row.get("classification") == "changed"
+            ),
+            "neutral_count": sum(
+                1 for row in rows if row.get("classification") == "neutral"
+            ),
         }
 
         return {
@@ -603,12 +789,16 @@ class ResultsService:
             "worst_pair_change": {
                 "before": {
                     "pair": left_diagnosis.get("facts", {}).get("worst_pair"),
-                    "profit_total_pct": left_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "profit_total_pct": left_diagnosis.get("facts", {}).get(
+                        "worst_pair_profit_pct"
+                    ),
                     "trades": left_diagnosis.get("facts", {}).get("worst_pair_trades"),
                 },
                 "after": {
                     "pair": right_diagnosis.get("facts", {}).get("worst_pair"),
-                    "profit_total_pct": right_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "profit_total_pct": right_diagnosis.get("facts", {}).get(
+                        "worst_pair_profit_pct"
+                    ),
                     "trades": right_diagnosis.get("facts", {}).get("worst_pair_trades"),
                 },
             },
@@ -616,18 +806,24 @@ class ResultsService:
                 "status": pair_dragger_status,
                 "before": {
                     "pair": left_diagnosis.get("facts", {}).get("worst_pair"),
-                    "profit_total_pct": left_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "profit_total_pct": left_diagnosis.get("facts", {}).get(
+                        "worst_pair_profit_pct"
+                    ),
                     "trades": left_diagnosis.get("facts", {}).get("worst_pair_trades"),
                 },
                 "after": {
                     "pair": right_diagnosis.get("facts", {}).get("worst_pair"),
-                    "profit_total_pct": right_diagnosis.get("facts", {}).get("worst_pair_profit_pct"),
+                    "profit_total_pct": right_diagnosis.get("facts", {}).get(
+                        "worst_pair_profit_pct"
+                    ),
                     "trades": right_diagnosis.get("facts", {}).get("worst_pair_trades"),
                 },
             },
         }
 
-    def _build_diagnosis_delta(self, left_diagnosis: dict[str, Any], right_diagnosis: dict[str, Any]) -> dict[str, Any]:
+    def _build_diagnosis_delta(
+        self, left_diagnosis: dict[str, Any], right_diagnosis: dict[str, Any]
+    ) -> dict[str, Any]:
         left_rules = self._extract_rule_set(left_diagnosis)
         right_rules = self._extract_rule_set(right_diagnosis)
         return {
@@ -638,7 +834,9 @@ class ResultsService:
             "worst_pair_after": right_diagnosis.get("facts", {}).get("worst_pair"),
         }
 
-    def compare_backtest_runs(self, left_run: BacktestRunRecord, right_run: BacktestRunRecord) -> dict:
+    def compare_backtest_runs(
+        self, left_run: BacktestRunRecord, right_run: BacktestRunRecord
+    ) -> dict:
         if getattr(left_run, "engine", "freqtrade") != "freqtrade":
             raise ValueError(f"Run {left_run.run_id} is not a freqtrade backtest run")
         if getattr(right_run, "engine", "freqtrade") != "freqtrade":
@@ -652,9 +850,13 @@ class ResultsService:
         right_metrics = right_context.get("summary_metrics")
 
         if not left_metrics:
-            raise ValueError(f"Run {left_run.run_id} does not have a persisted summary available for compare")
+            raise ValueError(
+                f"Run {left_run.run_id} does not have a persisted summary available for compare"
+            )
         if not right_metrics:
-            raise ValueError(f"Run {right_run.run_id} does not have a persisted summary available for compare")
+            raise ValueError(
+                f"Run {right_run.run_id} does not have a persisted summary available for compare"
+            )
 
         left_diagnosis = self._build_compare_diagnosis(left_context)
         right_diagnosis = self._build_compare_diagnosis(right_context)
@@ -686,7 +888,9 @@ class ResultsService:
             if left_number is not None and right_number is not None:
                 delta = right_number - left_number
 
-            classification = self._classify_metric_delta(key, delta, left_rules, right_rules)
+            classification = self._classify_metric_delta(
+                key, delta, left_rules, right_rules
+            )
             rows.append(
                 {
                     "key": key,
@@ -696,15 +900,21 @@ class ResultsService:
                     "right": right_value,
                     "delta": delta,
                     "classification": classification,
-                    "reason": self._describe_metric_delta(key, classification, left_rules, right_rules),
+                    "reason": self._describe_metric_delta(
+                        key, classification, left_rules, right_rules
+                    ),
                 }
             )
 
-        version_compare = mutation_service.build_version_compare_payload(left_run.version_id, right_run.version_id)
+        version_compare = mutation_service.build_version_compare_payload(
+            left_run.version_id, right_run.version_id
+        )
 
         version_diff = dict(version_compare.get("version_diff") or {})
 
-        version_diff["request_snapshot_diff"] = self._build_request_snapshot_diff(left_run, right_run)
+        version_diff["request_snapshot_diff"] = self._build_request_snapshot_diff(
+            left_run, right_run
+        )
         pair_compare = self._build_pair_compare(
             left_context.get("summary_block"),
             right_context.get("summary_block"),
@@ -768,14 +978,25 @@ class ResultsService:
         return None
 
     def load_trades(self, strategy: str) -> list:
-        """Extract trades array from the latest summary."""
+        """Extract trades array from the latest summary or raw result fallback."""
         summary = self.load_latest_summary(strategy)
-        if not summary:
-            return []
-        for key, val in summary.items():
-            if isinstance(val, dict) and "trades" in val:
-                return val["trades"]
-        return summary.get("trades", [])
+        if summary:
+            for key, val in summary.items():
+                if isinstance(val, dict) and "trades" in val:
+                    return val["trades"]
+            trades_from_summary = summary.get("trades", [])
+            if trades_from_summary:
+                return trades_from_summary
+        latest_run = self.load_latest_run_record(strategy)
+        if latest_run and latest_run.raw_result_path:
+            try:
+                parser = result_parser_from_id(getattr(latest_run, "engine", None))
+                return parser.load_trades_from_raw_result(
+                    latest_run.raw_result_path, strategy
+                )
+            except Exception:
+                pass
+        return []
 
     def load_results_per_pair(self, strategy: str) -> list:
         """Extract per-pair results from the latest summary."""
@@ -803,7 +1024,3 @@ class ResultsService:
         if not os.path.isdir(base):
             return []
         return [d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))]
-
-
-
-

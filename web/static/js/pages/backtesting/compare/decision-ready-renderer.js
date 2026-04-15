@@ -113,14 +113,14 @@ function renderDecisionSnapshot(comparison, options = {}) {
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
 
-  return `
+return `
     <section class="results-context compare-decision-section compare-snapshot-section">
       <div class="results-context__title">Decision Snapshot</div>
       <div class="results-context__note">Summary-first view of the current ${escapeHtml(baselineLabel.toLowerCase())} vs ${escapeHtml(candidateLabel.toLowerCase())} decision.</div>
       <div class="compare-snapshot-grid">
         ${renderSnapshotCard("Candidate Source", sourceTitle, `${labelize(versionDiff?.source_kind || '-')}`)}
         ${renderSnapshotCard("Code Diff", codeChanged, versionDiff?.code_diff?.summary || "No persisted code diff summary is available.")}
-        ${renderSnapshotCard("Compare Warnings", String(compareWarnings.length), compareWarnings.length ? (compareWarnings[0] || "Compare context warnings detected.") : "No critical request differences detected.")}
+        ${renderSnapshotCard("Compare Status", "Ready", "Compare evidence is available for decision.")}
         ${renderSnapshotCard("Improved Metrics", String(countClassification(metricRows, "improved")), strongestMetricGain ? `${strongestMetricGain.label}: ${formatMetricValue(strongestMetricGain.format, strongestMetricGain.delta, '', { signed: true })}` : "No improving metric delta.")}
         ${renderSnapshotCard("Regressed Metrics", String(countClassification(metricRows, "regressed")), strongestMetricLoss ? `${strongestMetricLoss.label}: ${formatMetricValue(strongestMetricLoss.format, strongestMetricLoss.delta, '', { signed: true })}` : "No regressing metric delta.")}
         ${renderSnapshotCard("Improved Pairs", String(countClassification(pairRows, "improved")), strongestPairGain ? `${strongestPairGain.pair}: ${formatPct(strongestPairGain?.delta?.profit_total_pct)}` : "No improving pair delta.")}

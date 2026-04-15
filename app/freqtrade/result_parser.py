@@ -22,7 +22,9 @@ def _load_raw_result_payload(raw_result_path: str) -> dict[str, Any]:
         if not entries:
             raise ValueError(f"no result json found in raw artifact: {raw_result_path}")
 
-        expected_entry = f"{os.path.splitext(os.path.basename(raw_result_path))[0]}.json"
+        expected_entry = (
+            f"{os.path.splitext(os.path.basename(raw_result_path))[0]}.json"
+        )
         if expected_entry in entries:
             result_entry = expected_entry
         elif len(entries) == 1:
@@ -75,3 +77,19 @@ class FreqtradeResultParser(ResultParser):
             profit_pct=profit_pct,
             strategy_comparison=strategy_comparison,
         )
+
+    def load_trades_from_raw_result(self, raw_result_path: str, strategy: str) -> list:
+        """Load trades from raw result zip file."""
+        if not raw_result_path or not os.path.isfile(raw_result_path):
+            return []
+        try:
+            raw_payload = _load_raw_result_payload(raw_result_path)
+            strategies = raw_payload.get("strategy") or {}
+            strategy_result = strategies.get(strategy)
+            if isinstance(strategy_result, dict):
+                trades = strategy_result.get("trades")
+                if isinstance(trades, list):
+                    return trades
+        except Exception:
+            pass
+        return []

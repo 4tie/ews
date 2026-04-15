@@ -320,6 +320,114 @@ function renderSummary(payload) {
   renderWorkflowGuide(payload || latestResultsPayload || makeEmptyPayload(currentStrategy || getState("backtest.strategy") || ""));
 }
 
+function renderSeverityBadge(severity) {
+  const sev = String(severity || "").toLowerCase();
+  const klass = sev === "critical" ? "diagnosis-severity-badge diagnosis-severity-badge--critical" 
+    : sev === "warning" ? "diagnosis-severity-badge diagnosis-severity-badge--warning" 
+    : "diagnosis-severity-badge diagnosis-severity-badge--info";
+  return `<span class="${klass}">${escapeHtml(sev)}</span>`;
+}
+
+function renderIssueCard(issue, index) {
+  const severity = String(issue?.severity || "warning").toLowerCase();
+  const klass = severity === "critical" ? "diagnosis-issue-card diagnosis-issue-card--critical" : "diagnosis-issue-card diagnosis-issue-card--warning";
+  const rule = issue?.rule || "issue";
+  const message = issue?.message || "";
+  const actual = issue?.actual;
+  const warning_threshold = issue?.warning_threshold;
+  const critical_threshold = issue?.critical_threshold;
+  const threshold_distance = issue?.threshold_distance;
+  const facts = issue?.facts || {};
+  
+  let metricsHtml = "";
+  if (typeof actual === "object" && actual !== null) {
+    const parts = [];
+    if (actual.avg_loss_duration_hours && actual.avg_win_duration_hours) {
+      parts.push(`<span class="diagnosis-issue-card__metric"><span class="diagnosis-issue-card__metric-label">Hold time</span><span class="diagnosis-issue-card__metric-value">${actual.avg_loss_duration_hours.toFixed(1)}h vs ${actual.avg_win_duration_hours.toFixed(1)}h</span></span>`);
+    }
+    if (actual.avg_mfe_captured_pct) {
+      parts.push(`<span class="diagnosis-issue-card__metric"><span class="diagnosis-issue-card__metric-label">MFE captured</span><span class="diagnosis-issue-card__metric-value">${actual.avg_mfe_captured_pct.toFixed(1)}%</span></span>`);
+    }
+    if (parts.length) metricsHtml = `<div class="diagnosis-issue-card__metrics">${parts.join("")}</div>`;
+  } else if (actual != null && warning_threshold != null) {
+    const threshold = critical_threshold != null ? critical_threshold : warning_threshold;
+    const isNegative = rule === "negative_profit" || rule === "high_drawdown" || rule === "low_sample_size";
+    const pct = Math.min(Math.abs(actual) / Math.abs(threshold) * 100, 100);
+    const barKlass = severity === "critical" ? "diagnosis-metric-bar__fill--critical" : severity === "warning" ? "diagnosis-metric-bar__fill--warning" : "diagnosis-metric-bar__fill--ok";
+    metricsHtml = `
+      <div class="diagnosis-issue-card__metrics">
+        <div class="diagnosis-issue-card__metric">
+          <span class="diagnosis-issue-card__metric-label">Value vs Threshold</span>
+          <div class="diagnosis-metric-bar">
+            <div class="diagnosis-metric-bar__track">
+              <div class="diagnosis-metric-bar__fill ${barKlass}" style="width: ${pct}%"></div>
+            </div>
+            <div class="diagnosis-metric-bar__labels">
+              <span>${typeof actual === "number" ? actual.toFixed(2) : "-"}</span>
+              <span>Threshold: ${threshold}</span>
+            </div>
+          </div>
+        </div>
+        ${threshold_distance != null ? `<span class="diagnosis-issue-card__metric"><span class="diagnosis-issue-card__metric-label">Distance</span><span class="diagnosis-issue-card__metric-value">${threshold_distance >= 0 ? "+" : ""}${Number(threshold_distance).toFixed(2)}</span></span>` : ""}
+      </div>
+    `;
+  }
+
+  const actionability = describeIssueActionability(diagnosis, rule);
+  const actionHtml = actionability.label === "Actionable now" 
+    ? `<div style="margin-top: var(--space-2);"><span class="proposal-status-chip proposal-status-chip--actionable">${escapeHtml(actionability.label)}</span></div>`
+    : `<div style="margin-top: var(--space-2);"><span class="proposal-status-chip proposal-status-chip--advisory">${escapeHtml(actionability.label)}</span></div>`;
+
+  return `
+    <div class="${klass}">
+      <div class="diagnosis-issue-card__header">
+        <div style="display: flex; align-items: center; gap: var(--space-2);">
+          ${renderSeverityBadge(severity)}
+          <span class="diagnosis-issue-card__title">${escapeHtml(labelize(rule))}</span>
+        </div>
+      </div>
+      <div class="diagnosis-issue-card__message">${escapeHtml(message)}</div>
+      ${metricsHtml}
+      ${actionHtml}
+    </div>
+  `;
+}
+
+function renderActionCard(action) {
+  const label = action?.label || "Action";
+  const summary = action?.summary || "";
+  const matched_rules = Array.isArray(action?.matched_rules) ? action.matched_rules : [];
+  return `
+    <div class="diagnosis-action-card">
+      <span class="diagnosis-action-card__title">${escapeHtml(label)}</span>
+      <span class="diagnosis-action-card__summary">${escapeHtml(summary)}</span>
+      ${matched_rules.length ? `<div class="diagnosis-action-card__rules">${matched_rules.map(r => `<span class="diagnosis-action-card__rule">${escapeHtml(r)}</span>`).join("")}</div>` : ""}
+    </div>
+  `;
+}
+
+function renderMetricBar(fact, threshold, label) {
+  const value = fact?.[label.toLowerCase().replace(/ /g, "_")];
+  if (value == null) return "";
+  const thresholdVal = threshold || value * 1.2;
+  const pct = Math.min((Math.abs(value) / Math.abs(thresholdVal)) * 100, 100);
+  const barKlass = pct > 80 ? "diagnosis-metric-bar__fill--critical" : pct > 50 ? "diagnosis-metric-bar__fill--warning" : "diagnosis-metric-bar__fill--ok";
+  return `
+    <div class="diagnosis-issue-card__metric">
+      <span class="diagnosis-issue-card__metric-label">${escapeHtml(label)}</span>
+      <div class="diagnosis-metric-bar">
+        <div class="diagnosis-metric-bar__track">
+          <div class="diagnosis-metric-bar__fill ${barKlass}" style="width: ${pct}%"></div>
+        </div>
+        <div class="diagnosis-metric-bar__labels">
+          <span>${typeof value === "number" ? value.toFixed(2) : value}</span>
+          <span>Threshold: ${thresholdVal}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderDiagnosis(response) {
   if (!diagnosisPanel) return;
 
@@ -338,25 +446,54 @@ function renderDiagnosis(response) {
       ? " results-context--positive"
       : " results-context--empty";
 
+  const facts = isObject(diagnosis?.facts) ? diagnosis.facts : {};
+  const rankedIssues = Array.isArray(diagnosis?.ranked_issues) ? diagnosis.ranked_issues : [];
   const primaryFlags = Array.isArray(diagnosis?.primary_flags) ? diagnosis.primary_flags : [];
+  const proposalActions = Array.isArray(diagnosis?.proposal_actions) ? diagnosis.proposal_actions : [];
   const insufficient = diagnosis?.insufficient_evidence && isObject(diagnosis.insufficient_evidence)
     ? Object.entries(diagnosis.insufficient_evidence)
     : [];
   const aiStatus = ai?.ai_status || "disabled";
 
-  const issuesHtml = primaryFlags.length
-    ? `<ul class="diagnosis-list">${primaryFlags.map((flag) => {
-        const severity = String(flag?.severity || "warning");
-        const klass = severity === "critical" ? "diagnosis-item diagnosis-item--critical" : "diagnosis-item diagnosis-item--warning";
-        const actionability = describeIssueActionability(diagnosis, flag?.rule);
-        return `
-          <li class="${klass}">
-            <strong>${escapeHtml(flag?.rule || "issue")}</strong>: ${escapeHtml(flag?.message || "")}
-            <div class="results-context__note"><strong>${escapeHtml(actionability.label)}:</strong> ${escapeHtml(actionability.reason)}</div>
-          </li>
-        `;
-      }).join("")}</ul>`
+  const summaryMetricsHtml = (() => {
+    const items = [];
+    if (facts.profit_total_pct != null) {
+      const isNegative = facts.profit_total_pct < 0;
+      items.push(`<div class="diagnosis-summary-item ${isNegative ? "diagnosis-summary-item--negative" : "diagnosis-summary-item--positive"}"><span class="diagnosis-summary-item__label">Profit</span><span class="diagnosis-summary-item__value">${facts.profit_total_pct.toFixed(2)}%</span></div>`);
+    }
+    if (facts.drawdown_pct != null) {
+      const isHigh = facts.drawdown_pct > 15;
+      items.push(`<div class="diagnosis-summary-item ${isHigh ? "diagnosis-summary-item--negative" : ""}"><span class="diagnosis-summary-item__label">Drawdown</span><span class="diagnosis-summary-item__value">${facts.drawdown_pct.toFixed(2)}%</span></div>`);
+    }
+    if (facts.win_rate_pct != null) {
+      const isLow = facts.win_rate_pct < 35;
+      items.push(`<div class="diagnosis-summary-item ${isLow ? "diagnosis-summary-item--negative" : ""}"><span class="diagnosis-summary-item__label">Win Rate</span><span class="diagnosis-summary-item__value">${facts.win_rate_pct.toFixed(2)}%</span></div>`);
+    }
+    if (facts.total_trades != null) {
+      const isLow = facts.total_trades < 30;
+      items.push(`<div class="diagnosis-summary-item ${isLow ? "diagnosis-summary-item--negative" : ""}"><span class="diagnosis-summary-item__label">Trades</span><span class="diagnosis-summary-item__value">${facts.total_trades}</span></div>`);
+    }
+    if (facts.avg_duration_hours != null) {
+      const isLong = facts.avg_duration_hours > 12;
+      items.push(`<div class="diagnosis-summary-item ${isLong ? "diagnosis-summary-item--negative" : ""}"><span class="diagnosis-summary-item__label">Avg Hold</span><span class="diagnosis-summary-item__value">${facts.avg_duration_hours.toFixed(1)}h</span></div>`);
+    }
+    if (facts.avg_mfe_captured_pct != null) {
+      const isLow = facts.avg_mfe_captured_pct < 60;
+      items.push(`<div class="diagnosis-summary-item ${isLow ? "diagnosis-summary-item--negative" : ""}"><span class="diagnosis-summary-item__label">MFE Captured</span><span class="diagnosis-summary-item__value">${facts.avg_mfe_captured_pct.toFixed(1)}%</span></div>`);
+    }
+    if (facts.worst_pair) {
+      items.push(`<div class="diagnosis-summary-item diagnosis-summary-item--negative"><span class="diagnosis-summary-item__label">Worst Pair</span><span class="diagnosis-summary-item__value">${escapeHtml(facts.worst_pair)}</span></div>`);
+    }
+    return items.length ? `<div class="diagnosis-summary-grid">${items.join("")}</div>` : "";
+  })();
+
+  const issuesHtml = rankedIssues.length
+    ? `<div class="diagnosis-section">${rankedIssues.map((issue, index) => renderIssueCard(issue, index)).join("")}</div>`
     : '<div class="results-context__note">No deterministic issues are currently flagged for this run. You can still use AI suggestions or compare evidence if you need more context.</div>';
+
+  const actionsHtml = proposalActions.length
+    ? `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3);">${proposalActions.map(action => renderActionCard(action)).join("")}</div>`
+    : '<div class="results-context__note">No actionable deterministic actions for this run.</div>';
 
   const insufficientHtml = insufficient.length
     ? `<ul class="diagnosis-list">${insufficient.map(([rule, detail]) => `<li class="diagnosis-item"><strong>${escapeHtml(rule)}</strong>: ${escapeHtml(detail?.reason || "Insufficient evidence")}</li>`).join("")}</ul>`
@@ -403,13 +540,19 @@ function renderDiagnosis(response) {
         ${summaryAvailable ? "Start with Primary Issues below. Once you understand the baseline, move into Proposal Workflow to stage a candidate version." : escapeHtml(error || "Run a backtest first. Diagnosis and candidate actions stay locked until a persisted summary is available.")}
       </div>
     </section>
+    ${summaryMetricsHtml ? `<section class="results-context"><div class="results-context__title">Summary Metrics</div>${summaryMetricsHtml}</section>` : ""}
     <section class="results-context">
-      <div class="results-context__title">Primary Issues</div>
+      <div class="results-context__title">Primary Issues ${rankedIssues.length ? `<span style="font-weight: 400; color: var(--color-text-muted); font-size: var(--text-sm);">(${rankedIssues.length} ranked)</span>` : ""}</div>
       <div class="results-context__note">Start with items marked Actionable now. Diagnostic-only items explain the run but do not create a candidate path yet.</div>
       ${issuesHtml}
     </section>
     <section class="results-context">
-      <div class="results-context__title">Evidence Gaps</div>
+      <div class="results-context__title">Deterministic Actions</div>
+      <div class="results-context__note">Use these buttons to create a candidate version in the Proposal Workflow.</div>
+      ${actionsHtml}
+    </section>
+    <section class="results-context">
+      <div class="results-context__title">Evidence Gaps ${insufficient.length ? `<span style="font-weight: 400; color: var(--color-text-muted); font-size: var(--text-sm);">(${insufficient.length} rules)</span>` : ""}</div>
       <div class="results-context__note">Use this section to understand which rules are waiting on stronger evidence before they can become decision-ready.</div>
       ${insufficientHtml}
     </section>
