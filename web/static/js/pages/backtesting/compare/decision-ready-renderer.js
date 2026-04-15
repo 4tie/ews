@@ -113,20 +113,29 @@ function renderDecisionSnapshot(comparison, options = {}) {
   const baselineLabel = options.baselineLabel || "Baseline";
   const candidateLabel = options.candidateLabel || "Selected Candidate";
 
+const improvedCount = countClassification(metricRows, "improved");
+  const regressedCount = countClassification(metricRows, "regressed");
+  const improvedPairsCount = countClassification(pairRows, "improved");
+  const regressedPairsCount = countClassification(pairRows, "regressed");
+  const hasDifferences = improvedCount > 0 || regressedCount > 0 || improvedPairsCount > 0 || regressedPairsCount > 0;
+
+  let summaryNote = "Summary-first view.";
+  if (!hasDifferences) {
+    summaryNote = "These runs have identical configuration. No metric or pair deltas detected.";
+  }
+
 return `
     <section class="results-context compare-decision-section compare-snapshot-section">
       <div class="results-context__title">Decision Snapshot</div>
-      <div class="results-context__note">Summary-first view of the current ${escapeHtml(baselineLabel.toLowerCase())} vs ${escapeHtml(candidateLabel.toLowerCase())} decision.</div>
+      <div class="results-context__note">${summaryNote}</div>
       <div class="compare-snapshot-grid">
-        ${renderSnapshotCard("Candidate Source", sourceTitle, `${labelize(versionDiff?.source_kind || '-')}`)}
-        ${renderSnapshotCard("Code Diff", codeChanged, versionDiff?.code_diff?.summary || "No persisted code diff summary is available.")}
-        ${renderSnapshotCard("Compare Status", "Ready", "Compare evidence is available for decision.")}
-        ${renderSnapshotCard("Improved Metrics", String(countClassification(metricRows, "improved")), strongestMetricGain ? `${strongestMetricGain.label}: ${formatMetricValue(strongestMetricGain.format, strongestMetricGain.delta, '', { signed: true })}` : "No improving metric delta.")}
-        ${renderSnapshotCard("Regressed Metrics", String(countClassification(metricRows, "regressed")), strongestMetricLoss ? `${strongestMetricLoss.label}: ${formatMetricValue(strongestMetricLoss.format, strongestMetricLoss.delta, '', { signed: true })}` : "No regressing metric delta.")}
-        ${renderSnapshotCard("Improved Pairs", String(countClassification(pairRows, "improved")), strongestPairGain ? `${strongestPairGain.pair}: ${formatPct(strongestPairGain?.delta?.profit_total_pct)}` : "No improving pair delta.")}
-        ${renderSnapshotCard("Regressed Pairs", String(countClassification(pairRows, "regressed")), strongestPairLoss ? `${strongestPairLoss.pair}: ${formatPct(strongestPairLoss?.delta?.profit_total_pct)}` : "No regressing pair delta.")}
-        ${renderSnapshotCard("Resolved Rules", String((diagnosisDelta?.resolved_rules || []).length), (diagnosisDelta?.resolved_rules || []).join(", ") || "No resolved deterministic rules.")}
-        ${renderSnapshotCard("New Rules", String((diagnosisDelta?.new_rules || []).length), (diagnosisDelta?.new_rules || []).join(", ") || "No new deterministic rules.")}
+        ${renderSnapshotCard("Baseline Version", versionDiff?.baseline_version || baselineLabel, versionDiff?.baseline_version || "-")}
+        ${renderSnapshotCard("Candidate Version", versionDiff?.candidate_version || candidateLabel, versionDiff?.candidate_version || "-")}
+        ${renderSnapshotCard("Code", codeChanged, hasDifferences ? (versionDiff?.code_diff?.summary || "Unchanged") : "Same as baseline")}
+        ${hasDifferences ? renderSnapshotCard("Improved Metrics", String(improvedCount), strongestMetricGain ? `${strongestMetricGain.label}: ${formatMetricValue(strongestMetricGain.format, strongestMetricGain.delta, '', { signed: true })}` : "None") : ""}
+        ${hasDifferences ? renderSnapshotCard("Regressed Metrics", String(regressedCount), strongestMetricLoss ? `${strongestMetricLoss.label}: ${formatMetricValue(strongestMetricLoss.format, strongestMetricLoss.delta, '', { signed: true })}` : "None") : ""}
+        ${hasDifferences ? renderSnapshotCard("Improved Pairs", String(improvedPairsCount), strongestPairGain ? `${strongestPairGain.pair}: ${formatPct(strongestPairGain?.delta?.profit_total_pct)}` : "None") : ""}
+        ${hasDifferences ? renderSnapshotCard("Regressed Pairs", String(regressedPairsCount), strongestPairLoss ? `${strongestPairLoss.pair}: ${formatPct(strongestPairLoss?.delta?.profit_total_pct)}` : "None") : ""}
       </div>
     </section>
   `;
@@ -466,12 +475,19 @@ function renderDiagnosisDelta(comparison) {
 export function renderDecisionReadyCompare(comparison, options = {}) {
   const metricRows = Array.isArray(comparison?.metrics) ? comparison.metrics : [];
   const pairRows = Array.isArray(comparison?.pairs?.rows) ? comparison.pairs.rows : [];
+  const improvedCount = countClassification(metricRows, "improved");
+  const regressedCount = countClassification(metricRows, "regressed");
+  const improvedPairsCount = countClassification(pairRows, "improved");
+  const regressedPairsCount = countClassification(pairRows, "regressed");
+  const hasDeltas = improvedCount > 0 || regressedCount > 0 || improvedPairsCount > 0 || regressedPairsCount > 0;
 
-  return `
-    ${renderDecisionSnapshot(comparison, options)}
-    ${renderSectionDetails('Version Diff', renderVersionDiff(comparison, options), `${countClassification(metricRows, 'improved')} improved metrics, ${countClassification(pairRows, 'improved')} improved pairs`, true)}
-    ${renderSectionDetails('Decision Metrics', renderMetricTable(comparison, options), `${countClassification(metricRows, 'improved')} improved / ${countClassification(metricRows, 'regressed')} regressed`)}
-    ${renderSectionDetails('Pair Delta', renderPairTable(comparison, options), `${countClassification(pairRows, 'improved')} improved / ${countClassification(pairRows, 'regressed')} regressed`)}
-    ${renderSectionDetails('Diagnosis Delta', renderDiagnosisDelta(comparison), `${(comparison?.diagnosis_delta?.resolved_rules || []).length} resolved / ${(comparison?.diagnosis_delta?.new_rules || []).length} new`)}
+  let sections = `${renderDecisionSnapshot(comparison, options)}`;
+  
+  if (hasDeltas) {
+    sections += renderSectionDetails('Metrics Delta', renderMetricTable(comparison, options), `${improvedCount} improved / ${regressedCount} regressed`, false);
+    sections += renderSectionDetails('Pair Delta', renderPairTable(comparison, options), `${improvedPairsCount} improved / ${regressedPairsCount} regressed`, false);
+  }
+  
+  return sections;
   `;
 }

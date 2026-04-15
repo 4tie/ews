@@ -384,22 +384,23 @@ function buildContextGrid(comparison, { leftTitle = "Left run", rightTitle = "Ri
 function buildRunContext(run, title) {
   const metrics = run?.summary_metrics || {};
   const snapshot = run?.request_snapshot || {};
-  const pairCount = Array.isArray(snapshot?.pairs) ? snapshot.pairs.length : null;
+  const pairs = Array.isArray(snapshot?.pairs) ? snapshot.pairs : [];
   const section = el("section", { class: "results-context" });
+  const profit = metrics?.profit_total_pct;
+  const winRate = metrics?.win_rate;
+  const-dd = metrics?.max_drawdown_pct;
   section.innerHTML = `
     <div class="results-context__title">${escapeHtml(title)}</div>
-    <div class="results-context__meta">
-      <span><strong>Run ID:</strong> ${escapeHtml(run?.run_id || "-")}</span>
+    <div class="results-context__meta" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px;">
+      <span><strong>Run:</strong> ${escapeHtml(run?.run_id || "-")}</span>
+      <span><strong>Status:</strong> ${escapeHtml(labelize(run?.status))}</span>
       <span><strong>Strategy:</strong> ${escapeHtml(metrics.strategy || run?.strategy || "-")}</span>
       <span><strong>Version:</strong> ${escapeHtml(run?.version_id || "-")}</span>
-      <span><strong>Status:</strong> ${escapeHtml(labelize(run?.status))}</span>
-      <span><strong>Timeframe:</strong> ${escapeHtml(snapshot?.timeframe || metrics?.timeframe || "-")}</span>
-      <span><strong>Timerange:</strong> ${escapeHtml(snapshot?.timerange || "-")}</span>
-      <span><strong>Pairs:</strong> ${escapeHtml(pairCount == null ? "-" : String(pairCount))}</span>
-      <span><strong>Exchange:</strong> ${escapeHtml(snapshot?.exchange || "-")}</span>
-      <span><strong>Config:</strong> ${escapeHtml(snapshot?.config_path || "-")}</span>
-      <span><strong>Trigger:</strong> ${escapeHtml(labelize(run?.trigger_source || "-"))}</span>
-      <span><strong>Created:</strong> ${escapeHtml(formatDate(run?.completed_at || run?.created_at))}</span>
+      ${profit != null ? `<span><strong>Profit:</strong> <span class="${profit >= 0 ? 'positive' : 'negative'}">${profit.toFixed(2)}%</span></span>` : ""}
+      ${winRate != null ? `<span><strong>Win Rate:</strong> ${winRate.toFixed(1)}%</span>` : ""}
+      ${dd != null ? `<span><strong>Drawdown:</strong> ${dd.toFixed(2)}%</span>` : ""}
+      <span><strong>Pairs:</strong> ${escapeHtml(pairs.join(", "))}</span>
+      <span><strong>Timeframe:</strong> ${escapeHtml(snapshot?.timeframe || "-")}</span>
     </div>
   `;
   return section;
