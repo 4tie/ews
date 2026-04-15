@@ -14,6 +14,7 @@ Backtest-specific logic has been split into:
 
 Non-backtest functions (download_data, config CRUD, validate_data) remain here.
 """
+
 import json
 import os
 from typing import Any
@@ -44,17 +45,24 @@ from app.freqtrade.backtest_results import (
     list_backtest_runs,
 )
 from app.freqtrade.backtest_runner import (
+    _resolve_engine,
     get_options,
     load_live_strategy_code,
     load_live_strategy_parameters,
     run_backtest,
 )
 from app.freqtrade.backtest_stream import stream_backtest_logs
-from app.freqtrade.paths import user_data_results_dir
+from app.freqtrade.paths import (
+    live_strategy_file,
+    strategy_config_file,
+    user_data_results_dir,
+)
 from app.models.backtest_models import ConfigSaveRequest
 from app.services.config_service import ConfigService
 from app.services.persistence_service import PersistenceService
-from app.services.results.strategy_intelligence_service import analyze_run_diagnosis_overlay
+from app.services.results.strategy_intelligence_service import (
+    analyze_run_diagnosis_overlay,
+)
 from app.services.results_service import ResultsService
 from app.services.validation_service import ValidationService
 from app.utils.datetime_utils import now_iso
@@ -76,6 +84,7 @@ def _get_create_proposal_candidate_fn():
             from app.services.results.strategy_intelligence_apply_service import (
                 create_proposal_candidate_from_diagnosis as _fn,
             )
+
             create_proposal_candidate_from_diagnosis = _fn
         except ImportError:
             pass
@@ -84,7 +93,10 @@ def _get_create_proposal_candidate_fn():
 
 async def create_backtest_run_proposal_candidate(run_id: str, payload: Any):
     """Proposal candidate creation - delegates to proposal_service."""
-    from app.freqtrade.proposal_service import create_backtest_run_proposal_candidate as _create
+    from app.freqtrade.proposal_service import (
+        create_backtest_run_proposal_candidate as _create,
+    )
+
     return await _create(run_id, payload)
 
 
@@ -147,6 +159,7 @@ def _watch_download_process(download_id: str, process) -> None:
         _save_download_record(download_id, current)
     finally:
         import threading
+
         if _download_watcher_lock:
             with _download_watcher_lock:
                 _active_download_watchers.discard(download_id)
@@ -154,6 +167,7 @@ def _watch_download_process(download_id: str, process) -> None:
 
 def _start_download_watcher(download_id: str, process) -> None:
     import threading
+
     global _download_watcher_lock
     if _download_watcher_lock is None:
         _download_watcher_lock = threading.Lock()
@@ -248,6 +262,7 @@ async def stream_download_logs(download_id: str):
         raise HTTPException(status_code=404, detail=f"Download {download_id} not found")
 
     from app.freqtrade.backtest_stream import stream_log_response
+
     return stream_log_response(
         lambda: persistence.load_download_run(download_id),
         download_runs_dir(),
@@ -281,7 +296,11 @@ async def validate_data(payload: dict):
 
     pairs = list(payload.get("pairs", []))
     timeframe = str(payload.get("timeframe") or "")
-    exchange = str(payload.get("exchange") or config_svc.get_settings().get("default_exchange") or "binance")
+    exchange = str(
+        payload.get("exchange")
+        or config_svc.get_settings().get("default_exchange")
+        or "binance"
+    )
     timerange = payload.get("timerange")
 
     if not pairs:
@@ -299,7 +318,11 @@ async def validate_data(payload: dict):
     if not validation_svc.validate_timeframe(timeframe):
         return JSONResponse(
             status_code=400,
-            content={"valid": False, "message": f"Invalid timeframe: {timeframe}", "results": []},
+            content={
+                "valid": False,
+                "message": f"Invalid timeframe: {timeframe}",
+                "results": [],
+            },
         )
 
     if timerange:
@@ -307,7 +330,11 @@ async def validate_data(payload: dict):
         if not timerange_result.get("valid"):
             return JSONResponse(
                 status_code=400,
-                content={"valid": False, "message": timerange_result.get("error") or "Invalid timerange", "results": []},
+                content={
+                    "valid": False,
+                    "message": timerange_result.get("error") or "Invalid timerange",
+                    "results": [],
+                },
             )
 
     engine = _resolve_engine()
@@ -355,10 +382,14 @@ async def validate_data(payload: dict):
 
 __all__ = [
     # Backtest runner
+    "_resolve_engine",
     "get_options",
     "run_backtest",
     "load_live_strategy_code",
     "load_live_strategy_parameters",
+    # Paths
+    "live_strategy_file",
+    "strategy_config_file",
     # Backtest process
     "stop_backtest_run",
     "_reconcile_stale_backtest_run",
