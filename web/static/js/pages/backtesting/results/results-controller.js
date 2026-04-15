@@ -328,7 +328,7 @@ function renderSeverityBadge(severity) {
   return `<span class="${klass}">${escapeHtml(sev)}</span>`;
 }
 
-function renderIssueCard(issue, index) {
+function renderIssueCard(issue, index, diagnosis) {
   const severity = String(issue?.severity || "warning").toLowerCase();
   const klass = severity === "critical" ? "diagnosis-issue-card diagnosis-issue-card--critical" : "diagnosis-issue-card diagnosis-issue-card--warning";
   const rule = issue?.rule || "issue";
@@ -488,7 +488,7 @@ function renderDiagnosis(response) {
   })();
 
   const issuesHtml = rankedIssues.length
-    ? `<div class="diagnosis-section">${rankedIssues.map((issue, index) => renderIssueCard(issue, index)).join("")}</div>`
+    ? `<div class="diagnosis-section">${rankedIssues.map((issue, index) => renderIssueCard(issue, index, diagnosis)).join("")}</div>`
     : '<div class="results-context__note">No deterministic issues are currently flagged for this run. You can still use AI suggestions or compare evidence if you need more context.</div>';
 
   const actionsHtml = proposalActions.length
