@@ -709,18 +709,41 @@ async function handleReject() {
   });
 }
 
-async function handleRollback() {
-  const versionId = state.selectedVersionId;
+async function handleRollback(targetVersionId, runContext = null) {
+  const versionId = targetVersionId || state.selectedVersionId;
+
+  // Runtime guard: check if version_id exists
+  if (!versionId) {
+    showToast("No linked version available for this run", "error");
+    return;
+  }
+
+  // Build modal fields
+  const fields = [
+    ["Strategy", state.selectedStrategy],
+    ["Rollback target", versionId],
+    ["Current live", state.activeVersionId || "-"],
+  ];
+
+  // Add run context fields if provided (optional - only if they exist)
+  if (runContext) {
+    if (runContext.runId) {
+      fields.push(["Run", runContext.runId]);
+    }
+    if (runContext.completedAt) {
+      fields.push(["Completed", formatDate(runContext.completedAt)]);
+    }
+    if (runContext.profit) {
+      fields.push(["Profit", runContext.profit]);
+    }
+  }
+
   const note = await openNoteModal({
-    title: "Rollback To Version",
+    title: runContext?.runId ? `Rollback to version linked to run ${runContext.runId}?` : "Rollback To Version",
     confirmLabel: "Rollback",
     noteLabel: "Decision note",
     placeholder: "Why the live strategy should return to this version.",
-    fields: [
-      ["Strategy", state.selectedStrategy],
-      ["Rollback target", versionId],
-      ["Current live", state.activeVersionId || "-"],
-    ],
+    fields,
     note: "Rollback restores the selected historical version as the live target and archives the currently active version.",
   });
   if (note === null) return;
@@ -813,6 +836,24 @@ function handleVersionAction(action, extra) {
   }
   if (action === "rollback-config") {
     void handleRollback();
+    return;
+  }
+  if (action === "rollback-to-version") {
+    // Extract data from the button that triggered the action
+    const button = extra?.target;
+    const versionId = button?.dataset?.versionId;
+    const runId = button?.dataset?.runId;
+
+    // Runtime guard: check if version_id exists
+    if (!versionId) {
+      showToast("No linked version available for this run", "error");
+      return;
+    }
+
+    // Build optional run context
+    const runContext = runId ? { runId } : null;
+
+    void handleRollback(versionId, runContext);
     return;
   }
   if (action === "select-version") {

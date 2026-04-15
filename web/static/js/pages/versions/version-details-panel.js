@@ -222,7 +222,7 @@ function renderCodePreview(comparison) {
   `;
 }
 
-function renderLinkedRunsTable(linkedRuns) {
+function renderLinkedRunsTable(linkedRuns, currentActiveVersionId = "") {
   if (!Array.isArray(linkedRuns) || !linkedRuns.length) {
     return '<div class="versions-note">No backtest runs are linked to this version yet.</div>';
   }
@@ -238,10 +238,8 @@ function renderLinkedRunsTable(linkedRuns) {
             <th>Completed</th>
             <th>Profit</th>
             <th>Trades</th>
-            <th>
-              Drawdown
-              <button type="button" class="btn btn--ghost btn--xs version-rollback-config-btn" data-action="rollback-config" title="Rollback strategy config">Rollback Config</button>
-            </th>
+            <th>Drawdown</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -249,6 +247,15 @@ function renderLinkedRunsTable(linkedRuns) {
             const metrics = run?.summary_metrics || {};
             const profit = metrics?.profit_total_pct != null ? formatPct(metrics.profit_total_pct) : "-";
             const drawdown = metrics?.max_drawdown_pct != null ? formatPct(-Math.abs(metrics.max_drawdown_pct)) : "-";
+            const runVersionId = run?.version_id || "";
+            const isActiveVersion = runVersionId === currentActiveVersionId;
+            const canRollback = runVersionId && !isActiveVersion;
+            const disabledAttr = canRollback ? "" : " disabled";
+            const titleAttr = !runVersionId
+              ? "title=\"No linked version\""
+              : isActiveVersion
+                ? "title=\"Already active\""
+                : "title=\"Rollback to this run's version\"";
             return `
               <tr>
                 <td><code>${escapeHtml(run?.run_id || "-")}</code></td>
@@ -258,6 +265,9 @@ function renderLinkedRunsTable(linkedRuns) {
                 <td>${escapeHtml(profit)}</td>
                 <td>${escapeHtml(String(metrics?.total_trades ?? "-"))}</td>
                 <td>${escapeHtml(drawdown)}</td>
+                <td>
+                  <button type="button" class="btn btn--ghost btn--xs version-rollback-btn" data-action="rollback-to-version" data-run-id="${escapeHtml(run?.run_id || "")}" data-version-id="${escapeHtml(runVersionId)}" ${disabledAttr} ${titleAttr}>Rollback</button>
+                </td>
               </tr>
             `;
           }).join("")}
@@ -615,7 +625,7 @@ export function renderVersionDetailsPanel({
           <h3 class="versions-section__title">Linked Runs</h3>
           <span class="versions-panel-surface__count">${escapeHtml(String(linkedRuns.length))}</span>
         </div>
-        ${renderLinkedRunsTable(linkedRuns)}
+        ${renderLinkedRunsTable(linkedRuns, currentActiveVersionId)}
       </section>
     </div>
   `;
@@ -696,7 +706,7 @@ export function renderVersionDetailsPanel({
   if (typeof onAction === "function") {
     container.querySelectorAll("[data-action]").forEach((button) => {
       button.addEventListener("click", () => {
-        onAction(button.getAttribute("data-action") || "");
+        onAction(button.getAttribute("data-action") || "", { target: button });
       });
     });
   }

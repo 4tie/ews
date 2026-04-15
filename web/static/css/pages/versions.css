@@ -856,6 +856,16 @@
   font-size: var(--text-xs);
 }
 
+.version-rollback-btn {
+  padding: 0.2rem 0.6rem;
+  font-size: var(--text-xs);
+}
+
+.version-rollback-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .version-code-block {
   max-height: 400px;
   overflow: auto;
