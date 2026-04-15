@@ -64,7 +64,9 @@ def _summarize_runs_for_version(strategy_name: str, version_id: str) -> tuple[li
 
 def _latest_comparable_run(run_records: list[Any]) -> Any | None:
     for run in run_records:
-        if str(getattr(run, "status", "")).lower() != "completed":
+        status = getattr(run, "status", None)
+        status_value = getattr(status, "value", status)
+        if str(status_value or "").lower() != "completed":
             continue
         if results_svc.load_run_summary_state(run).get("state") != "ready":
             continue
