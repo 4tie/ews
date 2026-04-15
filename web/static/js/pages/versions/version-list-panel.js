@@ -1,136 +1,124 @@
-import api from "../../core/api.js";
-import { getState, setState, on as onState } from "../../core/state.js";
-import { on as onEvent, EVENTS } from "../../core/events.js";
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
-const container = document.getElementById("version-list");
-const countEl = document.getElementById("version-count");
+function labelize(value) {
+  return String(value || "-")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
-let selectedVersionId = null;
-
-export function initVersionListPanel() {
-  onState("backtest.strategy", handleStrategyChange);
-  onState("versions.selectedVersionId", handleSelectionChange);
-
-  const strategy = getState("backtest.strategy");
-  if (strategy) {
-    loadVersions(strategy);
+function formatDate(value) {
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return String(value);
   }
 }
 
-function handleStrategyChange(strategy) {
-  if (!strategy) {
-    setState("versions.list", []);
-    setState("versions.activeVersionId", null);
-    setState("versions.selectedVersionId", null);
-    renderList([]);
+function formatPct(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  const prefix = number > 0 ? "+" : "";
+  return `${prefix}${number.toFixed(2)}%`;
+}
+
+function shortVersionId(versionId) {
+  const raw = String(versionId || "");
+  if (!raw) return "-";
+  return raw.length > 18 ? `${raw.slice(0, 18)}...` : raw;
+}
+
+export function renderVersionListPanel({
+  container,
+  countEl,
+  versions = [],
+  selectedVersionId = "",
+  activeVersionId = "",
+  loading = false,
+  error = "",
+  onSelect = null,
+} = {}) {
+  if (!container || !countEl) return;
+
+  countEl.textContent = String(Array.isArray(versions) ? versions.length : 0);
+
+  if (loading) {
+    container.innerHTML = '<div class="versions-state">Loading versions...</div>';
     return;
   }
-  loadVersions(strategy);
-}
 
-async function loadVersions(strategy) {
-  setState("versions.status", "loading");
-  renderLoading();
-
-  try {
-    const response = await api.versions.listVersions(strategy, true);
-    setState("versions.list", response.versions || []);
-    setState("versions.activeVersionId", response.active_version_id || null);
-    setState("versions.status", "ready");
-    setState("versions.error", null);
-    renderList(response.versions || []);
-  } catch (error) {
-    setState("versions.status", "error");
-    setState("versions.error", error.message);
-    renderError(error.message);
-  }
-}
-
-function handleSelectionChange(versionId) {
-  selectedVersionId = versionId;
-  updateSelection();
-}
-
-function updateSelection() {
-  const items = container.querySelectorAll(".version-item");
-  items.forEach((item) => {
-    const id = item.dataset.versionId;
-    item.classList.toggle("is-selected", id === selectedVersionId);
-  });
-}
-
-function renderList(versions) {
-  if (!versions || versions.length === 0) {
+  if (error) {
     container.innerHTML = `
-      <div class="versions-empty">
-        <div class="versions-empty__icon">📋</div>
-        <p class="versions-empty__title">No versions</p>
-        <p class="versions-empty__message">Run a backtest to create versions</p>
+      <div class="versions-state versions-state--error">
+        <strong>Versions could not be loaded.</strong>
+        <span>${escapeHtml(error)}</span>
       </div>
     `;
-    countEl.textContent = "0";
     return;
   }
 
-  countEl.textContent = versions.length;
+  if (!Array.isArray(versions) || !versions.length) {
+    container.innerHTML = `
+      <div class="versions-state versions-state--empty">
+        <strong>No versions found.</strong>
+        <span>Create or bootstrap a version for this strategy to start the lifecycle.</span>
+      </div>
+    `;
+    return;
+  }
 
   container.innerHTML = versions
-    .map(
-      (v) => `
-    <div class="version-item${v.version_id === selectedVersionId ? " is-selected" : ""}" data-version-id="${v.version_id}">
-      <div class="version-item__header">
-        <span class="version-item__id">${v.version_id.substring(0, 8)}</span>
-        <span class="version-item__status version-item__status--${v.status}">${v.status}</span>
-      </div>
-      <div class="version-item__meta">
-        <span class="version-item__change-type">${v.change_type || "unknown"}</span>
-        <span class="version-item__date">${formatDate(v.created_at)}</span>
-      </div>
-    </div>
-  `
-    )
+    .map((version) => {
+      const versionId = String(version?.version_id || "");
+      const isSelected = versionId === selectedVersionId;
+      const isActive = versionId === activeVersionId;
+      const profit = formatPct(version?.backtest_profit_pct);
+      const sourceTitle = version?.source_context?.title || version?.summary || version?.source_ref || "";
+
+      return `
+        <button
+          type="button"
+          class="version-list-item${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}"
+          data-version-id="${escapeHtml(versionId)}"
+          title="${escapeHtml(versionId)}"
+        >
+          <div class="version-list-item__header">
+            <div class="version-list-item__title-group">
+              <span class="version-list-item__id">${escapeHtml(shortVersionId(versionId))}</span>
+              ${isActive ? '<span class="version-pill version-pill--active">Live</span>' : ""}
+            </div>
+            <span class="version-pill version-pill--status-${escapeHtml(String(version?.status || "draft"))}">
+              ${escapeHtml(labelize(version?.status || "draft"))}
+            </span>
+          </div>
+          <div class="version-list-item__meta">
+            <span>${escapeHtml(labelize(version?.change_type || "-"))}</span>
+            <span>${escapeHtml(String(version?.created_by || "system"))}</span>
+          </div>
+          <div class="version-list-item__meta">
+            <span>${escapeHtml(formatDate(version?.created_at))}</span>
+            <span class="version-list-item__profit${profit && Number(version?.backtest_profit_pct) >= 0 ? " is-positive" : ""}${profit && Number(version?.backtest_profit_pct) < 0 ? " is-negative" : ""}">
+              ${escapeHtml(profit || "No run")}
+            </span>
+          </div>
+          <div class="version-list-item__summary">${escapeHtml(sourceTitle || "No summary recorded.")}</div>
+        </button>
+      `;
+    })
     .join("");
 
-  container.querySelectorAll(".version-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      const versionId = item.dataset.versionId;
-      setState("versions.selectedVersionId", versionId);
+  if (typeof onSelect === "function") {
+    container.querySelectorAll("[data-version-id]").forEach((node) => {
+      node.addEventListener("click", () => {
+        onSelect(node.getAttribute("data-version-id") || "");
+      });
     });
-  });
-}
-
-function renderLoading() {
-  container.innerHTML = `
-    <div class="versions-loading">
-      <span>Loading versions...</span>
-    </div>
-  `;
-}
-
-function renderError(message) {
-  container.innerHTML = `
-    <div class="versions-error">
-      <span>Error loading versions</span>
-      <span>${message}</span>
-    </div>
-  `;
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return "";
-  try {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString();
-  } catch {
-    return dateStr;
   }
 }
-
-export function refreshVersions() {
-  const strategy = getState("backtest.strategy");
-  if (strategy) {
-    loadVersions(strategy);
-  }
-}
-
-window.refreshVersions = refreshVersions;
