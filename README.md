@@ -65,6 +65,45 @@ It is not an autonomous strategy rewriter. AI can explain, diagnose, and stage c
 - provider routing supports `ollama`, `openrouter`, `huggingface`, and `openai`
 - settings UI currently has first-class discovery only for Ollama; other providers are configured through model and env settings
 
+### AI parameter suggestions contract (Run Intelligence Package)
+
+The run-diagnosis AI overlay is fed a deterministic, structured **Run Intelligence Package** (no raw/chaotic summary dumps) and must return **strict JSON** only.
+
+**Input (run intelligence package)**
+- built from persisted run summary + deterministic diagnosis + version artifacts
+- includes: `run_summary`, trimmed `trades`, trimmed `results_per_pair`, `diagnosis` (flags/issues/hints/actions), `parameter_snapshot`, `parameter_space`, `safe_keys`, `version_context`
+
+**Output (v2 strict JSON, delta-based only)**
+```json
+{
+  "summary": "...",
+  "suggestions": [
+    {
+      "key": "buy_ma_gap",
+      "direction": "increase",
+      "delta": 2,
+      "reason": "...",
+      "evidence": ["overtrading"],
+      "confidence": 0.72
+    }
+  ],
+  "confidence": 0.66
+}
+```
+
+**Hard-fail validator (before any candidate is staged)**
+- `suggestions` must be a list of `1..5` items (if >5: reject, no auto-trim)
+- `key` must be in `safe_keys`:
+  - declared tunables parsed from strategy code (`IntParameter`, `DecimalParameter`, `CategoricalParameter`, `BooleanParameter`)
+  - plus a small risk set: `stoploss`, `trailing_stop`, `trailing_stop_positive`, `trailing_stop_positive_offset`, `trailing_only_offset_is_reached`, `minimal_roi`
+- delta suggestions apply only to numeric scalar keys (`int`/`float`); reject `bool`, `categorical`, and `roi_dict` in delta-mode
+- range/step enforced when available (`min <= next_value <= max`, delta matches `step` with float epsilon)
+- evidence tokens must come from the deterministic diagnosis rule allowlist (`flags/primary_flags/ranked_issues/parameter_hints[*].rule`)
+
+**Suggestions → candidate snapshot + audit trail**
+- proposal staging accepts `ProposalCandidateRequest.suggestions` (preferred) or legacy `parameters` (validated)
+- backend applies deltas to a deep-copied `parameter_snapshot` and stages a new CANDIDATE version
+- `source_context` records the exact applied changes (`applied_suggestions` with `current_value`/`next_value`, or `applied_parameters_patch`)
 ### Auto Optimize v1
 - parameter-only beam-search optimizer anchored to a completed baseline run
 - surfaced in the Backtesting summary panel
@@ -143,3 +182,4 @@ To finish the product cleanly, the repo should define which of these is canonica
 ## Current reality in one sentence
 
 The backtesting/versioning/compare contract is already the real product; the main work left is removing or finishing legacy parallel surfaces so the app has one clear, complete path.
+
