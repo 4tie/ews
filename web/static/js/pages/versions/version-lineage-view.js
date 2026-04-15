@@ -3,8 +3,12 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(value) {
+  return String(value ?? "").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
 }
 
 function labelize(value) {
@@ -16,7 +20,21 @@ function labelize(value) {
 function shortVersionId(versionId) {
   const raw = String(versionId || "");
   if (!raw) return "-";
-  return raw.length > 14 ? `${raw.slice(0, 14)}...` : raw;
+  return raw.length > 24 ? `${raw.slice(0, 24)}...` : raw;
+}
+
+function formatCompactDate(value) {
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(value);
+  }
 }
 
 function sortByCreatedAtAsc(left, right) {
@@ -42,6 +60,7 @@ function buildChildrenMap(versions) {
 
 function renderBranch(version, childrenMap, selectedVersionId, activeVersionId) {
   const versionId = String(version?.version_id || "");
+  const status = escapeAttr(version?.status || "draft");
   const isSelected = versionId === selectedVersionId;
   const isActive = versionId === activeVersionId;
   const children = childrenMap.get(versionId) || [];
@@ -50,12 +69,22 @@ function renderBranch(version, childrenMap, selectedVersionId, activeVersionId) 
     <div class="lineage-branch">
       <button
         type="button"
-        class="lineage-node${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}"
+        class="lineage-node lineage-node--status-${status}${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}"
         data-version-id="${escapeHtml(versionId)}"
         title="${escapeHtml(versionId)}"
       >
-        <span class="lineage-node__id">${escapeHtml(shortVersionId(versionId))}</span>
-        <span class="lineage-node__meta">${escapeHtml(labelize(version?.status || "draft"))} · ${escapeHtml(labelize(version?.change_type || "-"))}</span>
+        <div class="lineage-node__top">
+          <span class="lineage-node__id">${escapeHtml(shortVersionId(versionId))}</span>
+          <span class="version-pill version-pill--status-${status}">${escapeHtml(labelize(version?.status || "draft"))}</span>
+        </div>
+        <div class="lineage-node__meta">
+          <span>${escapeHtml(labelize(version?.change_type || "-"))}</span>
+          <span>${escapeHtml(formatCompactDate(version?.created_at))}</span>
+        </div>
+        <div class="lineage-node__footer">
+          ${isActive ? '<span class="version-pill version-pill--active">Live</span>' : ""}
+          ${children.length ? `<span class="lineage-node__children">${children.length} child${children.length === 1 ? "" : "ren"}</span>` : ""}
+        </div>
       </button>
       ${
         children.length
@@ -79,7 +108,7 @@ export function renderVersionLineageView({
     container.innerHTML = `
       <div class="versions-state versions-state--empty">
         <strong>No lineage to display.</strong>
-        <span>Select a strategy with saved versions to see its parent and child branches.</span>
+        <span>Select a strategy with saved versions to see parent and child branches.</span>
       </div>
     `;
     return;

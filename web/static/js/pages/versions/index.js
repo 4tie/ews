@@ -4,7 +4,7 @@ import showToast from "../../components/toast.js";
 import { closeModal, openModal } from "../../components/modal.js";
 import { renderVersionListPanel } from "./version-list-panel.js";
 import { renderVersionDetailsPanel } from "./version-details-panel.js";
-import { renderVersionLineageView } from "./version-lineage-view.js";
+
 
 const STRATEGY_STORAGE_KEY = "4tie::versions:selectedStrategy";
 const RUN_POLL_INTERVAL_MS = 2500;
@@ -19,6 +19,7 @@ const state = {
   activeVersionId: "",
   selectedVersionId: "",
   selectedCompareVersionId: "",
+  selectedTab: "overview",
   versionDetail: null,
   listStatus: "idle",
   listError: "",
@@ -70,6 +71,12 @@ function formatPct(value) {
   if (!Number.isFinite(number)) return "-";
   const prefix = number > 0 ? "+" : "";
   return `${prefix}${number.toFixed(2)}%`;
+}
+
+function shortVersionId(versionId) {
+  const raw = String(versionId || "");
+  if (!raw) return "-";
+  return raw.length > 18 ? `${raw.slice(0, 18)}...` : raw;
 }
 
 function formatPairs(value) {
@@ -204,33 +211,29 @@ function renderSummaryCards() {
   const candidates = versions.filter((version) => String(version?.status || "") === "candidate").length;
   const archived = versions.filter((version) => String(version?.status || "") === "archived").length;
   const activeVersion = versions.find((version) => version?.version_id === state.activeVersionId) || null;
-  const latestRunProfit = state.versionDetail?.metrics?.profit_total_pct;
+  const selectedVersion = versions.find((version) => version?.version_id === state.selectedVersionId) || null;
+  const selectedProfit = state.versionDetail?.metrics?.profit_total_pct;
 
   elements.summaryCards.innerHTML = `
-    <div class="versions-summary-card">
+    <div class="versions-summary-card versions-summary-card--primary">
       <span class="versions-summary-card__label">Strategy</span>
       <strong class="versions-summary-card__value">${escapeHtml(state.selectedStrategy)}</strong>
-      <span class="versions-summary-card__meta">Current lifecycle scope</span>
+      <span class="versions-summary-card__meta">${escapeHtml(`${versions.length} saved | ${candidates} pending decision`)}</span>
     </div>
     <div class="versions-summary-card">
       <span class="versions-summary-card__label">Live Version</span>
-      <strong class="versions-summary-card__value">${escapeHtml(state.activeVersionId || "-")}</strong>
+      <strong class="versions-summary-card__value">${escapeHtml(shortVersionId(state.activeVersionId || "-"))}</strong>
       <span class="versions-summary-card__meta">${escapeHtml(activeVersion?.summary || activeVersion?.source_context?.title || "No active version recorded.")}</span>
     </div>
     <div class="versions-summary-card">
-      <span class="versions-summary-card__label">Saved Versions</span>
-      <strong class="versions-summary-card__value">${escapeHtml(String(versions.length))}</strong>
-      <span class="versions-summary-card__meta">${escapeHtml(state.includeArchived ? `Including ${archived} archived` : "Archived hidden")}</span>
-    </div>
-    <div class="versions-summary-card">
-      <span class="versions-summary-card__label">Candidates</span>
+      <span class="versions-summary-card__label">Decision Queue</span>
       <strong class="versions-summary-card__value">${escapeHtml(String(candidates))}</strong>
-      <span class="versions-summary-card__meta">Awaiting accept or reject</span>
+      <span class="versions-summary-card__meta">${escapeHtml(state.includeArchived ? `${archived} archived visible` : "Archived hidden")}</span>
     </div>
-    <div class="versions-summary-card">
-      <span class="versions-summary-card__label">Selected Profit</span>
-      <strong class="versions-summary-card__value">${escapeHtml(latestRunProfit != null ? formatPct(latestRunProfit) : "-")}</strong>
-      <span class="versions-summary-card__meta">Latest persisted run linked to the selected version</span>
+    <div class="versions-summary-card versions-summary-card--selection">
+      <span class="versions-summary-card__label">Selected Workspace</span>
+      <strong class="versions-summary-card__value">${escapeHtml(shortVersionId(selectedVersion?.version_id || "-"))}</strong>
+      <span class="versions-summary-card__meta">${escapeHtml(selectedVersion ? `${labelize(selectedVersion?.status || "draft")} | ${selectedProfit != null ? formatPct(selectedProfit) : formatPct(selectedVersion?.backtest_profit_pct)}` : "Pick a version to inspect diffs, lineage, and decisions.")}</span>
     </div>
   `;
 }
@@ -264,11 +267,15 @@ function renderPage() {
     container: elements.detailsContainer,
     versionDetail: state.versionDetail,
     versions: state.versions,
+    selectedVersionId: state.selectedVersionId,
+    activeVersionId: state.activeVersionId,
+    activeTab: state.selectedTab,
     loading: state.detailStatus === "loading" && !state.versionDetail,
     error: state.detailError,
     pendingAction: state.pendingAction,
     onAction: handleVersionAction,
     onCompareTargetChange: handleCompareTargetChange,
+    onTabChange: handleTabChange,
   });
 }
 
@@ -321,6 +328,8 @@ async function loadVersions({ preserveSelection = true, silent = false } = {}) {
     state.versions = [];
     state.activeVersionId = "";
     state.selectedVersionId = "";
+    state.selectedCompareVersionId = "";
+    state.selectedTab = "overview";
     state.versionDetail = null;
     state.listStatus = "idle";
     state.listError = "";
@@ -347,6 +356,9 @@ async function loadVersions({ preserveSelection = true, silent = false } = {}) {
     state.selectedVersionId = preserveSelection
       ? pickSelectedVersionId(state.versions, state.activeVersionId)
       : pickSelectedVersionId(state.versions, state.activeVersionId);
+    if (!state.versions.some((entry) => entry?.version_id === state.selectedCompareVersionId && entry?.version_id !== state.selectedVersionId)) {
+      state.selectedCompareVersionId = "";
+    }
     syncUrlState();
     renderPage();
 
@@ -412,19 +424,6 @@ async function loadVersionDetail({ compareToVersionId = null, silent = false } =
   }
 }
 
-function handleSelectVersion(versionId) {
-  if (!versionId || versionId === state.selectedVersionId) return;
-  state.selectedVersionId = versionId;
-  state.selectedCompareVersionId = "";
-  state.versionDetail = null;
-  syncUrlState();
-  renderPage();
-  void loadVersionDetail();
-}
-
-function handleCompareTargetChange(versionId) {
-  state.selectedCompareVersionId = String(versionId || "");
-}
 
 function buildModalContext(fields = [], note = "") {
   return `
@@ -751,19 +750,42 @@ async function handleRunBacktest() {
 }
 
 async function handleCompare() {
+  state.selectedTab = "diff";
+  renderPage();
   await loadVersionDetail({
     compareToVersionId: state.selectedCompareVersionId || null,
     silent: false,
   });
-  const diffSection = document.querySelector(".versions-section");
-  diffSection?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function handleSelectVersion(versionId) {
-  state.selectedVersionId = String(versionId || "").trim();
+  const nextVersionId = String(versionId || "").trim();
+  if (!nextVersionId || nextVersionId === state.selectedVersionId) return;
+  state.selectedVersionId = nextVersionId;
   state.selectedCompareVersionId = "";
+  state.selectedTab = "overview";
+  state.versionDetail = null;
   syncUrlState();
+  renderPage();
   void loadVersionDetail({ compareToVersionId: null, silent: false });
+}
+
+function handleCompareTargetChange(versionId) {
+  state.selectedCompareVersionId = String(versionId || "").trim();
+  state.selectedTab = "diff";
+  renderPage();
+  void loadVersionDetail({
+    compareToVersionId: state.selectedCompareVersionId || null,
+    silent: false,
+  });
+}
+
+function handleTabChange(tabName) {
+  const nextTab = String(tabName || "overview").trim();
+  if (!["overview", "diff", "snapshots", "lineage", "runs"].includes(nextTab)) {
+    return;
+  }
+  state.selectedTab = nextTab;
 }
 
 function handleVersionAction(action, extra) {
@@ -800,6 +822,7 @@ function attachTopLevelListeners() {
     state.selectedStrategy = String(elements.strategySelect?.value || "").trim();
     state.selectedVersionId = "";
     state.selectedCompareVersionId = "";
+    state.selectedTab = "overview";
     state.versionDetail = null;
     saveSelectedStrategy(state.selectedStrategy);
     syncUrlState();
@@ -822,3 +845,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadOptions();
   await loadVersions({ preserveSelection: true, silent: false });
 });
+
+
+
+

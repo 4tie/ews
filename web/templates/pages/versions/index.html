@@ -8,9 +8,9 @@
 <div class="versions-page" id="versions-page">
   <header class="versions-hero">
     <div class="versions-hero__copy">
-      <p class="versions-hero__eyebrow">Strategy Lifecycle Control</p>
+      <p class="versions-hero__eyebrow">Strategy Lifecycle Workspace</p>
       <h1 class="versions-hero__title">Versions</h1>
-      <p class="versions-hero__subtitle">Inspect exact strategy artifacts, review lineage, rerun pinned versions, and decide what becomes live.</p>
+      <p class="versions-hero__subtitle">Scan saved versions on the left, then review diffs, lineage, snapshots, and decision actions in a focused workspace.</p>
     </div>
     <div class="versions-toolbar">
       <label class="versions-toolbar__field">
@@ -27,21 +27,21 @@
     </div>
   </header>
 
-  <section class="versions-summary" id="versions-summary-cards"></section>
+  <section class="versions-summary" id="versions-summary-cards" aria-label="Lifecycle summary"></section>
 
   <div class="versions-layout">
-    <aside class="versions-list-shell">
+    <aside class="versions-list-shell" aria-label="Versions list">
       <div class="versions-panel__header">
         <div>
           <h2 class="versions-panel__title">Versions List</h2>
-          <p class="versions-panel__subtitle">Every saved version for the selected strategy.</p>
+          <p class="versions-panel__subtitle">Status, recency, ownership, and latest profit at a glance.</p>
         </div>
         <span class="versions-panel__count" id="version-count">0</span>
       </div>
       <div class="version-list" id="version-list"></div>
     </aside>
 
-    <main class="versions-main">
+    <main class="versions-main" aria-label="Selected version workspace">
       <section class="versions-detail-shell" id="version-details-panel"></section>
     </main>
   </div>

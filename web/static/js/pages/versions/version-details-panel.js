@@ -1,9 +1,12 @@
+import { closeModal, openModal } from "../../components/modal.js";
+import { renderVersionLineageView } from "./version-lineage-view.js";
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 
@@ -21,6 +24,20 @@ function formatDate(value) {
   if (!value) return "-";
   try {
     return new Date(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
+}
+
+function formatCompactDate(value) {
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   } catch {
     return String(value);
   }
@@ -49,85 +66,19 @@ function formatJson(value) {
   }
 }
 
-function sortByCreatedAtAsc(left, right) {
-  return String(left?.created_at || "").localeCompare(String(right?.created_at || ""));
-}
-
-function buildChildrenMap(versions) {
-  const children = new Map();
-  const versionIds = new Set(versions.map((version) => String(version?.version_id || "")));
-
-  versions.forEach((version) => {
-    const parentId = String(version?.parent_version_id || "");
-    const key = parentId && versionIds.has(parentId) ? parentId : "__root__";
-    if (!children.has(key)) {
-      children.set(key, []);
-    }
-    children.get(key).push(version);
-  });
-
-  children.forEach((items) => items.sort(sortByCreatedAtAsc));
-  return children;
-}
-
-function renderBranch(version, childrenMap, selectedVersionId, activeVersionId) {
-  const versionId = String(version?.version_id || "");
-  const isSelected = versionId === selectedVersionId;
-  const isActive = versionId === activeVersionId;
-  const children = childrenMap.get(versionId) || [];
-
-  return `
-    <div class="lineage-branch">
-      <button
-        type="button"
-        class="lineage-node${isSelected ? " is-selected" : ""}${isActive ? " is-active" : ""}"
-        data-version-id="${escapeHtml(versionId)}"
-        title="${escapeHtml(versionId)}"
-      >
-        <span class="lineage-node__id">${escapeHtml(shortVersionId(versionId))}</span>
-        <span class="lineage-node__meta">${escapeHtml(labelize(version?.status || "draft"))} · ${escapeHtml(labelize(version?.change_type || "-"))}</span>
-      </button>
-      ${
-        children.length
-          ? `<div class="lineage-children">${children.map((child) => renderBranch(child, childrenMap, selectedVersionId, activeVersionId)).join("")}</div>`
-          : ""
-      }
-    </div>
-  `;
-}
-
-function renderLineage(versions, selectedVersionId, activeVersionId) {
-  if (!Array.isArray(versions) || !versions.length) {
-    return `
-      <div class="versions-state versions-state--empty">
-        <strong>No lineage to display.</strong>
-        <span>Select a strategy with saved versions to see its parent and child branches.</span>
-      </div>
-    `;
-  }
-
-  const childrenMap = buildChildrenMap(versions);
-  const roots = childrenMap.get("__root__") || [];
-
-  return `
-    <div class="lineage-roots">
-      ${roots.map((root) => renderBranch(root, childrenMap, selectedVersionId, activeVersionId)).join("")}
-    </div>
-  `;
-}
-
 function shortVersionId(versionId) {
   const raw = String(versionId || "");
   if (!raw) return "-";
-  return raw.length > 24 ? `${raw.slice(0, 24)}...` : raw;
+  return raw.length > 28 ? `${raw.slice(0, 28)}...` : raw;
 }
 
-function metricCard(label, value, tone = "") {
+function metricCard(label, value, tone = "", detail = "") {
   const toneClass = tone ? ` version-metric-card__value--${escapeAttr(tone)}` : "";
   return `
     <div class="version-metric-card">
       <span class="version-metric-card__label">${escapeHtml(label)}</span>
       <strong class="version-metric-card__value${toneClass}">${escapeHtml(value)}</strong>
+      ${detail ? `<span class="version-metric-card__detail">${escapeHtml(detail)}</span>` : ""}
     </div>
   `;
 }
@@ -136,7 +87,7 @@ function renderCompareSelector(compareOptions, selectedCompareVersionId) {
   if (!compareOptions.length) {
     return `
       <div class="versions-compare-toolbar__empty">
-        No baseline version is available for comparison yet. Diff and metrics will appear here once the lineage has another version to compare against.
+        No baseline version is available for comparison yet. Diff panels will activate once this branch has another saved version to compare against.
       </div>
     `;
   }
@@ -146,7 +97,9 @@ function renderCompareSelector(compareOptions, selectedCompareVersionId) {
       <span class="versions-compare-toolbar__label">Compare Against</span>
       <select class="form-select" id="versions-compare-target">
         ${compareOptions.map((option) => `
-          <option value="${escapeHtml(option.value)}"${option.value === selectedCompareVersionId ? " selected" : ""}>${escapeHtml(option.label)}</option>
+          <option value="${escapeHtml(option.value)}"${option.value === selectedCompareVersionId ? " selected" : ""}>
+            ${escapeHtml(option.label)}
+          </option>
         `).join("")}
       </select>
     </label>
@@ -157,7 +110,7 @@ function renderRunComparison(runComparison) {
   if (!runComparison) {
     return `
       <div class="versions-note">
-        No comparable completed runs are linked to both versions yet. The diff viewer still shows the exact code and parameter deltas.
+        No comparable completed runs are linked to both versions yet. The diff viewer still shows exact code and parameter deltas.
       </div>
     `;
   }
@@ -203,7 +156,6 @@ function renderRunComparison(runComparison) {
     <div class="version-compare-grid">${cards}</div>
   `;
 }
-
 function renderParamDiffRows(comparison) {
   const rows = Array.isArray(comparison?.version_diff?.parameter_diff_rows)
     ? comparison.version_diff.parameter_diff_rows
@@ -214,7 +166,7 @@ function renderParamDiffRows(comparison) {
   }
 
   return `
-    <div class="version-table-wrapper">
+    <div class="version-table-wrapper version-table-wrapper--diff">
       <table class="version-table">
         <thead>
           <tr>
@@ -265,12 +217,12 @@ function renderCodePreview(comparison) {
           }).join("\n")}</pre>
         </div>
       `).join("")}
-      ${codeDiff?.preview_truncated ? '<div class="versions-note">Code preview is truncated. Open the full code snapshot below to inspect the complete resolved artifact.</div>' : ""}
+      ${codeDiff?.preview_truncated ? '<div class="versions-note">Code preview is truncated. Open the full code snapshot in Snapshots to inspect the resolved artifact.</div>' : ""}
     </div>
   `;
 }
 
-function renderLinkedRuns(linkedRuns) {
+function renderLinkedRunsTable(linkedRuns) {
   if (!Array.isArray(linkedRuns) || !linkedRuns.length) {
     return '<div class="versions-note">No backtest runs are linked to this version yet.</div>';
   }
@@ -312,43 +264,140 @@ function renderLinkedRuns(linkedRuns) {
   `;
 }
 
-function renderAuditTimeline(version) {
+function renderRunsPreview(linkedRuns) {
+  if (!Array.isArray(linkedRuns) || !linkedRuns.length) {
+    return '<div class="versions-note">No backtest runs are linked to this version yet.</div>';
+  }
+
+  return `
+    <div class="versions-preview-list">
+      ${linkedRuns.slice(0, 3).map((run) => {
+        const metrics = run?.summary_metrics || {};
+        const profit = metrics?.profit_total_pct != null ? formatPct(metrics.profit_total_pct) : "No profit";
+        return `
+          <div class="versions-preview-row">
+            <div class="versions-preview-row__main">
+              <code>${escapeHtml(run?.run_id || "-")}</code>
+              <span>${escapeHtml(labelize(run?.status || "unknown"))} | ${escapeHtml(labelize(run?.trigger_source || "manual"))}</span>
+            </div>
+            <div class="versions-preview-row__side">
+              <strong>${escapeHtml(profit)}</strong>
+              <span>${escapeHtml(String(metrics?.total_trades ?? "-"))} trades</span>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderAuditPreview(version) {
   const events = (Array.isArray(version?.audit_events) ? version.audit_events : [])
     .slice()
-    .sort((left, right) => String(right?.created_at || "").localeCompare(String(left?.created_at || "")));
+    .sort((left, right) => String(right?.created_at || "").localeCompare(String(left?.created_at || "")))
+    .slice(0, 4);
 
   if (!events.length) {
     return '<div class="versions-note">No audit events are recorded for this version yet.</div>';
   }
 
   return `
-    <div class="version-audit-timeline">
+    <div class="versions-preview-list">
       ${events.map((event) => `
-        <div class="version-audit-event">
-          <div class="version-audit-event__header">
+        <div class="versions-preview-row versions-preview-row--audit">
+          <div class="versions-preview-row__main">
             <span class="version-pill version-pill--audit-${escapeAttr(event?.event_type || "created")}">${escapeHtml(labelize(event?.event_type || "created"))}</span>
-            <span class="version-audit-event__time">${escapeHtml(formatDate(event?.created_at))}</span>
+            <span>${escapeHtml(event?.actor || "system")}</span>
           </div>
-          <div class="version-audit-event__meta">
-            <span><strong>Actor:</strong> ${escapeHtml(event?.actor || "system")}</span>
-            <span><strong>From Version:</strong> ${escapeHtml(event?.from_version_id || "-")}</span>
+          <div class="versions-preview-row__side">
+            <strong>${escapeHtml(formatCompactDate(event?.created_at))}</strong>
+            <span>${escapeHtml(event?.from_version_id || "No source version")}</span>
           </div>
-          ${event?.note ? `<div class="version-audit-event__note">${escapeHtml(event.note)}</div>` : ""}
+          ${event?.note ? `<div class="versions-preview-row__note">${escapeHtml(event.note)}</div>` : ""}
         </div>
       `).join("")}
     </div>
   `;
+}
+function renderSnapshotPanel({ title, description, target, content }) {
+  return `
+    <section class="versions-panel-surface versions-snapshot-panel">
+      <div class="versions-snapshot-panel__header">
+        <div>
+          <h3 class="versions-section__title">${escapeHtml(title)}</h3>
+          <p class="versions-snapshot-panel__subtitle">${escapeHtml(description)}</p>
+        </div>
+        <div class="versions-snapshot-panel__actions">
+          <button type="button" class="btn btn--ghost btn--sm version-copy-btn" data-copy-target="${escapeHtml(target)}">Copy</button>
+          <button type="button" class="btn btn--secondary btn--sm version-expand-btn" data-expand-target="${escapeHtml(target)}">Expand</button>
+        </div>
+      </div>
+      <pre class="version-code-block">${escapeHtml(content)}</pre>
+    </section>
+  `;
+}
+
+function openSnapshotModal(title, text) {
+  const body = `
+    <div class="versions-modal versions-modal--snapshot">
+      <pre class="version-code-block version-code-block--modal">${escapeHtml(text)}</pre>
+    </div>
+  `;
+  const footer = `
+    <button type="button" class="btn btn--ghost btn--sm" id="versions-snapshot-close">Close</button>
+    <button type="button" class="btn btn--secondary btn--sm" id="versions-snapshot-copy">Copy</button>
+  `;
+
+  openModal({ title, body, footer });
+
+  document.getElementById("versions-snapshot-close")?.addEventListener("click", () => closeModal());
+  document.getElementById("versions-snapshot-copy")?.addEventListener("click", async (event) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      event.currentTarget.textContent = "Copied";
+      window.setTimeout(() => {
+        const button = document.getElementById("versions-snapshot-copy");
+        if (button) button.textContent = "Copy";
+      }, 1500);
+    } catch (error) {
+      console.warn("Failed to copy snapshot:", error);
+    }
+  });
+}
+
+function buildCompareOptions(versions, version, activeVersionId) {
+  return (Array.isArray(versions) ? versions : [])
+    .filter((entry) => entry?.version_id && entry.version_id !== version?.version_id)
+    .sort((left, right) => {
+      const leftActive = left?.version_id === activeVersionId ? 1 : 0;
+      const rightActive = right?.version_id === activeVersionId ? 1 : 0;
+      if (leftActive !== rightActive) return rightActive - leftActive;
+      if (left?.version_id === version?.parent_version_id) return -1;
+      if (right?.version_id === version?.parent_version_id) return 1;
+      return String(right?.created_at || "").localeCompare(String(left?.created_at || ""));
+    })
+    .map((entry) => {
+      const title = entry?.source_context?.title || entry?.summary || entry?.source_ref || entry?.version_id;
+      return {
+        value: String(entry?.version_id || ""),
+        label: `${shortVersionId(entry?.version_id || "-")} | ${labelize(entry?.status || "draft")} | ${title}`,
+      };
+    });
 }
 
 export function renderVersionDetailsPanel({
   container,
   versionDetail = null,
   versions = [],
+  selectedVersionId = "",
+  activeVersionId = "",
+  activeTab = "overview",
   loading = false,
   error = "",
   pendingAction = "",
   onAction = null,
   onCompareTargetChange = null,
+  onTabChange = null,
 } = {}) {
   if (!container) return;
 
@@ -371,7 +420,7 @@ export function renderVersionDetailsPanel({
     container.innerHTML = `
       <div class="versions-state versions-state--empty">
         <strong>Select a version.</strong>
-        <span>Choose a version from the list to inspect its snapshots, lineage evidence, and lifecycle actions.</span>
+        <span>Choose a version from the list to inspect snapshots, lineage, runs, and lifecycle actions.</span>
       </div>
     `;
     return;
@@ -379,157 +428,263 @@ export function renderVersionDetailsPanel({
 
   const version = versionDetail.version;
   const versionId = String(version?.version_id || "");
-  const isActive = versionId === versionDetail?.active_version_id;
+  const currentActiveVersionId = String(activeVersionId || versionDetail?.active_version_id || "");
+  const isActive = versionId === currentActiveVersionId;
   const isCandidate = String(version?.status || "") === "candidate";
   const canRollback = !isActive && !["candidate", "draft", "rejected"].includes(String(version?.status || ""));
-  const compareOptions = (Array.isArray(versions) ? versions : [])
-    .filter((entry) => entry?.version_id && entry.version_id !== versionId)
-    .sort((left, right) => {
-      const leftActive = left?.version_id === versionDetail?.active_version_id ? 1 : 0;
-      const rightActive = right?.version_id === versionDetail?.active_version_id ? 1 : 0;
-      if (leftActive !== rightActive) return rightActive - leftActive;
-      if (left?.version_id === version?.parent_version_id) return -1;
-      if (right?.version_id === version?.parent_version_id) return 1;
-      return String(right?.created_at || "").localeCompare(String(left?.created_at || ""));
-    })
-    .map((entry) => {
-      const title = entry?.source_context?.title || entry?.summary || entry?.source_ref || entry?.version_id;
-      return {
-        value: String(entry?.version_id || ""),
-        label: `${entry?.version_id || "-"} | ${labelize(entry?.status || "draft")} | ${title}`,
-      };
-    });
-
+  const compareOptions = buildCompareOptions(versions, version, currentActiveVersionId);
   const metrics = versionDetail?.metrics || {};
-  const profitValue = metrics?.profit_total_pct != null ? formatPct(metrics.profit_total_pct) : formatPct(version?.backtest_profit_pct);
+  const linkedRuns = Array.isArray(versionDetail?.linked_runs) ? versionDetail.linked_runs : [];
+  const lineageVersionIds = Array.isArray(versionDetail?.lineage_version_ids) ? versionDetail.lineage_version_ids : [];
+  const latestProfit = metrics?.profit_total_pct != null ? formatPct(metrics.profit_total_pct) : formatPct(version?.backtest_profit_pct);
   const drawdownValue = metrics?.max_drawdown_pct != null ? formatPct(-Math.abs(metrics.max_drawdown_pct)) : "-";
-  const compareButtonDisabled = !compareOptions.length;
   const busyLabel = pendingAction ? `Action in progress: ${labelize(pendingAction)}` : "";
   const sourceTitle = version?.source_context?.title || version?.summary || version?.source_ref || "No summary recorded.";
+  const selectedCompareVersionId = String(versionDetail?.compare_version_id || "");
+  const baselineVersionId = String(versionDetail?.comparison?.versions?.baseline_version_id || selectedCompareVersionId || "");
+  const candidateVersionId = String(versionDetail?.comparison?.versions?.candidate_version_id || versionId);
+  const childCount = (Array.isArray(versions) ? versions : []).filter((entry) => String(entry?.parent_version_id || "") === versionId).length;
+  const currentTab = ["overview", "diff", "snapshots", "lineage", "runs"].includes(activeTab) ? activeTab : "overview";
 
-  // Compact metrics for header
   const compactMetrics = [
-    { label: "Profit", value: profitValue, tone: metrics?.profit_total_pct > 0 ? "positive" : metrics?.profit_total_pct < 0 ? "negative" : "" },
-    { label: "Trades", value: String(metrics?.total_trades ?? "-") },
-    { label: "Win Rate", value: metrics?.win_rate != null ? formatPct(metrics.win_rate) : "-" },
-    { label: "Drawdown", value: drawdownValue, tone: metrics?.max_drawdown_pct != null ? "negative" : "" },
+    {
+      label: "Latest Profit",
+      value: latestProfit,
+      tone: metrics?.profit_total_pct > 0 ? "positive" : metrics?.profit_total_pct < 0 ? "negative" : "",
+      detail: linkedRuns.length ? `from ${linkedRuns[0]?.run_id || "latest run"}` : "No linked run yet",
+    },
+    {
+      label: "Trades",
+      value: String(metrics?.total_trades ?? "-"),
+      detail: linkedRuns.length ? "latest linked run" : "waiting for backtest",
+    },
+    {
+      label: "Win Rate",
+      value: metrics?.win_rate != null ? formatPct(metrics.win_rate) : "-",
+      detail: metrics?.win_rate != null ? "completed-run evidence" : "no run evidence",
+    },
+    {
+      label: "Drawdown",
+      value: drawdownValue,
+      tone: metrics?.max_drawdown_pct != null ? "negative" : "",
+      detail: metrics?.max_drawdown_pct != null ? "latest linked run" : "no run evidence",
+    },
   ];
-
-  // Overview tab content
   const overviewContent = `
     <div class="versions-overview">
-      <div class="versions-overview__metrics">
-        ${compactMetrics.map(m => metricCard(m.label, m.value, m.tone)).join("")}
-      </div>
-      <div class="versions-overview__summary">
-        <h4>Summary</h4>
-        <p>${escapeHtml(sourceTitle)}</p>
-      </div>
-      <div class="versions-overview__runs-preview">
-        <h4>Recent Runs (${Array.isArray(versionDetail?.linked_runs) ? versionDetail.linked_runs.length : 0})</h4>
-        ${renderLinkedRuns(versionDetail?.linked_runs?.slice(0, 3) || [])}
-      </div>
-      <div class="versions-overview__audit-preview">
-        <h4>Audit Trail</h4>
-        ${renderAuditTimeline(version)}
+      <section class="versions-overview__metrics">
+        ${compactMetrics.map((item) => metricCard(item.label, item.value, item.tone, item.detail)).join("")}
+      </section>
+
+      <div class="versions-overview__grid">
+        <section class="versions-panel-surface versions-overview__summary">
+          <h3 class="versions-section__title">Summary</h3>
+          <p class="versions-overview__summary-copy">${escapeHtml(sourceTitle)}</p>
+          <div class="versions-overview__context">
+            <span class="versions-mini-stat">
+              <span class="versions-mini-stat__label">Parent</span>
+              <strong>${escapeHtml(shortVersionId(version?.parent_version_id || "Root"))}</strong>
+            </span>
+            <span class="versions-mini-stat">
+              <span class="versions-mini-stat__label">Lineage</span>
+              <strong>${escapeHtml(String(lineageVersionIds.length || 1))} versions</strong>
+            </span>
+            <span class="versions-mini-stat">
+              <span class="versions-mini-stat__label">Children</span>
+              <strong>${escapeHtml(String(childCount))}</strong>
+            </span>
+          </div>
+        </section>
+
+        <section class="versions-panel-surface versions-overview__runs-preview">
+          <div class="versions-panel-surface__header">
+            <h3 class="versions-section__title">Linked Runs</h3>
+            <span class="versions-panel-surface__count">${escapeHtml(String(linkedRuns.length))}</span>
+          </div>
+          ${renderRunsPreview(linkedRuns)}
+        </section>
+
+        <section class="versions-panel-surface versions-overview__audit-preview">
+          <div class="versions-panel-surface__header">
+            <h3 class="versions-section__title">Audit Trail</h3>
+            <span class="versions-panel-surface__count">${escapeHtml(String((Array.isArray(version?.audit_events) ? version.audit_events : []).length))}</span>
+          </div>
+          ${renderAuditPreview(version)}
+        </section>
       </div>
     </div>
   `;
 
-  // Diff tab content
   const diffContent = `
     <div class="versions-diff">
-      <div class="versions-diff__selector">
-        ${renderCompareSelector(compareOptions, versionDetail?.compare_version_id || "")}
-      </div>
-      ${renderRunComparison(versionDetail?.run_comparison)}
+      <section class="versions-panel-surface versions-diff__header">
+        <div class="versions-diff__selector">
+          ${renderCompareSelector(compareOptions, selectedCompareVersionId)}
+        </div>
+        <div class="versions-diff__version-pair">
+          <div class="versions-diff__version-label">
+            <span>Baseline</span>
+            <strong>${escapeHtml(shortVersionId(baselineVersionId || "Not selected"))}</strong>
+          </div>
+          <div class="versions-diff__version-label versions-diff__version-label--selected">
+            <span>Selected</span>
+            <strong>${escapeHtml(shortVersionId(candidateVersionId || versionId))}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="versions-panel-surface versions-diff__comparison">
+        <div class="versions-panel-surface__header">
+          <h3 class="versions-section__title">Run Evidence</h3>
+        </div>
+        ${renderRunComparison(versionDetail?.run_comparison)}
+      </section>
+
       <div class="versions-diff-grid">
-        <div class="versions-diff-panel">
-          <h4 class="versions-diff-panel__title">Code Diff Summary</h4>
-          ${renderCodePreview(versionDetail?.comparison)}
-        </div>
-        <div class="versions-diff-panel">
-          <h4 class="versions-diff-panel__title">Parameter Diff</h4>
+        <section class="versions-diff-panel">
+          <div class="versions-panel-surface__header">
+            <h3 class="versions-section__title">Parameter Diff</h3>
+          </div>
           ${renderParamDiffRows(versionDetail?.comparison)}
-        </div>
+        </section>
+
+        <section class="versions-diff-panel">
+          <div class="versions-panel-surface__header">
+            <h3 class="versions-section__title">Code Diff Summary</h3>
+          </div>
+          ${renderCodePreview(versionDetail?.comparison)}
+        </section>
       </div>
     </div>
   `;
 
-  // Snapshots tab content
   const snapshotsContent = `
     <div class="versions-snapshots">
-      <div class="versions-snapshot-grid">
-        <details class="version-disclosure">
-          <summary>Code Snapshot</summary>
-          <div class="version-code-container">
-            <button class="version-copy-btn" data-copy-target="code">Copy</button>
-            <pre class="version-code-block">${escapeHtml(versionDetail?.resolved_code_snapshot || "No resolved code snapshot is available.")}</pre>
-          </div>
-        </details>
-        <details class="version-disclosure">
-          <summary>Parameters Snapshot</summary>
-          <div class="version-code-container">
-            <button class="version-copy-btn" data-copy-target="params">Copy</button>
-            <pre class="version-code-block">${escapeHtml(formatJson(versionDetail?.resolved_parameters_snapshot || {}))}</pre>
-          </div>
-        </details>
-      </div>
+      ${renderSnapshotPanel({
+        title: "Code Snapshot",
+        description: "Resolved strategy artifact for this exact version.",
+        target: "code",
+        content: versionDetail?.resolved_code_snapshot || "No resolved code snapshot is available.",
+      })}
+      ${renderSnapshotPanel({
+        title: "Parameters Snapshot",
+        description: "Resolved parameters bound to this version.",
+        target: "params",
+        content: formatJson(versionDetail?.resolved_parameters_snapshot || {}),
+      })}
     </div>
   `;
 
-  // Lineage tab content
   const lineageContent = `
-    <div class="versions-lineage">
-      ${renderLineage(versions, selectedVersionId, activeVersionId)}
+    <div class="versions-lineage-tab">
+      <section class="versions-panel-surface versions-lineage__context">
+        <div class="versions-lineage__facts">
+          <div class="versions-lineage__fact">
+            <span>Parent</span>
+            <strong>${escapeHtml(shortVersionId(version?.parent_version_id || "Root"))}</strong>
+          </div>
+          <div class="versions-lineage__fact">
+            <span>Children</span>
+            <strong>${escapeHtml(String(childCount))}</strong>
+          </div>
+          <div class="versions-lineage__fact">
+            <span>Visible Lineage</span>
+            <strong>${escapeHtml(String(lineageVersionIds.length || versions.length || 1))}</strong>
+          </div>
+        </div>
+        <div class="versions-lineage__legend">
+          <span class="version-pill version-pill--active">Live</span>
+          <span class="version-pill version-pill--status-candidate">Candidate</span>
+          <span class="version-pill version-pill--status-rejected">Rejected</span>
+        </div>
+      </section>
+
+      <section class="versions-panel-surface versions-lineage__tree-shell">
+        <div id="versions-lineage-tree"></div>
+      </section>
     </div>
   `;
 
-  // Runs tab content
   const runsContent = `
     <div class="versions-runs">
-      ${renderLinkedRuns(versionDetail?.linked_runs)}
+      <section class="versions-panel-surface">
+        <div class="versions-panel-surface__header">
+          <h3 class="versions-section__title">Linked Runs</h3>
+          <span class="versions-panel-surface__count">${escapeHtml(String(linkedRuns.length))}</span>
+        </div>
+        ${renderLinkedRunsTable(linkedRuns)}
+      </section>
     </div>
   `;
 
+  const tabs = [
+    { id: "overview", label: "Overview", count: "" },
+    { id: "diff", label: "Diff", count: compareOptions.length ? "1" : "" },
+    { id: "snapshots", label: "Snapshots", count: "2" },
+    { id: "lineage", label: "Lineage", count: String(lineageVersionIds.length || versions.length || 1) },
+    { id: "runs", label: "Runs", count: String(linkedRuns.length) },
+  ];
   container.innerHTML = `
     <section class="versions-detail">
       <div class="versions-detail__header">
-        <div class="versions-detail__summary">
-          <div class="versions-detail__meta">
-            <span class="version-pill version-pill--status-${escapeAttr(version?.status || "draft")}">${escapeHtml(labelize(version?.status || "draft"))}</span>
-            <span class="version-pill version-pill--change">${escapeHtml(labelize(version?.change_type || "-"))}</span>
-            ${isActive ? '<span class="version-pill version-pill--active">Live</span>' : ""}
-            <span class="versions-detail__id">${escapeHtml(shortVersionId(versionId))}</span>
-            <span class="versions-detail__created">${escapeHtml(formatDate(version?.created_at))}</span>
-            <span class="versions-detail__by">${escapeHtml(version?.created_by || "system")}</span>
-            <span class="versions-detail__profit">${escapeHtml(profitValue)}</span>
+        <div class="versions-detail__header-main">
+          <div class="versions-detail__identity">
+            <span class="versions-detail__eyebrow">Selected Version</span>
+            <h2 class="versions-detail__title" title="${escapeHtml(versionId)}">${escapeHtml(versionId || "-")}</h2>
+            <div class="versions-detail__badges">
+              <span class="version-pill version-pill--status-${escapeAttr(version?.status || "draft")}">${escapeHtml(labelize(version?.status || "draft"))}</span>
+              <span class="version-pill version-pill--change-${escapeAttr(version?.change_type || "manual")}">${escapeHtml(labelize(version?.change_type || "-"))}</span>
+              ${isActive ? '<span class="version-pill version-pill--active">Live</span>' : ""}
+            </div>
           </div>
+
+          <dl class="versions-detail__facts">
+            <div class="versions-detail__fact">
+              <dt>Created</dt>
+              <dd>${escapeHtml(formatDate(version?.created_at))}</dd>
+            </div>
+            <div class="versions-detail__fact">
+              <dt>Created By</dt>
+              <dd>${escapeHtml(version?.created_by || "system")}</dd>
+            </div>
+            <div class="versions-detail__fact">
+              <dt>Latest Profit</dt>
+              <dd class="versions-detail__fact-value${metrics?.profit_total_pct > 0 ? " is-positive" : metrics?.profit_total_pct < 0 ? " is-negative" : ""}">${escapeHtml(latestProfit)}</dd>
+            </div>
+          </dl>
+
           <div class="versions-detail__actions">
-            <button type="button" class="btn btn--secondary btn--sm" data-action="compare"${compareButtonDisabled ? " disabled" : ""}>Compare</button>
-            <button type="button" class="btn btn--secondary btn--sm" data-action="run"${pendingAction ? " disabled" : ""}>Run Backtest</button>
-            <button type="button" class="btn btn--primary btn--sm" data-action="accept"${!isCandidate || pendingAction ? " disabled" : ""}>Accept</button>
-            <button type="button" class="btn btn--ghost btn--sm" data-action="reject"${!isCandidate || pendingAction ? " disabled" : ""}>Reject</button>
-            <button type="button" class="btn btn--ghost btn--sm" data-action="rollback"${!canRollback || pendingAction ? " disabled" : ""}>Rollback</button>
+            <div class="versions-action-cluster">
+              <button type="button" class="btn btn--secondary btn--sm" data-action="compare"${!compareOptions.length ? " disabled" : ""}>Compare</button>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="run"${pendingAction ? " disabled" : ""}>Run Backtest</button>
+            </div>
+            <div class="versions-action-cluster versions-action-cluster--decision">
+              <button type="button" class="btn btn--primary btn--sm" data-action="accept"${!isCandidate || pendingAction ? " disabled" : ""}>Accept</button>
+              <button type="button" class="btn btn--ghost btn--sm versions-btn--danger-outline" data-action="reject"${!isCandidate || pendingAction ? " disabled" : ""}>Reject</button>
+              <button type="button" class="btn btn--ghost btn--sm versions-btn--warning-outline" data-action="rollback"${!canRollback || pendingAction ? " disabled" : ""}>Rollback</button>
+            </div>
           </div>
         </div>
+
         ${busyLabel ? `<div class="versions-note versions-note--busy">${escapeHtml(busyLabel)}</div>` : ""}
       </div>
 
       <div class="versions-tabs">
         <div class="versions-tabs__nav">
-          <button type="button" class="versions-tab-btn is-active" data-tab="overview">Overview</button>
-          <button type="button" class="versions-tab-btn" data-tab="diff">Diff</button>
-          <button type="button" class="versions-tab-btn" data-tab="snapshots">Snapshots</button>
-          <button type="button" class="versions-tab-btn" data-tab="lineage">Lineage</button>
-          <button type="button" class="versions-tab-btn" data-tab="runs">Runs</button>
+          ${tabs.map((tab) => `
+            <button type="button" class="versions-tab-btn${tab.id === currentTab ? " is-active" : ""}" data-tab="${escapeHtml(tab.id)}">
+              <span>${escapeHtml(tab.label)}</span>
+              ${tab.count && tab.count !== "0" ? `<span class="versions-tab-btn__count">${escapeHtml(tab.count)}</span>` : ""}
+            </button>
+          `).join("")}
         </div>
+
         <div class="versions-tabs__content">
-          <div class="versions-tab-pane is-active" data-tab="overview">${overviewContent}</div>
-          <div class="versions-tab-pane" data-tab="diff">${diffContent}</div>
-          <div class="versions-tab-pane" data-tab="snapshots">${snapshotsContent}</div>
-          <div class="versions-tab-pane" data-tab="lineage">${lineageContent}</div>
-          <div class="versions-tab-pane" data-tab="runs">${runsContent}</div>
+          <div class="versions-tab-pane${currentTab === "overview" ? " is-active" : ""}" data-tab="overview">${overviewContent}</div>
+          <div class="versions-tab-pane${currentTab === "diff" ? " is-active" : ""}" data-tab="diff">${diffContent}</div>
+          <div class="versions-tab-pane${currentTab === "snapshots" ? " is-active" : ""}" data-tab="snapshots">${snapshotsContent}</div>
+          <div class="versions-tab-pane${currentTab === "lineage" ? " is-active" : ""}" data-tab="lineage">${lineageContent}</div>
+          <div class="versions-tab-pane${currentTab === "runs" ? " is-active" : ""}" data-tab="runs">${runsContent}</div>
         </div>
       </div>
     </section>
@@ -550,48 +705,64 @@ export function renderVersionDetailsPanel({
     });
   }
 
-  // Tab switching
-  container.querySelectorAll(".versions-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const tabName = btn.getAttribute("data-tab");
-      container.querySelectorAll(".versions-tab-btn").forEach(b => b.classList.remove("is-active"));
-      container.querySelectorAll(".versions-tab-pane").forEach(p => p.classList.remove("is-active"));
-      btn.classList.add("is-active");
-      container.querySelector(`.versions-tab-pane[data-tab="${tabName}"]`).classList.add("is-active");
+  container.querySelectorAll(".versions-tab-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const tabName = button.getAttribute("data-tab") || "overview";
+      container.querySelectorAll(".versions-tab-btn").forEach((node) => node.classList.remove("is-active"));
+      container.querySelectorAll(".versions-tab-pane").forEach((node) => node.classList.remove("is-active"));
+      button.classList.add("is-active");
+      container.querySelector(`.versions-tab-pane[data-tab="${tabName}"]`)?.classList.add("is-active");
+      if (typeof onTabChange === "function") {
+        onTabChange(tabName);
+      }
     });
   });
 
-  // Copy buttons
-  container.querySelectorAll(".version-copy-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const target = btn.getAttribute("data-copy-target");
-      let text = "";
+  const copySnapshotText = async (button, text) => {
+    if (!text) return;
+    const originalLabel = button.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = "Copied";
+      window.setTimeout(() => {
+        button.textContent = originalLabel;
+      }, 1500);
+    } catch (error) {
+      console.warn("Failed to copy snapshot:", error);
+    }
+  };
+
+  container.querySelectorAll(".version-copy-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.getAttribute("data-copy-target");
+      const text = target === "code"
+        ? versionDetail?.resolved_code_snapshot || ""
+        : formatJson(versionDetail?.resolved_parameters_snapshot || {});
+      void copySnapshotText(button, text);
+    });
+  });
+
+  container.querySelectorAll(".version-expand-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.getAttribute("data-expand-target");
       if (target === "code") {
-        text = versionDetail?.resolved_code_snapshot || "";
-      } else if (target === "params") {
-        text = formatJson(versionDetail?.resolved_parameters_snapshot || {});
+        openSnapshotModal("Code Snapshot", versionDetail?.resolved_code_snapshot || "No resolved code snapshot is available.");
+        return;
       }
-      if (text) {
-        try {
-          await navigator.clipboard.writeText(text);
-          btn.textContent = "Copied!";
-          setTimeout(() => { btn.textContent = "Copy"; }, 2000);
-        } catch (err) {
-          console.warn("Failed to copy:", err);
-        }
-      }
+      openSnapshotModal("Parameters Snapshot", formatJson(versionDetail?.resolved_parameters_snapshot || {}));
     });
   });
 
-  // Lineage node clicks
-  if (typeof onAction === "function") {
-    container.querySelectorAll("[data-version-id]").forEach((node) => {
-      node.addEventListener("click", () => {
-        const versionId = node.getAttribute("data-version-id");
-        if (versionId && typeof onAction === "function") {
-          onAction("select-version", versionId);
-        }
-      });
-    });
-  }
+  const lineageContainer = container.querySelector("#versions-lineage-tree");
+  renderVersionLineageView({
+    container: lineageContainer,
+    versions,
+    selectedVersionId: selectedVersionId || versionId,
+    activeVersionId: currentActiveVersionId,
+    onSelect: (nextVersionId) => {
+      if (typeof onAction === "function") {
+        onAction("select-version", nextVersionId);
+      }
+    },
+  });
 }
