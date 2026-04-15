@@ -104,6 +104,21 @@ class VersionListResponse(BaseModel):
     active_version_id: Optional[str] = None
 
 
+class VersionDetailResponse(BaseModel):
+    strategy_name: str
+    version: StrategyVersion
+    active_version_id: Optional[str] = None
+    compare_version_id: Optional[str] = None
+    resolved_code_snapshot: Optional[str] = None
+    resolved_parameters_snapshot: Optional[Dict[str, Any]] = None
+    lineage_version_ids: List[str] = Field(default_factory=list)
+    linked_runs: List[Dict[str, Any]] = Field(default_factory=list)
+    latest_run: Optional[Dict[str, Any]] = None
+    metrics: Optional[Dict[str, Any]] = None
+    comparison: Optional[Dict[str, Any]] = None
+    run_comparison: Optional[Dict[str, Any]] = None
+
+
 # --- Auto Optimize v1 models ---
 
 class OptimizationRunStatus(str, Enum):

@@ -91,6 +91,7 @@ export const api = {
     listVersions: (strategy, includeArchived = false) => api.get(`/api/versions/${encodeURIComponent(strategy)}${toQuery({ include_archived: includeArchived })}`),
     getActive: (strategy) => api.get(`/api/versions/${encodeURIComponent(strategy)}/active`),
     getVersion: (strategy, versionId) => api.get(`/api/versions/${encodeURIComponent(strategy)}/${encodeURIComponent(versionId)}`),
+    getVersionDetail: (strategy, versionId, options = {}) => api.get(`/api/versions/${encodeURIComponent(strategy)}/${encodeURIComponent(versionId)}/detail${toQuery({ compare_to_version_id: options.compareToVersionId })}`),
     accept: (strategy, data) => api.post(`/api/versions/${encodeURIComponent(strategy)}/accept`, data),
     reject: (strategy, data) => api.post(`/api/versions/${encodeURIComponent(strategy)}/reject`, data),
     rollback: (strategy, data) => api.post(`/api/versions/${encodeURIComponent(strategy)}/rollback`, data),
