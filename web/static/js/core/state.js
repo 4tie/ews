@@ -1,4 +1,4 @@
-/**
+﻿/**
  * state.js - Lightweight reactive application state store.
  */
 
@@ -17,13 +17,6 @@ const _state = {
     lastResult: null,
     selectedCandidateVersionId: null,
     selectedCandidateVersionBySourceRef: {},
-  },
-  optimizer: {
-    isRunning: false,
-    runId: null,
-    currentEpoch: 0,
-    bestResult: null,
-    checkpoints: [],
   },
   settings: {},
 };
@@ -69,4 +62,3 @@ function emit(path, value) {
 }
 
 window._appState = _state;
-

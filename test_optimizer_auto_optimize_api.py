@@ -1,4 +1,4 @@
-import json
+﻿import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -138,7 +138,7 @@ def test_optimizer_auto_optimize_can_create_and_fetch_run(monkeypatch, tmp_path)
     assert created_event["hard_stops"]["max_total_nodes"] == 10
 
 
-def test_optimizer_runs_endpoint_still_accepts_legacy_payload(monkeypatch, tmp_path):
+def test_optimizer_runs_endpoint_rejects_legacy_payload(monkeypatch, tmp_path):
     _configure_storage(monkeypatch, tmp_path)
 
     response = client.post(
@@ -151,10 +151,9 @@ def test_optimizer_runs_endpoint_still_accepts_legacy_payload(monkeypatch, tmp_p
         },
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload.get("run_id")
-    assert payload.get("optimizer_run_id") is None
+    assert response.status_code == 422
+    detail = response.json().get("detail") or []
+    assert any("baseline_run_id" in str(item) for item in detail)
 
 
 def test_optimizer_stop_endpoint_stops_auto_optimize_run(monkeypatch, tmp_path):
@@ -223,7 +222,7 @@ def test_optimizer_stop_endpoint_stops_auto_optimize_run(monkeypatch, tmp_path):
 
     stop = client.post(f"/api/optimizer/runs/{optimizer_run_id}/stop")
     assert stop.status_code == 200
-    assert stop.json() == {"run_id": optimizer_run_id, "status": "stopped"}
+    assert stop.json() == {"optimizer_run_id": optimizer_run_id, "status": "stopped"}
 
     fetch = client.get(f"/api/optimizer/runs/{optimizer_run_id}")
     assert fetch.status_code == 200
@@ -233,29 +232,7 @@ def test_optimizer_stop_endpoint_stops_auto_optimize_run(monkeypatch, tmp_path):
     assert payload["completion_reason"] == "hard_stop_triggered"
 
 
-def test_optimizer_stop_endpoint_stops_legacy_run(monkeypatch, tmp_path):
-    paths = _configure_storage(monkeypatch, tmp_path)
-
-    response = client.post(
-        "/api/optimizer/runs",
-        json={
-            "strategy": "TestStrat",
-            "timeframe": "5m",
-            "epochs": 10,
-            "spaces": ["buy"],
-        },
-    )
-
-    assert response.status_code == 200
-    run_id = response.json().get("run_id")
-    assert run_id
-
-    stop = client.post(f"/api/optimizer/runs/{run_id}/stop")
-    assert stop.status_code == 200
-    assert stop.json() == {"run_id": run_id, "status": "stopped"}
-
-    run_meta_path = paths["data_root"] / "optimizer_runs" / run_id / "run_meta.json"
-    payload = json.loads(run_meta_path.read_text(encoding="utf-8"))
-    assert payload["run_id"] == run_id
-    assert payload["status"] == "stopped"
-    assert payload.get("completed_at")
+def test_optimizer_legacy_endpoints_are_not_exposed():
+    assert client.get("/api/optimizer/runs/legacy-run/logs/stream").status_code == 404
+    assert client.get("/api/optimizer/runs/legacy-run/checkpoints").status_code == 404
+    assert client.post("/api/optimizer/runs/legacy-run/rollback/checkpoint-1").status_code == 404

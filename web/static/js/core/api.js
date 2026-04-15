@@ -1,4 +1,4 @@
-/**
+﻿/**
  * api.js - Centralized fetch wrapper for all backend API calls.
  */
 
@@ -64,11 +64,8 @@ export const api = {
   optimizer: {
     startRun: (data) => api.post("/api/optimizer/runs", data),
     getRun: (optimizerRunId) => api.get(`/api/optimizer/runs/${encodeURIComponent(optimizerRunId)}`),
-    stopRun: (runId) => api.post(`/api/optimizer/runs/${encodeURIComponent(runId)}/stop`, {}),
-    streamEvents: (optimizerRunId) => new EventSource(`/api/optimizer/runs/${optimizerRunId}/stream`),
-    getCheckpoints: (runId) => api.get(`/api/optimizer/runs/${runId}/checkpoints`),
-    rollback: (runId, checkId) => api.post(`/api/optimizer/runs/${runId}/rollback/${checkId}`, {}),
-    streamLogs: (runId) => new EventSource(`/api/optimizer/runs/${runId}/logs/stream`),
+    stopRun: (optimizerRunId) => api.post(`/api/optimizer/runs/${encodeURIComponent(optimizerRunId)}/stop`, {}),
+    streamEvents: (optimizerRunId) => new EventSource(`/api/optimizer/runs/${encodeURIComponent(optimizerRunId)}/stream`),
   },
 
   settings: {

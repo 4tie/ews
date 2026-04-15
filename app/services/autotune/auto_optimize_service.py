@@ -1197,6 +1197,37 @@ class AutoOptimizeService:
                             if node.constraint_passed and node.score is not None:
                                 best_score = max(best_score or node.score, node.score)
 
+                            # Save checkpoint for this completed node
+                            try:
+                                profit_pct = node.summary_metrics.get("profit_pct", 0.0)
+                                if profit_pct is None:
+                                    profit_pct = 0.0
+                                
+                                checkpoint_data = {
+                                    "checkpoint_id": node.node_id,
+                                    "epoch": attempt_index,
+                                    "profit_pct": float(profit_pct),
+                                    "params": params,
+                                    "saved_at": now_iso(),
+                                    "node_descriptor": descriptor,
+                                    "score": node.score,
+                                    "constraint_passed": node.constraint_passed,
+                                }
+                                self._persistence.save_checkpoint(
+                                    optimizer_run_id,
+                                    node.node_id,
+                                    checkpoint_data
+                                )
+                            except Exception as exc:
+                                # Log checkpoint save error but don't block optimizer
+                                self._emit(
+                                    optimizer_run_id,
+                                    "checkpoint_save_failed",
+                                    node_id=node.node_id,
+                                    run_id=run_id,
+                                    error=str(exc),
+                                )
+
                             self._emit(
                                 optimizer_run_id,
                                 "candidate_run_completed",

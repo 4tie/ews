@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Request
+﻿from fastapi import APIRouter, Request
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 import os
 
@@ -19,11 +20,7 @@ async def backtesting_page(request: Request):
 
 @router.get("/optimizer")
 async def optimizer_page(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="pages/optimizer/index.html",
-        context={"page": "optimizer", "title": "Optimizer"},
-    )
+    return RedirectResponse(url="/backtesting", status_code=307)
 
 
 @router.get("/settings")

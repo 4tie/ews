@@ -1,5 +1,5 @@
-/**
- * events.js — App-level event bus for decoupled inter-module communication.
+﻿/**
+ * events.js - App-level event bus for decoupled inter-module communication.
  */
 
 const _handlers = {};
@@ -27,10 +27,6 @@ export const EVENTS = {
   BACKTEST_FAILED:    "backtest:failed",
   BACKTEST_STOPPED:   "backtest:stopped",
   RESULTS_LOADED:     "results:loaded",
-  OPTIMIZER_STARTED:  "optimizer:started",
-  OPTIMIZER_STOPPED:  "optimizer:stopped",
-  OPTIMIZER_EPOCH:    "optimizer:epoch",
-  CHECKPOINT_SAVED:   "optimizer:checkpoint",
   SETTINGS_SAVED:     "settings:saved",
   PAIRS_UPDATED:      "pairs:updated",
   CONFIG_LOADED:      "config:loaded",
