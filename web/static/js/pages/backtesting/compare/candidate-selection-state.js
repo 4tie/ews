@@ -69,9 +69,8 @@ export function ensureSelectedCandidateVersion(versions, baselineRunId) {
     return current;
   }
 
-  const next = workflowVersions[0]?.version_id || "";
-  if (next !== current) {
-    setSelectedCandidateVersionId(next || null, baselineRunId);
+  if (current) {
+    setSelectedCandidateVersionId(null, baselineRunId);
   }
-  return next;
+  return "";
 }

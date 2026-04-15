@@ -102,7 +102,7 @@ function pinWorkflowBaselineFallbackSelection() {
 
 function workflowCandidateVersion() {
   const selected = getSelectedCandidateVersionId(workflowBaselineRunId());
-  return workflowCandidateVersions().find((version) => version?.version_id === selected) || workflowCandidateVersions()[0] || null;
+  return workflowCandidateVersions().find((version) => version?.version_id === selected) || null;
 }
 
 function workflowCandidateRun() {
@@ -366,12 +366,23 @@ function buildWorkflowToolbar() {
     id: "compare-selected-candidate",
     value: getSelectedCandidateVersionId(workflowBaselineRunId()),
     disabled: versionsState.status === "loading" || !workflowCandidateVersions().length,
-    options: workflowCandidateVersions().map((version) => ({ value: version.version_id, label: formatWorkflowCandidateOption(version) })),
+    options: [
+      { value: "", label: "Select candidate..." },
+      ...workflowCandidateVersions().map((version) => ({ value: version.version_id, label: formatWorkflowCandidateOption(version) })),
+    ],
     onChange: (value) => {
       setSelectedCandidateVersionId(value || null, workflowBaselineRunId());
     },
   }));
   return toolbar;
+}
+
+function focusWorkflowCandidateSelector() {
+  const select = document.getElementById("compare-selected-candidate");
+  if (!(select instanceof HTMLSelectElement)) return;
+  select.scrollIntoView({ behavior: "smooth", block: "center" });
+  select.focus();
+  select.click();
 }
 
 function buildContextGrid(comparison, { leftTitle = "Left run", rightTitle = "Right run" } = {}) {
@@ -422,6 +433,17 @@ function renderWorkflowCompare(layout) {
   }
   if (!workflowCandidateVersions().length) {
     layout.appendChild(el("div", { class: "info-empty" }, "No persisted candidates are linked to the current baseline run yet. Create one from Proposal Workflow first."));
+    return;
+  }
+
+  if (!candidateVersion) {
+    const empty = el("div", { class: "info-empty" });
+    const message = el("div", {}, "Select a candidate to continue.");
+    const action = el("button", { class: "btn btn--secondary btn--sm", type: "button" }, "Select candidate");
+    action.addEventListener("click", focusWorkflowCandidateSelector);
+    empty.appendChild(message);
+    empty.appendChild(action);
+    layout.appendChild(empty);
     return;
   }
 

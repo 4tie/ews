@@ -147,8 +147,7 @@ function currentWorkflowVersion(payload = latestResultsPayload) {
   const selectedCandidateId = getSelectedCandidateVersionId(payload?.run_id || "");
   const selectedPending = pendingVersions.find((version) => version?.version_id === selectedCandidateId);
   if (selectedPending) return selectedPending;
-  if (pendingVersions[0]) return pendingVersions[0];
-  return workflowVersionsForPayload(payload)[0] || null;
+  return null;
 }
 
 function workflowRunsForVersion(versionId) {

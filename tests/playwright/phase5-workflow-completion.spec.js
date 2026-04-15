@@ -317,15 +317,64 @@ test('selected candidate stays pinned per baseline run', async ({ page }) => {
   await emitResultsLoaded(page, buildResultsPayload('bt-base', 'v-live'));
 
   const candidateSelector = page.locator('#summary-proposals select[data-role="selected-candidate"]');
-  await expect(candidateSelector).toHaveValue('v-base-new');
+  await expect(candidateSelector).toHaveValue('');
   await candidateSelector.selectOption('v-base-old');
   await expect(candidateSelector).toHaveValue('v-base-old');
 
   await emitResultsLoaded(page, buildResultsPayload('bt-other', 'v-live'));
   await expect(page.locator('#summary-proposals')).toContainText('Selected Candidate');
+  await expect(page.locator('#summary-proposals select[data-role="selected-candidate"]')).toHaveValue('');
 
   await emitResultsLoaded(page, buildResultsPayload('bt-base', 'v-live'));
   await expect(page.locator('#summary-proposals select[data-role="selected-candidate"]')).toHaveValue('v-base-old');
+});
+
+test('empty state requires explicit candidate selection across proposal and compare', async ({ page }) => {
+  const baselineRun = buildRun('bt-base', 'v-live');
+  const state = {
+    runs: [baselineRun],
+    versions: [buildVersion('v-cand-1', 'bt-base', '2026-01-01T00:01:00')],
+    comparePayload: {},
+    thread: buildThread('bt-base', 'v-live'),
+  };
+
+  await openBacktesting(page, state);
+  await emitResultsLoaded(page, buildResultsPayload('bt-base', 'v-live'));
+
+  await expect(page.locator('#summary-proposals')).toContainText('Select a candidate to continue.');
+  await expect(page.locator('#summary-proposals [data-action="focus-candidate-selector"]')).toHaveCount(2);
+
+  await page.locator('#results-tabs [data-tab="compare"]').click();
+  await expect(page.locator('#compare-area')).toContainText('Select a candidate to continue.');
+  await expect(page.locator('#compare-area button', { hasText: 'Select candidate' })).toHaveCount(1);
+});
+
+test('invalid selection clears when candidate is no longer pending', async ({ page }) => {
+  const state = {
+    runs: [buildRun('bt-base', 'v-live')],
+    versions: [
+      buildVersion('v-cand-1', 'bt-base', '2026-01-01T00:01:00'),
+      buildVersion('v-cand-2', 'bt-base', '2026-01-01T00:02:00'),
+    ],
+    comparePayload: {},
+    thread: buildThread('bt-base', 'v-live'),
+  };
+
+  await openBacktesting(page, state);
+  await emitResultsLoaded(page, buildResultsPayload('bt-base', 'v-live'));
+
+  const candidateSelector = page.locator('#summary-proposals select[data-role="selected-candidate"]');
+  await candidateSelector.selectOption('v-cand-2');
+  await expect(candidateSelector).toHaveValue('v-cand-2');
+
+  state.versions = [
+    state.versions.find((entry) => entry.version_id === 'v-cand-1'),
+    buildVersion('v-cand-2', 'bt-base', '2026-01-01T00:02:00', { status: 'accepted' }),
+  ].filter(Boolean);
+
+  await emitResultsLoaded(page, buildResultsPayload('bt-base', 'v-live'));
+  await expect(page.locator('#summary-proposals select[data-role="selected-candidate"]')).toHaveValue('');
+  await expect(page.locator('#summary-proposals')).toContainText('Select a candidate to continue.');
 });
 
 test('shared drawer candidate creation selects the created candidate across workflow surfaces', async ({ page }) => {

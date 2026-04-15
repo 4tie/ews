@@ -765,11 +765,15 @@ function renderMessage(message) {
   const noteText = message?.candidate_note || message?.note || "";
   const note = noteText ? `<div class="ai-chat-message__note">${escapeHtml(noteText)}</div>` : "";
   const versionNote = message?.candidate_version_id
-    ? `<div class="ai-chat-message__note">Candidate version ${escapeHtml(message.candidate_version_id)}${message?.candidate_change_type ? ` (${escapeHtml(labelize(message.candidate_change_type))})` : ""} created${message?.candidate_status ? ` with ${escapeHtml(labelize(message.candidate_status))} status` : ""}. It remains pending until you explicitly accept it.</div>`
+? `<div class="ai-chat-message__note">Candidate version ${escapeHtml(message.candidate_version_id)}${message?.candidate_change_type ? ` (${escapeHtml(labelize(message.candidate_change_type))})` : ""} created${message?.candidate_status ? ` with ${escapeHtml(labelize(message.candidate_status))} status` : ""}. It remains pending until you explicitly accept it.</div>`
     : "";
 
+  const title = message.title || "";
+  const isErrorMessage = title === "AI Error" || title === "AI Interrupted";
+  const roleClass = isErrorMessage ? "system error" : (message.role || "system");
+
   return `
-    <article class="ai-chat-message ai-chat-message--${escapeHtml(message.role || "system")}" tabindex="-1">
+    <article class="ai-chat-message ai-chat-message--${escapeHtml(roleClass)}" tabindex="-1">
       ${renderMessageCopyButton(message)}
       <div class="ai-chat-message__header">
         <span class="ai-chat-message__role">${escapeHtml(message.title || (message.role === "user" ? "You" : message.role === "assistant" ? "AI" : "Panel"))}</span>

@@ -1,4 +1,5 @@
 """Persistent AI chat orchestration for the shared drawer."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +11,10 @@ from app.freqtrade import runtime as freqtrade_runtime
 from app.services.ai_chat.loop_service import LoopConfig, run_ai_loop
 from app.services.mutation_service import mutation_service
 from app.services.persistence_service import PersistenceService
-from app.services.results.strategy_intelligence_service import analyze_metrics, analyze_strategy
+from app.services.results.strategy_intelligence_service import (
+    analyze_metrics,
+    analyze_strategy,
+)
 from app.utils.datetime_utils import now_iso
 
 
@@ -48,7 +52,12 @@ class PersistentAiChatService:
             "active_job": active_job,
         }
 
-    async def enqueue_message(self, strategy_name: str, message_text: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def enqueue_message(
+        self,
+        strategy_name: str,
+        message_text: str,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         strategy = str(strategy_name or "").strip()
         message = str(message_text or "").strip()
         if not strategy:
@@ -63,9 +72,13 @@ class PersistentAiChatService:
             if active_job:
                 active_job = self._reconcile_job(thread, active_job)
                 if active_job.get("status") in ACTIVE_JOB_STATUSES:
-                    raise RuntimeError("An AI request is already running for this strategy")
+                    raise RuntimeError(
+                        "An AI request is already running for this strategy"
+                    )
 
-        normalized_context = self._normalize_context(strategy, context or thread.get("latest_context") or {})
+        normalized_context = self._normalize_context(
+            strategy, context or thread.get("latest_context") or {}
+        )
         job_id = self._new_job_id()
 
         user_message = self._build_message(
@@ -117,7 +130,11 @@ class PersistentAiChatService:
 
         thread = self._load_thread(job.get("strategy_name") or "")
         job = self._reconcile_job(thread, job)
-        assistant_message = self._find_message(thread, job.get("assistant_message_id")) if job.get("assistant_message_id") else None
+        assistant_message = (
+            self._find_message(thread, job.get("assistant_message_id"))
+            if job.get("assistant_message_id")
+            else None
+        )
         return {
             "job": job,
             "assistant_message": assistant_message,
@@ -151,7 +168,9 @@ class PersistentAiChatService:
         thread = self._load_thread(strategy)
         user_message = self._find_message(thread, job.get("user_message_id"))
         if not user_message:
-            self._fail_job(job, thread, "The queued AI request could not be reconstructed.")
+            self._fail_job(
+                job, thread, "The queued AI request could not be reconstructed."
+            )
             return
 
         job["status"] = "running"
@@ -160,19 +179,32 @@ class PersistentAiChatService:
         job = self._append_job_event(job, "started", message="AI request started.")
 
         try:
-            classification = await classify_with_fallback(user_message.get("text") or "")
+            classification = await classify_with_fallback(
+                user_message.get("text") or ""
+            )
             job = self._append_job_event(
                 job_id,
                 "classified",
                 task_types=list(getattr(classification, "task_types", []) or []),
-                complexity=str(getattr(classification, "complexity", "medium") or "medium"),
-                recommended_pipeline=str(getattr(classification, "recommended_pipeline", "simple") or "simple"),
+                complexity=str(
+                    getattr(classification, "complexity", "medium") or "medium"
+                ),
+                recommended_pipeline=str(
+                    getattr(classification, "recommended_pipeline", "simple")
+                    or "simple"
+                ),
                 requires_code=bool(getattr(classification, "requires_code", False)),
-                requires_structured_out=bool(getattr(classification, "requires_structured_out", False)),
+                requires_structured_out=bool(
+                    getattr(classification, "requires_structured_out", False)
+                ),
             )
 
-            requested_mode = self._resolve_requested_mode(user_message.get("text") or "", classification)
-            resolved_context = await self._resolve_runtime_context(strategy, thread.get("latest_context") or {})
+            requested_mode = self._resolve_requested_mode(
+                user_message.get("text") or "", classification
+            )
+            resolved_context = await self._resolve_runtime_context(
+                strategy, thread.get("latest_context") or {}
+            )
             prompt = self._build_conversation_prompt(
                 thread=thread,
                 latest_request=user_message.get("text") or "",
@@ -196,9 +228,13 @@ class PersistentAiChatService:
                     timeline_callback=_timeline_callback,
                 )
                 if not loop_result.success:
-                    raise RuntimeError(loop_result.error or "AI could not produce a valid candidate.")
+                    raise RuntimeError(
+                        loop_result.error or "AI could not produce a valid candidate."
+                    )
 
-                resolved_mode = "parameter_only" if loop_result.final_parameters else "code_patch"
+                resolved_mode = (
+                    "parameter_only" if loop_result.final_parameters else "code_patch"
+                )
                 assistant_message = self._build_message(
                     role="assistant",
                     strategy_name=strategy,
@@ -231,7 +267,10 @@ class PersistentAiChatService:
                     assistant_message = self._build_message(
                         role="assistant",
                         strategy_name=strategy,
-                        text=str(result.analysis or "AI did not return analysis text.").strip() or "AI did not return analysis text.",
+                        text=str(
+                            result.analysis or "AI did not return analysis text."
+                        ).strip()
+                        or "AI did not return analysis text.",
                         title="AI Analysis",
                         meta="code-aware analysis",
                         recommendations=result.recommendations,
@@ -257,7 +296,10 @@ class PersistentAiChatService:
                     assistant_message = self._build_message(
                         role="assistant",
                         strategy_name=strategy,
-                        text=str(result.analysis or "AI did not return analysis text.").strip() or "AI did not return analysis text.",
+                        text=str(
+                            result.analysis or "AI did not return analysis text."
+                        ).strip()
+                        or "AI did not return analysis text.",
                         title="AI Analysis",
                         meta="metrics-aware analysis",
                         recommendations=result.recommendations,
@@ -305,11 +347,29 @@ class PersistentAiChatService:
             if job:
                 self._fail_job(job, thread, str(exc))
 
-    def _fail_job(self, job: dict[str, Any], thread: dict[str, Any], error_text: str, *, interrupted: bool = False) -> dict[str, Any]:
+    def _normalize_ai_error(self, error_text: str) -> str:
+        error_str = str(error_text)
+        if "OPENROUTER_API_KEY" in error_str and "is not set" in error_str:
+            return "OpenRouter API key is not configured. Set OPENROUTER_API_KEY in Settings, or ensure Ollama is running locally."
+        if "ollama" in error_str.lower():
+            return "Ollama is not running. Start 'ollama serve' locally, or configure an API provider in Settings."
+        if "No AI provider could satisfy the request" in error_str:
+            return "All AI providers failed. Check that Ollama is running or configure an API key in Settings."
+        return error_str
+
+    def _fail_job(
+        self,
+        job: dict[str, Any],
+        thread: dict[str, Any],
+        error_text: str,
+        *,
+        interrupted: bool = False,
+    ) -> dict[str, Any]:
+        friendly_error = self._normalize_ai_error(error_text)
         message = self._build_message(
             role="system",
             strategy_name=job.get("strategy_name") or thread.get("strategy_name") or "",
-            text=str(error_text or "AI request failed."),
+            text=friendly_error,
             title="AI Interrupted" if interrupted else "AI Error",
             context=thread.get("latest_context") or {},
             job_id=job.get("job_id"),
@@ -338,7 +398,9 @@ class PersistentAiChatService:
         )
         return job
 
-    def _append_job_event(self, job_or_id: dict[str, Any] | str, event_type: str, **payload: Any) -> dict[str, Any]:
+    def _append_job_event(
+        self, job_or_id: dict[str, Any] | str, event_type: str, **payload: Any
+    ) -> dict[str, Any]:
         if isinstance(job_or_id, dict):
             job = job_or_id
         else:
@@ -372,13 +434,17 @@ class PersistentAiChatService:
         self._save_job(job)
         return job
 
-    async def _resolve_runtime_context(self, strategy_name: str, context: dict[str, Any]) -> dict[str, Any]:
+    async def _resolve_runtime_context(
+        self, strategy_name: str, context: dict[str, Any]
+    ) -> dict[str, Any]:
         normalized = self._normalize_context(strategy_name, context)
         response = None
         run_id = normalized.get("run_id")
         if run_id:
             try:
-                response = await freqtrade_runtime.get_backtest_run_diagnosis(run_id, include_ai=False)
+                response = await freqtrade_runtime.get_backtest_run_diagnosis(
+                    run_id, include_ai=False
+                )
                 response_strategy = str(response.get("strategy") or "").strip()
                 if response_strategy and response_strategy != strategy_name:
                     response = None
@@ -387,7 +453,9 @@ class PersistentAiChatService:
 
         if response:
             normalized["run_id"] = response.get("run_id")
-            normalized["version_id"] = response.get("version_id") or normalized.get("version_id")
+            normalized["version_id"] = response.get("version_id") or normalized.get(
+                "version_id"
+            )
             normalized["diagnosis_status"] = response.get("diagnosis_status")
             normalized["summary_available"] = bool(response.get("summary_available"))
 
@@ -408,13 +476,22 @@ class PersistentAiChatService:
         normalized["version_source"] = version_source or "none"
         return {
             **normalized,
-            "strategy_code": getattr(resolved_version, "code_snapshot", None) if resolved_version is not None else None,
+            "strategy_code": getattr(resolved_version, "code_snapshot", None)
+            if resolved_version is not None
+            else None,
             "backtest_results": self._build_ai_backtest_results(response),
         }
 
     def _resolve_requested_mode(self, message_text: str, classification: Any) -> str:
-        task_types = {str(item or "").strip().lower() for item in getattr(classification, "task_types", [])}
-        recommended_pipeline = str(getattr(classification, "recommended_pipeline", "") or "").strip().lower()
+        task_types = {
+            str(item or "").strip().lower()
+            for item in getattr(classification, "task_types", [])
+        }
+        recommended_pipeline = (
+            str(getattr(classification, "recommended_pipeline", "") or "")
+            .strip()
+            .lower()
+        )
         lower_text = str(message_text or "").lower()
         candidate_markers = (
             "candidate",
@@ -427,7 +504,9 @@ class PersistentAiChatService:
             "improve exits",
         )
 
-        if getattr(classification, "requires_structured_out", False) or getattr(classification, "requires_code", False):
+        if getattr(classification, "requires_structured_out", False) or getattr(
+            classification, "requires_code", False
+        ):
             return "candidate"
         if recommended_pipeline in {"code", "structured"}:
             return "candidate"
@@ -448,7 +527,10 @@ class PersistentAiChatService:
     ) -> str:
         history_lines = []
         for message in thread.get("messages", []):
-            if message.get("id") == current_message_id or message.get("role") == "system":
+            if (
+                message.get("id") == current_message_id
+                or message.get("role") == "system"
+            ):
                 continue
             summary = self._summarize_history_entry(message)
             if not summary:
@@ -481,16 +563,34 @@ class PersistentAiChatService:
             else "Stay grounded in the current strategy and latest result context. Be specific and actionable."
         )
         return "\n\n".join(part for part in parts if part)
-    def _build_ai_backtest_results(self, response: dict[str, Any] | None) -> dict[str, Any]:
+
+    def _build_ai_backtest_results(
+        self, response: dict[str, Any] | None
+    ) -> dict[str, Any]:
         payload = response if isinstance(response, dict) else {}
-        summary_metrics = payload.get("summary_metrics") if isinstance(payload.get("summary_metrics"), dict) else {}
-        diagnosis = payload.get("diagnosis") if isinstance(payload.get("diagnosis"), dict) else {}
-        results_per_pair = payload.get("results_per_pair") if isinstance(payload.get("results_per_pair"), list) else []
+        summary_metrics = (
+            payload.get("summary_metrics")
+            if isinstance(payload.get("summary_metrics"), dict)
+            else {}
+        )
+        diagnosis = (
+            payload.get("diagnosis")
+            if isinstance(payload.get("diagnosis"), dict)
+            else {}
+        )
+        results_per_pair = (
+            payload.get("results_per_pair")
+            if isinstance(payload.get("results_per_pair"), list)
+            else []
+        )
 
         return {
-            "total_profit": summary_metrics.get("profit_total_abs") or summary_metrics.get("absolute_profit"),
-            "profit_ratio": summary_metrics.get("profit_total_pct") or summary_metrics.get("total_profit_pct"),
-            "win_rate": summary_metrics.get("win_rate") or summary_metrics.get("winrate"),
+            "total_profit": summary_metrics.get("profit_total_abs")
+            or summary_metrics.get("absolute_profit"),
+            "profit_ratio": summary_metrics.get("profit_total_pct")
+            or summary_metrics.get("total_profit_pct"),
+            "win_rate": summary_metrics.get("win_rate")
+            or summary_metrics.get("winrate"),
             "max_drawdown": (
                 summary_metrics.get("max_drawdown")
                 or summary_metrics.get("max_drawdown_account")
@@ -501,7 +601,8 @@ class PersistentAiChatService:
             "sharpe": summary_metrics.get("sharpe"),
             "sortino": summary_metrics.get("sortino"),
             "total_trades": summary_metrics.get("total_trades"),
-            "avg_trade": summary_metrics.get("avg_profit_pct") or summary_metrics.get("avg_trade"),
+            "avg_trade": summary_metrics.get("avg_profit_pct")
+            or summary_metrics.get("avg_trade"),
             "calmar": summary_metrics.get("calmar"),
             "run_id": payload.get("run_id"),
             "version_id": payload.get("version_id"),
@@ -511,7 +612,9 @@ class PersistentAiChatService:
                 for flag in diagnosis.get("primary_flags", [])
                 if isinstance(flag, dict) and (flag.get("message") or flag.get("rule"))
             ][:4],
-            "parameter_hints": diagnosis.get("parameter_hints", [])[:4] if isinstance(diagnosis.get("parameter_hints"), list) else [],
+            "parameter_hints": diagnosis.get("parameter_hints", [])[:4]
+            if isinstance(diagnosis.get("parameter_hints"), list)
+            else [],
             "top_pairs": [
                 {
                     "pair": row.get("key"),
@@ -519,7 +622,9 @@ class PersistentAiChatService:
                     "trades": row.get("trades"),
                 }
                 for row in results_per_pair
-                if isinstance(row, dict) and row.get("key") and row.get("key") != "TOTAL"
+                if isinstance(row, dict)
+                and row.get("key")
+                and row.get("key") != "TOTAL"
             ][:4],
         }
 
@@ -540,7 +645,9 @@ class PersistentAiChatService:
     def _labelize(self, value: Any) -> str:
         return str(value or "unknown").replace("_", " ")
 
-    def _normalize_context(self, strategy_name: str, context: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_context(
+        self, strategy_name: str, context: dict[str, Any]
+    ) -> dict[str, Any]:
         payload = context if isinstance(context, dict) else {}
         return {
             "strategy_name": strategy_name,
@@ -552,7 +659,9 @@ class PersistentAiChatService:
         }
 
     def _context_snapshot(self, context: dict[str, Any]) -> dict[str, Any]:
-        return self._normalize_context(str(context.get("strategy_name") or "").strip(), context)
+        return self._normalize_context(
+            str(context.get("strategy_name") or "").strip(), context
+        )
 
     def _build_message(
         self,
@@ -581,10 +690,18 @@ class PersistentAiChatService:
             "text": str(text or "").strip(),
             "meta": str(meta or "").strip(),
             "note": str(note or "").strip(),
-            "recommendations": [str(item).strip() for item in (recommendations or []) if str(item).strip()],
-            "parameters": parameters if isinstance(parameters, dict) and parameters else None,
+            "recommendations": [
+                str(item).strip()
+                for item in (recommendations or [])
+                if str(item).strip()
+            ],
+            "parameters": parameters
+            if isinstance(parameters, dict) and parameters
+            else None,
             "code": str(code or "").strip() or None,
-            "analysis_payload": analysis_payload if isinstance(analysis_payload, dict) and analysis_payload else None,
+            "analysis_payload": analysis_payload
+            if isinstance(analysis_payload, dict) and analysis_payload
+            else None,
             "provider": str(provider or "").strip() or None,
             "model": str(model or "").strip() or None,
             "strategy_name": strategy_name,
@@ -595,6 +712,7 @@ class PersistentAiChatService:
             "job_id": job_id,
             "created_at": created_at,
         }
+
     def _default_thread(self, strategy_name: str) -> dict[str, Any]:
         now = now_iso()
         return {
@@ -618,8 +736,12 @@ class PersistentAiChatService:
         thread = self._default_thread(strategy)
         thread["created_at"] = raw.get("created_at") or thread["created_at"]
         thread["updated_at"] = raw.get("updated_at") or thread["updated_at"]
-        thread["latest_context"] = self._normalize_context(strategy, raw.get("latest_context") or {})
-        thread["messages"] = [message for message in raw.get("messages", []) if isinstance(message, dict)]
+        thread["latest_context"] = self._normalize_context(
+            strategy, raw.get("latest_context") or {}
+        )
+        thread["messages"] = [
+            message for message in raw.get("messages", []) if isinstance(message, dict)
+        ]
         thread["active_job_id"] = raw.get("active_job_id") or None
         return thread
 
@@ -645,7 +767,9 @@ class PersistentAiChatService:
             return
         self.persistence.save_ai_chat_job(job_id, job)
 
-    def _find_message(self, thread: dict[str, Any], message_id: str | None) -> dict[str, Any] | None:
+    def _find_message(
+        self, thread: dict[str, Any], message_id: str | None
+    ) -> dict[str, Any] | None:
         target_id = str(message_id or "").strip()
         if not target_id:
             return None
@@ -654,14 +778,21 @@ class PersistentAiChatService:
                 return message
         return None
 
-    def _reconcile_job(self, thread: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+    def _reconcile_job(
+        self, thread: dict[str, Any], job: dict[str, Any]
+    ) -> dict[str, Any]:
         job_id = str(job.get("job_id") or "").strip()
         if job.get("status") not in ACTIVE_JOB_STATUSES:
             return job
         task = self._tasks.get(job_id)
         if task is not None and not task.done():
             return job
-        return self._fail_job(job, thread, "The previous AI request was interrupted before it completed.", interrupted=True)
+        return self._fail_job(
+            job,
+            thread,
+            "The previous AI request was interrupted before it completed.",
+            interrupted=True,
+        )
 
     def _new_message_id(self) -> str:
         return f"ai-chat-msg-{uuid.uuid4().hex[:10]}"
@@ -673,9 +804,9 @@ class PersistentAiChatService:
 persistent_ai_chat_service = PersistentAiChatService()
 
 
-__all__ = ["PersistentAiChatService", "persistent_ai_chat_service", "ACTIVE_JOB_STATUSES", "TERMINAL_JOB_STATUSES"]
-
-
-
-
-
+__all__ = [
+    "PersistentAiChatService",
+    "persistent_ai_chat_service",
+    "ACTIVE_JOB_STATUSES",
+    "TERMINAL_JOB_STATUSES",
+]

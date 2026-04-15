@@ -84,7 +84,7 @@ function syncWorkflowCandidateSelection() {
 
 function currentCandidateVersion() {
   const selectedVersionId = getSelectedCandidateVersionId(currentBaselineRunId());
-  return getWorkflowVersions().find((version) => version?.version_id === selectedVersionId) || getWorkflowVersions()[0] || null;
+  return getWorkflowVersions().find((version) => version?.version_id === selectedVersionId) || null;
 }
 
 function getCandidateRuns(candidateVersionId) {
@@ -347,20 +347,34 @@ function openAcceptDecisionDialog() {
 
 
 function renderCandidateSelector() {
+  return renderCandidateSelectorHtml();
+}
+
+function renderCandidateSelectorHtml() {
   const versions = getWorkflowVersions();
-  if (versions.length < 2) return "";
+  if (versions.length < 1) return "";
 
   const selectedVersionId = getSelectedCandidateVersionId(currentBaselineRunId());
   return `
     <label class="setup-field compare-toolbar__field proposal-candidate-selector">
       <span class="form-label">Selected Candidate</span>
       <select class="form-select" data-role="selected-candidate">
+        <option value=""${selectedVersionId ? "" : " selected"} disabled>Select candidate...</option>
         ${versions.map((version) => `
           <option value="${escapeHtml(version?.version_id || "")}"${version?.version_id === selectedVersionId ? " selected" : ""}>${escapeHtml(formatCandidateOption(version))}</option>
         `).join("")}
       </select>
     </label>
   `;
+}
+
+function focusWorkflowCandidateSelector() {
+  if (!root) return;
+  const select = root.querySelector('select[data-role="selected-candidate"]');
+  if (!(select instanceof HTMLSelectElement)) return;
+  select.scrollIntoView({ behavior: "smooth", block: "center" });
+  select.focus();
+  select.click();
 }
 
 function renderEmptyState(message) {
@@ -597,7 +611,11 @@ function renderWorkflowState() {
     return `
       <section class="results-context results-context--empty results-context--table">
         <div class="results-context__title">Candidate State</div>
-        <div class="results-context__note">Create a candidate from one of the diagnosis-backed proposal sources to start the run-scoped workflow.</div>
+        ${renderCandidateSelector()}
+        <div class="results-context__note">Select a candidate to continue.</div>
+        <div class="proposal-actions">
+          <button type="button" class="btn btn--secondary btn--sm" data-action="focus-candidate-selector">Select candidate</button>
+        </div>
       </section>
     `;
   }
@@ -664,7 +682,16 @@ function renderCompareSection() {
   const candidate = currentCandidateVersion();
   const candidateRun = currentComparableCandidateRun();
   if (!candidate) {
-    return "";
+    return `
+      <section class="results-context results-context--table results-context--empty">
+        <div class="results-context__title">Candidate Compare</div>
+        ${renderCandidateSelector()}
+        <div class="results-context__note">Select a candidate to continue.</div>
+        <div class="proposal-actions">
+          <button type="button" class="btn btn--secondary btn--sm" data-action="focus-candidate-selector">Select candidate</button>
+        </div>
+      </section>
+    `;
   }
   const candidateSourceTitle = candidate?.source_context?.title || candidate?.summary || candidate?.source_ref || "selected candidate";
   if (!candidateRun) {
@@ -1187,6 +1214,11 @@ function handleRootClick(event) {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action || "";
+
+  if (action === "focus-candidate-selector") {
+    focusWorkflowCandidateSelector();
+    return;
+  }
 
   if (action === "create-candidate") {
     const sourceKind = button.dataset.sourceKind || "";
